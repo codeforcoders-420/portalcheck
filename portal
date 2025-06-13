@@ -1,3 +1,83 @@
+import java.io.*;
+import java.nio.file.*;
+import java.util.zip.*;
+import java.util.stream.Stream;
+
+private static void waitForDownloadAndExtractExcel(String downloadDir) throws Exception {
+    Path downloadPath = Paths.get(downloadDir);
+    Path latestZip = null;
+
+    // Wait until .crdownload disappears and ZIP file appears
+    int retries = 60;
+    while (retries-- > 0) {
+        try (Stream<Path> files = Files.list(downloadPath)) {
+            latestZip = files
+                    .filter(path -> path.toString().endsWith(".zip"))
+                    .max(Comparator.comparingLong(f -> f.toFile().lastModified()))
+                    .orElse(null);
+
+            boolean downloading = Files.list(downloadPath)
+                    .anyMatch(f -> f.toString().endsWith(".crdownload"));
+
+            if (latestZip != null && !downloading) {
+                break;
+            }
+        }
+
+        Thread.sleep(1000); // Wait and retry
+    }
+
+    if (latestZip == null) throw new RuntimeException("No ZIP file found in download folder");
+
+    // Extract only Excel files from ZIP
+    try (ZipInputStream zis = new ZipInputStream(new FileInputStream(latestZip.toFile()))) {
+        ZipEntry entry;
+        while ((entry = zis.getNextEntry()) != null) {
+            if (entry.getName().endsWith(".xls") || entry.getName().endsWith(".xlsx")) {
+                Path outFile = downloadPath.resolve(entry.getName());
+                try (BufferedOutputStream bos = new BufferedOutputStream(Files.newOutputStream(outFile))) {
+                    byte[] buffer = new byte[4096];
+                    int len;
+                    while ((len = zis.read(buffer)) > 0) {
+                        bos.write(buffer, 0, len);
+                    }
+                }
+            }
+        }
+    }
+
+    // Optionally delete the zip file after extraction
+    Files.deleteIfExists(latestZip);
+}
+****************************************************************
+
+if (!links.isEmpty()) {
+    links.get(0).click();
+    waitForDownloadAndExtractExcel("C:\\users\\tfs\\54123\\CMS");
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 //button[h3[contains(text(),'2025 ASP Drug Pricing')]]
 
 driver.findElement(By.xpath("//button[h3[contains(text(),'2025 ASP Drug Pricing')]]")).click();
