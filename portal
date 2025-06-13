@@ -1,3 +1,18 @@
+//button[h3[contains(text(),'2025 ASP Drug Pricing')]]
+
+driver.findElement(By.xpath("//button[h3[contains(text(),'2025 ASP Drug Pricing')]]")).click();
+
+String year = getYearFromQuarter(quarter);  // e.g., "2025"
+String sectionXPath = "//button[h3[contains(text(), '" + year + " ASP Drug Pricing')]]";
+
+WebElement yearButton = driver.findElement(By.xpath(sectionXPath));
+yearButton.click();
+Thread.sleep(2000);
+
+
+*****************************************************************
+
+
 String year = getYearFromQuarter(quarter);  // e.g. "2025"
 String sectionXPath = "//button[contains(text(), '" + year + " ASP Drug Pricing')]";
 
