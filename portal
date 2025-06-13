@@ -11,6 +11,57 @@ public static void downloadSelectedFiles(String feeSchedule, List<String> quarte
     WebDriver driver = new EdgeDriver(options);
     driver.get("https://www.cms.gov/medicare/payment/fee-for-service-providers/part-b-drugs/average-drug-sales-price");
 
+    driver.findElement(By.linkText("ASP Pricing Files")).click();
+    Thread.sleep(2000);
+
+    // ✅ Declare set to track which year sections have already been expanded
+    Set<String> expandedYears = new HashSet<>();
+
+    for (String quarter : quarters) {
+        String year = getYearFromQuarter(quarter);
+        String month = getMonthFromQuarter(quarter);
+
+        // Expand the year section only once
+        if (!expandedYears.contains(year)) {
+            String sectionXPath = "//button[h3[contains(text(), '" + year + " ASP Drug Pricing')]]";
+            WebElement yearButton = driver.findElement(By.xpath(sectionXPath));
+            if ("false".equals(yearButton.getAttribute("aria-expanded"))) {
+                yearButton.click();
+                Thread.sleep(2000);
+            }
+            expandedYears.add(year);
+        }
+
+        // Click the download link
+        String linkText = month + " " + year + " ASP Pricing File";
+        List<WebElement> links = driver.findElements(By.partialLinkText(linkText));
+        if (!links.isEmpty()) {
+            links.get(0).click();
+            waitForDownloadAndExtractExcel("C:\\\\users\\\\tfs\\\\54123\\\\CMS");
+        } else {
+            System.out.println("Download link not found for: " + quarter);
+        }
+    }
+
+    driver.quit();
+}
+
+*******************************************************************
+
+
+public static void downloadSelectedFiles(String feeSchedule, List<String> quarters) throws Exception {
+    WebDriverManager.edgedriver().setup();
+
+    HashMap<String, Object> prefs = new HashMap<>();
+    prefs.put("download.default_directory", "C:\\\\users\\\\tfs\\\\54123\\\\CMS");
+    prefs.put("profile.default_content_settings.popups", 0);
+
+    EdgeOptions options = new EdgeOptions();
+    options.setExperimentalOption("prefs", prefs);
+
+    WebDriver driver = new EdgeDriver(options);
+    driver.get("https://www.cms.gov/medicare/payment/fee-for-service-providers/part-b-drugs/average-drug-sales-price");
+
     // Click ASP Pricing Files
     driver.findElement(By.linkText("ASP Pricing Files")).click();
     Thread.sleep(2000);
