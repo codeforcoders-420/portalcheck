@@ -1,3 +1,39 @@
+function checkAndDownload(event) {
+    if (event) event.preventDefault(); // Prevent form from submitting
+
+    const selectedQuarters = Array.from(document.querySelectorAll("input[name='quarters']:checked"))
+                                  .map(cb => cb.value);
+    const selectedFeeSchedule = document.getElementById("feeSchedule").value;
+    const storyNumber = document.getElementById("storyNumber").textContent.trim();
+    const year = document.getElementById("year").textContent.trim();
+    const lob = document.getElementById("lob").textContent.trim();
+
+    fetch('/download_file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            feeSchedule: selectedFeeSchedule,
+            quarters: selectedQuarters,
+            storyNumber: storyNumber,
+            year: year,
+            lob: lob
+        })
+    })
+    .then(res => res.text())
+    .then(msg => document.getElementById("status").innerText = msg)
+    .catch(err => console.error(err));
+}
+
+*************************************
+
+<button type="button" onclick="checkAndDownload(event)">Check and Download File</button>
+
+***************************************
+
+
+
+
+
 <div class="app-section">
   <h3>File check in State Portal</h3>
   
