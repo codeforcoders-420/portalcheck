@@ -1,3 +1,37 @@
+String year = getYearFromQuarter(quarter);  // e.g. "2025"
+String sectionXPath = "//button[contains(text(), '" + year + " ASP Drug Pricing')]";
+
+// Expand the section
+WebElement yearButton = driver.findElement(By.xpath(sectionXPath));
+yearButton.click();
+Thread.sleep(2000);
+
+// Now find the file link under that year
+String month = getMonthFromQuarter(quarter);  // e.g. "July"
+String linkText = month + " " + year + " ASP Pricing File";
+List<WebElement> links = driver.findElements(By.partialLinkText(linkText));
+
+if (!links.isEmpty()) {
+    links.get(0).click();
+    Thread.sleep(5000);
+}
+
+******************
+
+String month = getMonthFromQuarter(quarter);
+String linkText = month + " " + year + " ASP Pricing File";
+
+List<WebElement> links = driver.findElements(By.partialLinkText(linkText));
+if (!links.isEmpty()) {
+    links.get(0).click(); // Download link
+    Thread.sleep(5000);
+}
+
+*********************
+
+
+
+
 function checkAndDownload(event) {
     if (event) event.preventDefault(); // Prevent form from submitting
 
