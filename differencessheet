@@ -1,0 +1,82 @@
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.*;
+import java.nio.file.*;
+import java.util.*;
+import java.util.stream.Collectors;
+
+public class StandardFileComparator {
+
+    public static void compareStandardFiles(String folderPath) throws IOException {
+        List<Path> standardFiles = Files.list(Paths.get(folderPath))
+                .filter(p -> p.getFileName().toString().endsWith("_Standard.xlsx"))
+                .sorted(Comparator.comparing(Path::getFileName)) // assumes file name sorting reflects quarter order
+                .collect(Collectors.toList());
+
+        if (standardFiles.size() < 2) {
+            System.out.println("Not enough files to compare.");
+            return;
+        }
+
+        Path olderFile = standardFiles.get(standardFiles.size() - 2);
+        Path newerFile = standardFiles.get(standardFiles.size() - 1);
+
+        Map<String, String> oldData = loadData(olderFile);
+        Map<String, String> newData = loadData(newerFile);
+
+        Set<String> allKeys = new HashSet<>();
+        allKeys.addAll(oldData.keySet());
+        allKeys.addAll(newData.keySet());
+
+        Workbook outWb = new XSSFWorkbook();
+        Sheet sheet = outWb.createSheet("Differences Records");
+        Row header = sheet.createRow(0);
+        header.createCell(0).setCellValue("Procedure Code");
+        header.createCell(1).setCellValue("Old Rates");
+        header.createCell(2).setCellValue("New Rates");
+        header.createCell(3).setCellValue("Differences");
+
+        int rowNum = 1;
+        for (String code : allKeys) {
+            String oldRate = oldData.get(code);
+            String newRate = newData.get(code);
+
+            if (Objects.equals(oldRate, newRate)) continue; // ignore exact matches
+
+            Row row = sheet.createRow(rowNum++);
+            row.createCell(0).setCellValue(code);
+            row.createCell(1).setCellValue(oldRate != null ? oldRate : "N/A");
+            row.createCell(2).setCellValue(newRate != null ? newRate : "N/A");
+            if (oldRate == null) {
+                row.createCell(3).setCellValue("New Code");
+            } else if (newRate == null) {
+                row.createCell(3).setCellValue("Terminate");
+            } else {
+                row.createCell(3).setCellValue("Rate change");
+            }
+        }
+
+        try (OutputStream os = Files.newOutputStream(Paths.get(folderPath, "Differences Records.xlsx"))) {
+            outWb.write(os);
+        }
+        outWb.close();
+        System.out.println("Differences file created successfully.");
+    }
+
+    private static Map<String, String> loadData(Path filePath) throws IOException {
+        Map<String, String> data = new HashMap<>();
+        try (InputStream fis = Files.newInputStream(filePath); Workbook wb = WorkbookFactory.create(fis)) {
+            Sheet sheet = wb.getSheetAt(0);
+            for (int i = 1; i <= sheet.getLastRowNum(); i++) {
+                Row row = sheet.getRow(i);
+                if (row == null || row.getCell(0) == null || row.getCell(1) == null) continue;
+
+                String code = row.getCell(0).toString().trim();
+                String rate = String.format("%.4f", row.getCell(1).getNumericCellValue());
+                data.put(code, rate);
+            }
+        }
+        return data;
+    }
+}
