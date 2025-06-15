@@ -1,3 +1,281 @@
+<!-- Fee Schedule Dropdown (unchanged) -->
+<label for="feeSchedule">Select Fee Schedule:</label>
+<select id="feeScheduleDropdown">
+  <option value="">-- Select Fee Schedule --</option>
+  <option value="CMSASPPRICING">CMSASPPRICING</option>
+</select>
+<br><br>
+
+<!-- Year Dropdown -->
+<label for="yearSelect">Select Year:</label>
+<select id="yearSelect">
+  <option value="2025">2025</option>
+  <option value="2024">2024</option>
+  <option value="2023">2023</option>
+</select>
+<br><br>
+
+<!-- Choose View as dropdown -->
+<label for="viewSelect">Choose View:</label>
+<select id="viewSelect" onchange="renderPeriodCheckboxes()">
+  <option value="quarter">Quarterly</option>
+  <option value="month">Monthly</option>
+</select>
+<br><br>
+
+<!-- Checkboxes populate here -->
+<div id="periodOptions"></div>
+
+<br>
+<button type="button" id="filecheckbutton" onclick="checkAndDownload()">Check and Download File</button>
+<p id="status"></p>
+
+
+******************************
+
+<script>
+  const selectedPeriods = new Set(); // stores values like "Q1 2025", "FEB 2024"
+
+  function renderPeriodCheckboxes() {
+    const year = document.getElementById("yearSelect").value;
+    const view = document.getElementById("viewSelect").value;
+    const container = document.getElementById("periodOptions");
+    container.innerHTML = "";
+
+    const options = view === "month"
+      ? ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
+      : ["Q1", "Q2", "Q3", "Q4"];
+
+    options.forEach(item => {
+      const val = `${item} ${year}`;
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.name = "quarters";
+      checkbox.value = val;
+      checkbox.id = val;
+      checkbox.checked = selectedPeriods.has(val);
+      checkbox.onchange = function () {
+        if (this.checked) selectedPeriods.add(this.value);
+        else selectedPeriods.delete(this.value);
+      };
+
+      const label = document.createElement("label");
+      label.setAttribute("for", val);
+      label.innerText = val;
+
+      const line = document.createElement("div");
+      line.appendChild(checkbox);
+      line.appendChild(label);
+
+      container.appendChild(line);
+    });
+  }
+
+  function checkAndDownload() {
+    const selectedFeeSchedule = document.getElementById("feeScheduleDropdown").value;
+    const storyNumber = document.getElementById("storyNumber").textContent.trim();
+    const folderyear = document.getElementById("yearSelect").value; // used for path
+
+    fetch("/download-file", {
+      method: "POST",
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        feeSchedule: selectedFeeSchedule,
+        quarters: Array.from(selectedPeriods),
+        storyNumber: storyNumber,
+        userSelectedyear: document.getElementById("yearSelect").value, // latest one
+        folderyear: folderyear,
+        lob: lob // replace or fetch lob appropriately
+      })
+    })
+    .then(res => res.text())
+    .then(msg => document.getElementById("status").innerText = msg)
+    .catch(err => console.error(err));
+  }
+
+  // Initialize view
+  document.addEventListener("DOMContentLoaded", renderPeriodCheckboxes);
+</script>
+
+
+************************************************************
+
+<style>
+  #periodOptions {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
+    margin-top: 10px;
+  }
+
+  .period-option {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  #selectedList {
+    margin-top: 15px;
+    font-weight: bold;
+    color: #333;
+  }
+
+  #selectedList span {
+    background: #e0f7fa;
+    border-radius: 4px;
+    padding: 2px 6px;
+    margin-right: 6px;
+    display: inline-block;
+  }
+</style>
+
+
+*********************************
+
+<div id="selectedList">Selected: </div>
+
+***********************************
+
+<script>
+  const selectedPeriods = new Set();
+
+  function renderPeriodCheckboxes() {
+    const year = document.getElementById("yearSelect").value;
+    const view = document.getElementById("viewSelect").value;
+    const container = document.getElementById("periodOptions");
+    container.innerHTML = "";
+
+    const options = view === "month"
+      ? ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
+      : ["Q1", "Q2", "Q3", "Q4"];
+
+    options.forEach(item => {
+      const val = `${item} ${year}`;
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.name = "quarters";
+      checkbox.value = val;
+      checkbox.id = val;
+      checkbox.checked = selectedPeriods.has(val);
+      checkbox.onchange = function () {
+        if (this.checked) {
+          selectedPeriods.add(this.value);
+        } else {
+          selectedPeriods.delete(this.value);
+        }
+        updateSelectedList(); // refresh display
+      };
+
+      const label = document.createElement("label");
+      label.setAttribute("for", val);
+      label.innerText = val;
+
+      const box = document.createElement("div");
+      box.className = "period-option";
+      box.appendChild(checkbox);
+      box.appendChild(label);
+
+      container.appendChild(box);
+    });
+
+    updateSelectedList(); // refresh display after render
+  }
+
+  function updateSelectedList() {
+    const selectedListDiv = document.getElementById("selectedList");
+    selectedListDiv.innerHTML = "Selected: ";
+    Array.from(selectedPeriods).sort().forEach(val => {
+      const span = document.createElement("span");
+      span.innerText = val;
+      selectedListDiv.appendChild(span);
+    });
+  }
+
+  function checkAndDownload() {
+    const selectedFeeSchedule = document.getElementById("feeScheduleDropdown").value;
+    const storyNumber = document.getElementById("storyNumber").textContent.trim();
+    const folderyear = document.getElementById("yearSelect").value;
+
+    fetch("/download-file", {
+      method: "POST",
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        feeSchedule: selectedFeeSchedule,
+        quarters: Array.from(selectedPeriods),
+        storyNumber: storyNumber,
+        userSelectedyear: folderyear,
+        folderyear: folderyear,
+        lob: lob // update with correct value
+      })
+    })
+    .then(res => res.text())
+    .then(msg => document.getElementById("status").innerText = msg)
+    .catch(err => console.error(err));
+  }
+
+  document.addEventListener("DOMContentLoaded", renderPeriodCheckboxes);
+</script>
+
+
+*********************************************
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 <style>
   .form-section {
     font-family: Arial, sans-serif;
