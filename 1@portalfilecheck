@@ -1,0 +1,56 @@
+@PostMapping("/download-file")
+@ResponseBody
+public ResponseEntity<String> downloadFile(@RequestBody CmsRequest filerequest) {
+    String storyNumber = filerequest.getStoryNumber();
+    String folderYear = filerequest.getFolderyear();       // Year from URL (used for folder path)
+    String userSelectedYear = filerequest.getUserSelectedyear(); // Year from dropdown (used for download logic)
+    String lob = filerequest.getLob();
+    String feeSchedule = filerequest.getFeeSchedule();
+    List<String> quarters = filerequest.getQuarters();
+
+    System.out.println("Story #: " + storyNumber);
+    System.out.println("Folder Year: " + folderYear);
+    System.out.println("Selected CMS Year: " + userSelectedYear);
+    System.out.println("LOB: " + lob);
+    System.out.println("Fee Schedule: " + feeSchedule);
+    System.out.println("Selected Quarters: " + quarters);
+
+    try {
+        CmsFileChecker.downloadSelectedFiles(
+            feeSchedule,
+            quarters,
+            storyNumber,
+            folderYear,
+            lob,
+            feeSchedule,
+            userSelectedYear
+        );
+        return ResponseEntity.ok("Files checked and downloaded successfully!");
+    } catch (Exception e) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+            .body("Failed: " + e.getMessage());
+    }
+}
+
+*******************************************
+
+private String folderyear;          // from URL (used for folder structure)
+private String userSelectedyear;    // from dropdown (used for CMS file year)
+
+*******************************************
+
+public String getFolderyear() {
+    return folderyear;
+}
+public void setFolderyear(String folderyear) {
+    this.folderyear = folderyear;
+}
+
+public String getUserSelectedyear() {
+    return userSelectedyear;
+}
+public void setUserSelectedyear(String userSelectedyear) {
+    this.userSelectedyear = userSelectedyear;
+}
+
+**************************************
