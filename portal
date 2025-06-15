@@ -1,3 +1,55 @@
+// For Procedure Code (Column A)
+Cell codeCell = row.getCell(0);
+String procedureCode = getRawCellValue(codeCell);  // No formatting
+outRow.createCell(0).setCellValue(procedureCode);
+
+// For Rates (Column B)
+Cell rateCell = row.getCell(2);
+if (rateCell != null && rateCell.getCellType() == CellType.NUMERIC) {
+    outRow.createCell(1).setCellValue(String.format("%.4f", rateCell.getNumericCellValue()));  // 0.0000 format
+} else {
+    outRow.createCell(1).setCellValue(getRawCellValue(rateCell));  // fallback
+}
+
+****************************************
+
+private static String getRawCellValue(Cell cell) {
+    if (cell == null) return "";
+    return switch (cell.getCellType()) {
+        case STRING -> cell.getStringCellValue();
+        case NUMERIC -> {
+            double val = cell.getNumericCellValue();
+            if (val == (long) val)
+                yield String.valueOf((long) val);  // drop decimals for whole numbers
+            else
+                yield String.valueOf(val);
+        }
+        case BOOLEAN -> String.valueOf(cell.getBooleanCellValue());
+        case FORMULA -> cell.getCellFormula();
+        default -> "";
+    };
+}
+
+***************************************
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 private static String getCellValueAsString(Cell cell) {
     if (cell == null) return "";
     return switch (cell.getCellType()) {
