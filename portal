@@ -1,3 +1,45 @@
+public static void transformDownloadedAspFiles(String folderPath, String selectedQuarter) throws Exception {
+    String expectedMonth = getMonthFromQuarter(selectedQuarter); // e.g., Q3 -> JUL
+
+    try (Stream<Path> paths = Files.walk(Paths.get(folderPath))) {
+        paths.filter(Files::isRegularFile)
+             .filter(p -> p.toString().endsWith(".xls") || p.toString().endsWith(".xlsx"))
+             .forEach(filePath -> {
+                 try {
+                     String fileName = filePath.getFileName().toString().toUpperCase();
+                     if (fileName.startsWith(expectedMonth)) {  // only process matching files
+                         processAspFile(filePath.toFile(), folderPath, selectedQuarter);
+                     } else {
+                         System.out.println("Skipping file: " + fileName + " for quarter " + selectedQuarter);
+                     }
+                 } catch (Exception e) {
+                     System.err.println("Failed processing " + filePath + " for " + selectedQuarter + ": " + e.getMessage());
+                 }
+             });
+    }
+}
+
+
+***********************************************************
+
+public static String getMonthFromQuarter(String quarter) {
+    return switch (quarter.split(" ")[0]) {
+        case "Q1" -> "JAN";
+        case "Q2" -> "APR";
+        case "Q3" -> "JUL";
+        case "Q4" -> "OCT";
+        default -> throw new IllegalArgumentException("Invalid quarter: " + quarter);
+    };
+}
+
+******************************************************
+
+
+
+
+
+
+
 private static void processAspFile(File file, String folderPath, String quarter) throws Exception {
     String effectiveDate = getEffectiveDateFromQuarter(quarter);
 
