@@ -1,3 +1,84 @@
+private static void processAspFile(File file, String folderPath, String quarter) throws Exception {
+    String effectiveDate = getEffectiveDateFromQuarter(quarter);
+
+    try (InputStream fis = new FileInputStream(file); Workbook workbook = WorkbookFactory.create(fis)) {
+        Sheet sheet = workbook.getSheetAt(0);
+
+        int headerRowIdx = StreamSupport.stream(sheet.spliterator(), false)
+            .filter(r -> Optional.ofNullable(r.getCell(0))
+                                 .map(Cell::getStringCellValue)
+                                 .orElse("").contains("HCPCS Code"))
+            .map(Row::getRowNum)
+            .findFirst()
+            .orElse(-1);
+
+        if (headerRowIdx == -1) {
+            System.out.println("Skipping file (header not found): " + file.getName());
+            return;
+        }
+
+        Workbook outWb = new XSSFWorkbook();
+        Sheet outSheet = outWb.createSheet("Standard Output");
+
+        Row outHeader = outSheet.createRow(0);
+        List<String> headers = List.of("Procedure Code", "Rates", "Effective Date", "Term Date");
+        IntStream.range(0, headers.size()).forEach(i -> outHeader.createCell(i).setCellValue(headers.get(i)));
+
+        int outRowNum = 1;
+        for (int i = headerRowIdx + 1; i <= sheet.getLastRowNum(); i++) {
+            Row row = sheet.getRow(i);
+            if (row == null || row.getCell(0) == null) continue;
+
+            // Procedure Code (no decimal formatting)
+            String code = getRawCellValue(row.getCell(0)).trim();
+            if (!code.isEmpty()) {
+                Row outRow = outSheet.createRow(outRowNum++);
+                outRow.createCell(0).setCellValue(code);
+
+                // Rates (force 0.0000 format)
+                Cell rateCell = row.getCell(2);
+                if (rateCell != null && rateCell.getCellType() == CellType.NUMERIC) {
+                    outRow.createCell(1).setCellValue(String.format("%.4f", rateCell.getNumericCellValue()));
+                } else {
+                    outRow.createCell(1).setCellValue(getRawCellValue(rateCell));
+                }
+
+                outRow.createCell(2).setCellValue(effectiveDate);
+                outRow.createCell(3).setCellValue("12/31/9999");
+            }
+        }
+
+        String outputName = folderPath + "/" + file.getName().replace(".xls", "").replace(".xlsx", "") + "_" + quarter.replace(" ", "_") + "_Standard.xlsx";
+        try (OutputStream os = Files.newOutputStream(Paths.get(outputName))) {
+            outWb.write(os);
+        }
+        outWb.close();
+        System.out.println("Created: " + outputName);
+    }
+}
+
+private static String getRawCellValue(Cell cell) {
+    if (cell == null) return "";
+    return switch (cell.getCellType()) {
+        case STRING -> cell.getStringCellValue();
+        case NUMERIC -> {
+            double val = cell.getNumericCellValue();
+            if (val == (long) val)
+                yield String.valueOf((long) val);
+            else
+                yield String.valueOf(val);
+        }
+        case BOOLEAN -> String.valueOf(cell.getBooleanCellValue());
+        case FORMULA -> cell.getCellFormula();
+        default -> "";
+    };
+}
+
+
+*******************************************
+
+
+
 // For Procedure Code (Column A)
 Cell codeCell = row.getCell(0);
 String procedureCode = getRawCellValue(codeCell);  // No formatting
