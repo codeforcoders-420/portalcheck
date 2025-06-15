@@ -1,3 +1,201 @@
+<style>
+  .form-section {
+    font-family: Arial, sans-serif;
+    margin-top: 20px;
+    padding: 20px;
+    background: #f7f9fc;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    width: 380px;
+  }
+
+  label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+
+  select, input[type="radio"] {
+    margin-bottom: 12px;
+    padding: 5px 8px;
+    font-size: 14px;
+  }
+
+  .checkbox-label {
+    display: inline-block;
+    margin: 6px 8px;
+    padding: 6px 10px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    cursor: pointer;
+    background: #fff;
+    transition: 0.2s;
+  }
+
+  .checkbox-label input[type="checkbox"] {
+    display: none;
+  }
+
+  .checkbox-label.selected {
+    background-color: #e0f3ff;
+    border-color: #007bff;
+    color: #007bff;
+    font-weight: 600;
+  }
+
+  #filecheckbutton {
+    background: #007bff;
+    border: none;
+    color: white;
+    padding: 10px 16px;
+    border-radius: 6px;
+    font-size: 15px;
+    cursor: pointer;
+  }
+
+  #filecheckbutton:hover {
+    background-color: #0056b3;
+  }
+
+  #status {
+    margin-top: 10px;
+    font-weight: bold;
+    color: green;
+  }
+</style>
+
+<div class="form-section">
+  <h3>Portal Files Check</h3>
+  <form>
+
+    <!-- Fee Schedule Dropdown -->
+    <label for="feeSchedule">Select Fee Schedule:</label>
+    <select class="feeScheduleDropdown" id="feeScheduleDropdown" name="feeSchedule">
+      <option value="">-- Select Fee Schedule --</option>
+      <option value="CMSASPPricing">CMSASPPricing</option>
+    </select>
+
+    <!-- Year Dropdown -->
+    <label for="yearSelect">Select Year:</label>
+    <select id="yearSelect" onchange="updatePeriodOptions()">
+      <option value="2025">2025</option>
+      <option value="2024">2024</option>
+      <option value="2023">2023</option>
+    </select>
+
+    <!-- View Mode -->
+    <label>Choose View:</label>
+    <input type="radio" name="viewMode" value="quarter" checked onchange="updatePeriodOptions()"> Quarterly
+    <input type="radio" name="viewMode" value="month" onchange="updatePeriodOptions()"> Monthly
+
+    <!-- Period Checkboxes -->
+    <div id="periodOptions" style="margin-top: 10px;"></div>
+
+    <br>
+    <button type="button" id="filecheckbutton" onclick="checkAndDownload()">Check and Download File</button>
+    <p id="status"></p>
+  </form>
+</div>
+
+<script>
+  function updatePeriodOptions() {
+    const year = document.getElementById("yearSelect").value;
+    const mode = document.querySelector('input[name="viewMode"]:checked').value;
+    const container = document.getElementById("periodOptions");
+
+    container.innerHTML = "";
+
+    const options = mode === "month"
+      ? ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
+      : ["Q1", "Q2", "Q3", "Q4"];
+
+    options.forEach(opt => {
+      const labelText = `${opt} ${year}`;
+      const checkboxId = `cb-${opt}-${year}`;
+
+      container.innerHTML += `
+        <label class="checkbox-label" for="${checkboxId}">
+          <input type="checkbox" name="quarters" id="${checkboxId}" value="${labelText}" onchange="toggleHighlight(this)">
+          ${labelText}
+        </label>
+      `;
+    });
+  }
+
+  function toggleHighlight(checkbox) {
+    checkbox.parentElement.classList.toggle("selected", checkbox.checked);
+  }
+
+  function checkAndDownload() {
+    const selectedFeeSchedule = document.getElementById("feeScheduleDropdown").value;
+    const selectedQuarters = Array.from(document.querySelectorAll("input[name='quarters']:checked"))
+                                  .map(cb => cb.value);
+    const storyNumber = document.getElementById("storyNumber")?.textContent?.trim() || "12345"; // fallback for testing
+
+    fetch("/download_file", {
+      method: "POST",
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        feeSchedule: selectedFeeSchedule,
+        quarters: selectedQuarters,
+        storyNumber: storyNumber,
+        year: document.getElementById("yearSelect").value,
+        lob: "TBD"
+      })
+    })
+    .then(res => res.text())
+    .then(msg => document.getElementById("status").innerText = msg)
+    .catch(err => console.error(err));
+  }
+
+  // Load initial options
+  updatePeriodOptions();
+</script>
+
+
+***************************************************************
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 public static void transformDownloadedAspFiles(String folderPath, String selectedQuarter) throws Exception {
     String expectedMonth = getMonthFromQuarter(selectedQuarter); // e.g., Q3 -> JUL
 
