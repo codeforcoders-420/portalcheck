@@ -1,1194 +1,130 @@
-<!-- Fee Schedule Dropdown (unchanged) -->
-<label for="feeSchedule">Select Fee Schedule:</label>
-<select id="feeScheduleDropdown">
-  <option value="">-- Select Fee Schedule --</option>
-  <option value="CMSASPPRICING">CMSASPPRICING</option>
-</select>
-<br><br>
-
-<!-- Year Dropdown -->
-<label for="yearSelect">Select Year:</label>
-<select id="yearSelect">
-  <option value="2025">2025</option>
-  <option value="2024">2024</option>
-  <option value="2023">2023</option>
-</select>
-<br><br>
-
-<!-- Choose View as dropdown -->
-<label for="viewSelect">Choose View:</label>
-<select id="viewSelect" onchange="renderPeriodCheckboxes()">
-  <option value="quarter">Quarterly</option>
-  <option value="month">Monthly</option>
-</select>
-<br><br>
-
-<!-- Checkboxes populate here -->
-<div id="periodOptions"></div>
-
-<br>
-<button type="button" id="filecheckbutton" onclick="checkAndDownload()">Check and Download File</button>
-<p id="status"></p>
-
-
-******************************
-
-<script>
-  const selectedPeriods = new Set(); // stores values like "Q1 2025", "FEB 2024"
-
-  function renderPeriodCheckboxes() {
-    const year = document.getElementById("yearSelect").value;
-    const view = document.getElementById("viewSelect").value;
-    const container = document.getElementById("periodOptions");
-    container.innerHTML = "";
-
-    const options = view === "month"
-      ? ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
-      : ["Q1", "Q2", "Q3", "Q4"];
-
-    options.forEach(item => {
-      const val = `${item} ${year}`;
-      const checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.name = "quarters";
-      checkbox.value = val;
-      checkbox.id = val;
-      checkbox.checked = selectedPeriods.has(val);
-      checkbox.onchange = function () {
-        if (this.checked) selectedPeriods.add(this.value);
-        else selectedPeriods.delete(this.value);
-      };
-
-      const label = document.createElement("label");
-      label.setAttribute("for", val);
-      label.innerText = val;
-
-      const line = document.createElement("div");
-      line.appendChild(checkbox);
-      line.appendChild(label);
-
-      container.appendChild(line);
-    });
-  }
-
-  function checkAndDownload() {
-    const selectedFeeSchedule = document.getElementById("feeScheduleDropdown").value;
-    const storyNumber = document.getElementById("storyNumber").textContent.trim();
-    const folderyear = document.getElementById("yearSelect").value; // used for path
-
-    fetch("/download-file", {
-      method: "POST",
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        feeSchedule: selectedFeeSchedule,
-        quarters: Array.from(selectedPeriods),
-        storyNumber: storyNumber,
-        userSelectedyear: document.getElementById("yearSelect").value, // latest one
-        folderyear: folderyear,
-        lob: lob // replace or fetch lob appropriately
-      })
-    })
-    .then(res => res.text())
-    .then(msg => document.getElementById("status").innerText = msg)
-    .catch(err => console.error(err));
-  }
-
-  // Initialize view
-  document.addEventListener("DOMContentLoaded", renderPeriodCheckboxes);
-</script>
-
-
-************************************************************
-
-<style>
-  #periodOptions {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-    gap: 10px;
-    margin-top: 10px;
-  }
-
-  .period-option {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-  }
-
-  #selectedList {
-    margin-top: 15px;
-    font-weight: bold;
-    color: #333;
-  }
-
-  #selectedList span {
-    background: #e0f7fa;
-    border-radius: 4px;
-    padding: 2px 6px;
-    margin-right: 6px;
-    display: inline-block;
-  }
-</style>
-
-
-*********************************
-
-<div id="selectedList">Selected: </div>
-
-***********************************
-
-<script>
-  const selectedPeriods = new Set();
-
-  function renderPeriodCheckboxes() {
-    const year = document.getElementById("yearSelect").value;
-    const view = document.getElementById("viewSelect").value;
-    const container = document.getElementById("periodOptions");
-    container.innerHTML = "";
-
-    const options = view === "month"
-      ? ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
-      : ["Q1", "Q2", "Q3", "Q4"];
-
-    options.forEach(item => {
-      const val = `${item} ${year}`;
-
-      const checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.name = "quarters";
-      checkbox.value = val;
-      checkbox.id = val;
-      checkbox.checked = selectedPeriods.has(val);
-      checkbox.onchange = function () {
-        if (this.checked) {
-          selectedPeriods.add(this.value);
-        } else {
-          selectedPeriods.delete(this.value);
-        }
-        updateSelectedList(); // refresh display
-      };
-
-      const label = document.createElement("label");
-      label.setAttribute("for", val);
-      label.innerText = val;
-
-      const box = document.createElement("div");
-      box.className = "period-option";
-      box.appendChild(checkbox);
-      box.appendChild(label);
-
-      container.appendChild(box);
-    });
-
-    updateSelectedList(); // refresh display after render
-  }
-
-  function updateSelectedList() {
-    const selectedListDiv = document.getElementById("selectedList");
-    selectedListDiv.innerHTML = "Selected: ";
-    Array.from(selectedPeriods).sort().forEach(val => {
-      const span = document.createElement("span");
-      span.innerText = val;
-      selectedListDiv.appendChild(span);
-    });
-  }
-
-  function checkAndDownload() {
-    const selectedFeeSchedule = document.getElementById("feeScheduleDropdown").value;
-    const storyNumber = document.getElementById("storyNumber").textContent.trim();
-    const folderyear = document.getElementById("yearSelect").value;
-
-    fetch("/download-file", {
-      method: "POST",
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        feeSchedule: selectedFeeSchedule,
-        quarters: Array.from(selectedPeriods),
-        storyNumber: storyNumber,
-        userSelectedyear: folderyear,
-        folderyear: folderyear,
-        lob: lob // update with correct value
-      })
-    })
-    .then(res => res.text())
-    .then(msg => document.getElementById("status").innerText = msg)
-    .catch(err => console.error(err));
-  }
-
-  document.addEventListener("DOMContentLoaded", renderPeriodCheckboxes);
-</script>
-
-
-*********************************************
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<style>
-  .form-section {
-    font-family: Arial, sans-serif;
-    margin-top: 20px;
-    padding: 20px;
-    background: #f7f9fc;
-    border: 1px solid #ccc;
-    border-radius: 8px;
-    width: 380px;
-  }
-
-  label {
-    display: block;
-    margin-bottom: 6px;
-    font-weight: 500;
-  }
-
-  select, input[type="radio"] {
-    margin-bottom: 12px;
-    padding: 5px 8px;
-    font-size: 14px;
-  }
-
-  .checkbox-label {
-    display: inline-block;
-    margin: 6px 8px;
-    padding: 6px 10px;
-    border: 1px solid #ccc;
-    border-radius: 6px;
-    cursor: pointer;
-    background: #fff;
-    transition: 0.2s;
-  }
-
-  .checkbox-label input[type="checkbox"] {
-    display: none;
-  }
-
-  .checkbox-label.selected {
-    background-color: #e0f3ff;
-    border-color: #007bff;
-    color: #007bff;
-    font-weight: 600;
-  }
-
-  #filecheckbutton {
-    background: #007bff;
-    border: none;
-    color: white;
-    padding: 10px 16px;
-    border-radius: 6px;
-    font-size: 15px;
-    cursor: pointer;
-  }
-
-  #filecheckbutton:hover {
-    background-color: #0056b3;
-  }
-
-  #status {
-    margin-top: 10px;
-    font-weight: bold;
-    color: green;
-  }
-</style>
-
-<div class="form-section">
-  <h3>Portal Files Check</h3>
-  <form>
-
-    <!-- Fee Schedule Dropdown -->
-    <label for="feeSchedule">Select Fee Schedule:</label>
-    <select class="feeScheduleDropdown" id="feeScheduleDropdown" name="feeSchedule">
-      <option value="">-- Select Fee Schedule --</option>
-      <option value="CMSASPPricing">CMSASPPricing</option>
-    </select>
-
-    <!-- Year Dropdown -->
-    <label for="yearSelect">Select Year:</label>
-    <select id="yearSelect" onchange="updatePeriodOptions()">
-      <option value="2025">2025</option>
-      <option value="2024">2024</option>
-      <option value="2023">2023</option>
-    </select>
-
-    <!-- View Mode -->
-    <label>Choose View:</label>
-    <input type="radio" name="viewMode" value="quarter" checked onchange="updatePeriodOptions()"> Quarterly
-    <input type="radio" name="viewMode" value="month" onchange="updatePeriodOptions()"> Monthly
-
-    <!-- Period Checkboxes -->
-    <div id="periodOptions" style="margin-top: 10px;"></div>
-
-    <br>
-    <button type="button" id="filecheckbutton" onclick="checkAndDownload()">Check and Download File</button>
-    <p id="status"></p>
-  </form>
+<div id="ir-form-modal" class="impact-form-modal">
+  <span class="close" onclick="closeirformForm()">×</span>
+  <h3 id="ir-form-title">Impact Report Form</h3>
+
+  <div class="form-grid">
+
+    <div class="form-group">
+      <label for="f1-dropdown">Is this an enhancement (ENR) or BF2:</label>
+      <select id="f1-dropdown" class="form-control">
+        <option value="">-- Select --</option>
+        <option value="ENR">ENR</option>
+        <option value="BF">BF</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="f2-dropdown">True BF: (Yes/No):</label>
+      <select id="f2-dropdown" class="form-control">
+        <option value="">-- Select --</option>
+        <option value="Yes">Yes</option>
+        <option value="No">No</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="f3-dropdown">Root cause category/classification:</label>
+      <select id="f3-dropdown" class="form-control">
+        <option value="">-- Select --</option>
+        <option value="OPTUM">OPTUM Grouper</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="f4-dropdown">Recommended ARC:</label>
+      <select id="f4-dropdown" class="form-control">
+        <option value="">-- Select --</option>
+        <option value="CBO">Fee Schedule Update</option>
+        <option value="CBT">Retro Fee Schedule Update</option>
+        <option value="CB8">Market Requirement Update</option>
+        <option value="CB9">Pricing Config Fee Schedule Update</option>
+        <option value="UB7">Retro Fee Schedule Update</option>
+        <option value="UB8">Health Partnership Market Requirement Update</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="csoDate">When did CareSource become aware of issue? (CSO Submitted Date):</label>
+      <input type="date" id="csoDate" name="csoDate" placeholder="mm/dd/yyyy" required>
+    </div>
+
+    <div class="form-group">
+      <label for="tfsDate">When did Config receive ticket for issue? (TFS Submitted Date):</label>
+      <input type="date" id="tfsDate" name="tfsDate" placeholder="mm/dd/yyyy" required>
+    </div>
+
+    <div class="form-group">
+      <label for="correctedDate">When was the issue corrected in FACETS? (Production Date):</label>
+      <input type="date" id="correctedDate" name="correctedDate" placeholder="mm/dd/yyyy" required>
+    </div>
+
+    <div class="form-group">
+      <label for="dosDate">What is the earliest date of service on Impact Report? (Effective Date of Adjustment):</label>
+      <input type="date" id="dosDate" name="dosDate" placeholder="mm/dd/yyyy" required>
+    </div>
+  </div>
+
+  <div class="form-actions">
+    <button id="run-irform-button" onclick="runirformwithData()">Create IR Form</button>
+  </div>
 </div>
 
-<script>
-  function updatePeriodOptions() {
-    const year = document.getElementById("yearSelect").value;
-    const mode = document.querySelector('input[name="viewMode"]:checked').value;
-    const container = document.getElementById("periodOptions");
+***********************
 
-    container.innerHTML = "";
-
-    const options = mode === "month"
-      ? ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
-      : ["Q1", "Q2", "Q3", "Q4"];
-
-    options.forEach(opt => {
-      const labelText = `${opt} ${year}`;
-      const checkboxId = `cb-${opt}-${year}`;
-
-      container.innerHTML += `
-        <label class="checkbox-label" for="${checkboxId}">
-          <input type="checkbox" name="quarters" id="${checkboxId}" value="${labelText}" onchange="toggleHighlight(this)">
-          ${labelText}
-        </label>
-      `;
-    });
-  }
-
-  function toggleHighlight(checkbox) {
-    checkbox.parentElement.classList.toggle("selected", checkbox.checked);
-  }
-
-  function checkAndDownload() {
-    const selectedFeeSchedule = document.getElementById("feeScheduleDropdown").value;
-    const selectedQuarters = Array.from(document.querySelectorAll("input[name='quarters']:checked"))
-                                  .map(cb => cb.value);
-    const storyNumber = document.getElementById("storyNumber")?.textContent?.trim() || "12345"; // fallback for testing
-
-    fetch("/download_file", {
-      method: "POST",
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        feeSchedule: selectedFeeSchedule,
-        quarters: selectedQuarters,
-        storyNumber: storyNumber,
-        year: document.getElementById("yearSelect").value,
-        lob: "TBD"
-      })
-    })
-    .then(res => res.text())
-    .then(msg => document.getElementById("status").innerText = msg)
-    .catch(err => console.error(err));
-  }
-
-  // Load initial options
-  updatePeriodOptions();
-</script>
-
-
-***************************************************************
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-public static void transformDownloadedAspFiles(String folderPath, String selectedQuarter) throws Exception {
-    String expectedMonth = getMonthFromQuarter(selectedQuarter); // e.g., Q3 -> JUL
-
-    try (Stream<Path> paths = Files.walk(Paths.get(folderPath))) {
-        paths.filter(Files::isRegularFile)
-             .filter(p -> p.toString().endsWith(".xls") || p.toString().endsWith(".xlsx"))
-             .forEach(filePath -> {
-                 try {
-                     String fileName = filePath.getFileName().toString().toUpperCase();
-                     if (fileName.startsWith(expectedMonth)) {  // only process matching files
-                         processAspFile(filePath.toFile(), folderPath, selectedQuarter);
-                     } else {
-                         System.out.println("Skipping file: " + fileName + " for quarter " + selectedQuarter);
-                     }
-                 } catch (Exception e) {
-                     System.err.println("Failed processing " + filePath + " for " + selectedQuarter + ": " + e.getMessage());
-                 }
-             });
-    }
+.impact-form-modal {
+  width: 80%;
+  max-width: 950px;
+  margin: 30px auto;
+  background-color: #fff;
+  padding: 30px;
+  border-radius: 12px;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.15);
+  font-family: 'Segoe UI', sans-serif;
 }
 
-
-***********************************************************
-
-public static String getMonthFromQuarter(String quarter) {
-    return switch (quarter.split(" ")[0]) {
-        case "Q1" -> "JAN";
-        case "Q2" -> "APR";
-        case "Q3" -> "JUL";
-        case "Q4" -> "OCT";
-        default -> throw new IllegalArgumentException("Invalid quarter: " + quarter);
-    };
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 25px 40px;
 }
 
-******************************************************
-
-
-
-
-
-
-
-private static void processAspFile(File file, String folderPath, String quarter) throws Exception {
-    String effectiveDate = getEffectiveDateFromQuarter(quarter);
-
-    try (InputStream fis = new FileInputStream(file); Workbook workbook = WorkbookFactory.create(fis)) {
-        Sheet sheet = workbook.getSheetAt(0);
-
-        int headerRowIdx = StreamSupport.stream(sheet.spliterator(), false)
-            .filter(r -> Optional.ofNullable(r.getCell(0))
-                                 .map(Cell::getStringCellValue)
-                                 .orElse("").contains("HCPCS Code"))
-            .map(Row::getRowNum)
-            .findFirst()
-            .orElse(-1);
-
-        if (headerRowIdx == -1) {
-            System.out.println("Skipping file (header not found): " + file.getName());
-            return;
-        }
-
-        Workbook outWb = new XSSFWorkbook();
-        Sheet outSheet = outWb.createSheet("Standard Output");
-
-        Row outHeader = outSheet.createRow(0);
-        List<String> headers = List.of("Procedure Code", "Rates", "Effective Date", "Term Date");
-        IntStream.range(0, headers.size()).forEach(i -> outHeader.createCell(i).setCellValue(headers.get(i)));
-
-        int outRowNum = 1;
-        for (int i = headerRowIdx + 1; i <= sheet.getLastRowNum(); i++) {
-            Row row = sheet.getRow(i);
-            if (row == null || row.getCell(0) == null) continue;
-
-            // Procedure Code (no decimal formatting)
-            String code = getRawCellValue(row.getCell(0)).trim();
-            if (!code.isEmpty()) {
-                Row outRow = outSheet.createRow(outRowNum++);
-                outRow.createCell(0).setCellValue(code);
-
-                // Rates (force 0.0000 format)
-                Cell rateCell = row.getCell(2);
-                if (rateCell != null && rateCell.getCellType() == CellType.NUMERIC) {
-                    outRow.createCell(1).setCellValue(String.format("%.4f", rateCell.getNumericCellValue()));
-                } else {
-                    outRow.createCell(1).setCellValue(getRawCellValue(rateCell));
-                }
-
-                outRow.createCell(2).setCellValue(effectiveDate);
-                outRow.createCell(3).setCellValue("12/31/9999");
-            }
-        }
-
-        String outputName = folderPath + "/" + file.getName().replace(".xls", "").replace(".xlsx", "") + "_" + quarter.replace(" ", "_") + "_Standard.xlsx";
-        try (OutputStream os = Files.newOutputStream(Paths.get(outputName))) {
-            outWb.write(os);
-        }
-        outWb.close();
-        System.out.println("Created: " + outputName);
-    }
+.form-group {
+  display: flex;
+  flex-direction: column;
 }
 
-private static String getRawCellValue(Cell cell) {
-    if (cell == null) return "";
-    return switch (cell.getCellType()) {
-        case STRING -> cell.getStringCellValue();
-        case NUMERIC -> {
-            double val = cell.getNumericCellValue();
-            if (val == (long) val)
-                yield String.valueOf((long) val);
-            else
-                yield String.valueOf(val);
-        }
-        case BOOLEAN -> String.valueOf(cell.getBooleanCellValue());
-        case FORMULA -> cell.getCellFormula();
-        default -> "";
-    };
+label {
+  font-weight: 600;
+  margin-bottom: 6px;
+  text-align: left;
+  color: #333;
 }
 
-
-*******************************************
-
-
-
-// For Procedure Code (Column A)
-Cell codeCell = row.getCell(0);
-String procedureCode = getRawCellValue(codeCell);  // No formatting
-outRow.createCell(0).setCellValue(procedureCode);
-
-// For Rates (Column B)
-Cell rateCell = row.getCell(2);
-if (rateCell != null && rateCell.getCellType() == CellType.NUMERIC) {
-    outRow.createCell(1).setCellValue(String.format("%.4f", rateCell.getNumericCellValue()));  // 0.0000 format
-} else {
-    outRow.createCell(1).setCellValue(getRawCellValue(rateCell));  // fallback
+input[type="date"],
+select {
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 14px;
+  background-color: #fafafa;
 }
 
-****************************************
-
-private static String getRawCellValue(Cell cell) {
-    if (cell == null) return "";
-    return switch (cell.getCellType()) {
-        case STRING -> cell.getStringCellValue();
-        case NUMERIC -> {
-            double val = cell.getNumericCellValue();
-            if (val == (long) val)
-                yield String.valueOf((long) val);  // drop decimals for whole numbers
-            else
-                yield String.valueOf(val);
-        }
-        case BOOLEAN -> String.valueOf(cell.getBooleanCellValue());
-        case FORMULA -> cell.getCellFormula();
-        default -> "";
-    };
+.form-actions {
+  grid-column: span 2;
+  text-align: center;
+  margin-top: 25px;
 }
 
-***************************************
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-private static String getCellValueAsString(Cell cell) {
-    if (cell == null) return "";
-    return switch (cell.getCellType()) {
-        case STRING -> cell.getStringCellValue();
-        case NUMERIC -> String.valueOf((long) cell.getNumericCellValue()); // avoid .0 for whole numbers
-        case BOOLEAN -> String.valueOf(cell.getBooleanCellValue());
-        case FORMULA -> cell.getCellFormula();
-        default -> "";
-    };
+button {
+  background-color: #007bff;
+  border: none;
+  padding: 10px 24px;
+  color: white;
+  font-size: 16px;
+  border-radius: 6px;
+  cursor: pointer;
 }
 
-
-*******************************************
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-
-import java.io.*;
-import java.nio.file.*;
-import java.util.*;
-import java.util.stream.*;
-
-public class AspPricingProcessor {
-
-    public static void main(String[] args) throws Exception {
-        String folderPath = "C:/users/tfs/54123/CMS";
-        List<String> selectedQuarters = Arrays.asList("Q2 2025", "Q3 2025");
-        transformDownloadedAspFiles(folderPath, selectedQuarters);
-    }
-
-    public static void transformDownloadedAspFiles(String folderPath, List<String> selectedQuarters) throws Exception {
-        try (Stream<Path> paths = Files.walk(Paths.get(folderPath))) {
-            paths.filter(Files::isRegularFile)
-                 .filter(p -> p.toString().endsWith(".xls") || p.toString().endsWith(".xlsx"))
-                 .forEach(filePath -> {
-                     selectedQuarters.forEach(quarter -> {
-                         try {
-                             processAspFile(filePath.toFile(), folderPath, quarter);
-                         } catch (Exception e) {
-                             System.err.println("Failed processing " + filePath + " for " + quarter + ": " + e.getMessage());
-                         }
-                     });
-                 });
-        }
-    }
-
-    private static void processAspFile(File file, String folderPath, String quarter) throws Exception {
-        String effectiveDate = getEffectiveDateFromQuarter(quarter);
-
-        try (InputStream fis = new FileInputStream(file); Workbook workbook = WorkbookFactory.create(fis)) {
-            Sheet sheet = workbook.getSheetAt(0);
-
-            int headerRowIdx = StreamSupport.stream(sheet.spliterator(), false)
-                .filter(r -> Optional.ofNullable(r.getCell(0))
-                                     .map(Cell::getStringCellValue)
-                                     .orElse("").contains("HCPCS Code"))
-                .map(Row::getRowNum)
-                .findFirst()
-                .orElse(-1);
-
-            if (headerRowIdx == -1) {
-                System.out.println("Skipping file (header not found): " + file.getName());
-                return;
-            }
-
-            Workbook outWb = new XSSFWorkbook();
-            Sheet outSheet = outWb.createSheet("Standard Output");
-
-            Row outHeader = outSheet.createRow(0);
-            List<String> headers = List.of("Procedure Code", "Rates", "Effective Date", "Term Date");
-            IntStream.range(0, headers.size()).forEach(i -> outHeader.createCell(i).setCellValue(headers.get(i)));
-
-            int outRowNum = 1;
-            for (int i = headerRowIdx + 1; i <= sheet.getLastRowNum(); i++) {
-                Row row = sheet.getRow(i);
-                if (row == null || row.getCell(0) == null) continue;
-
-                String code = Optional.ofNullable(row.getCell(0).getStringCellValue()).orElse("").trim();
-                if (!code.isEmpty()) {
-                    Row outRow = outSheet.createRow(outRowNum++);
-                    outRow.createCell(0).setCellValue(code);
-                    outRow.createCell(1).setCellValue(getCellValueAsString(row.getCell(2)));
-                    outRow.createCell(2).setCellValue(effectiveDate);
-                    outRow.createCell(3).setCellValue("12/31/9999");
-                }
-            }
-
-            String outputName = folderPath + "/" + file.getName().replace(".xls", "").replace(".xlsx", "") + "_" + quarter.replace(" ", "_") + "_Standard.xlsx";
-            try (OutputStream os = Files.newOutputStream(Paths.get(outputName))) {
-                outWb.write(os);
-            }
-            outWb.close();
-            System.out.println("Created: " + outputName);
-        }
-    }
-
-    private static String getCellValueAsString(Cell cell) {
-        if (cell == null) return "";
-        return switch (cell.getCellType()) {
-            case STRING -> cell.getStringCellValue();
-            case NUMERIC -> String.valueOf(cell.getNumericCellValue());
-            case BOOLEAN -> String.valueOf(cell.getBooleanCellValue());
-            default -> "";
-        };
-    }
-
-    public static String getEffectiveDateFromQuarter(String quarter) {
-        String[] parts = quarter.split(" ");
-        String q = parts[0];
-        String year = parts[1];
-
-        String month = switch (q) {
-            case "Q1" -> "01";
-            case "Q2" -> "04";
-            case "Q3" -> "07";
-            case "Q4" -> "10";
-            default -> throw new IllegalArgumentException("Unknown quarter: " + q);
-        };
-
-        return month + "/01/" + year;
-    }
-}
-
-***************************************************************
-
-
-
-
-
-
-
-
-
-
-
-
-public static void downloadSelectedFiles(String feeSchedule, List<String> quarters) throws Exception {
-    WebDriverManager.edgedriver().setup();
-
-    HashMap<String, Object> prefs = new HashMap<>();
-    prefs.put("download.default_directory", "C:\\\\users\\\\tfs\\\\54123\\\\CMS");
-    prefs.put("profile.default_content_settings.popups", 0);
-
-    EdgeOptions options = new EdgeOptions();
-    options.setExperimentalOption("prefs", prefs);
-
-    WebDriver driver = new EdgeDriver(options);
-    driver.get("https://www.cms.gov/medicare/payment/fee-for-service-providers/part-b-drugs/average-drug-sales-price");
-
-    driver.findElement(By.linkText("ASP Pricing Files")).click();
-    Thread.sleep(2000);
-
-    // ✅ Declare set to track which year sections have already been expanded
-    Set<String> expandedYears = new HashSet<>();
-
-    for (String quarter : quarters) {
-        String year = getYearFromQuarter(quarter);
-        String month = getMonthFromQuarter(quarter);
-
-        // Expand the year section only once
-        if (!expandedYears.contains(year)) {
-            String sectionXPath = "//button[h3[contains(text(), '" + year + " ASP Drug Pricing')]]";
-            WebElement yearButton = driver.findElement(By.xpath(sectionXPath));
-            if ("false".equals(yearButton.getAttribute("aria-expanded"))) {
-                yearButton.click();
-                Thread.sleep(2000);
-            }
-            expandedYears.add(year);
-        }
-
-        // Click the download link
-        String linkText = month + " " + year + " ASP Pricing File";
-        List<WebElement> links = driver.findElements(By.partialLinkText(linkText));
-        if (!links.isEmpty()) {
-            links.get(0).click();
-            waitForDownloadAndExtractExcel("C:\\\\users\\\\tfs\\\\54123\\\\CMS");
-        } else {
-            System.out.println("Download link not found for: " + quarter);
-        }
-    }
-
-    driver.quit();
-}
-
-*******************************************************************
-
-
-public static void downloadSelectedFiles(String feeSchedule, List<String> quarters) throws Exception {
-    WebDriverManager.edgedriver().setup();
-
-    HashMap<String, Object> prefs = new HashMap<>();
-    prefs.put("download.default_directory", "C:\\\\users\\\\tfs\\\\54123\\\\CMS");
-    prefs.put("profile.default_content_settings.popups", 0);
-
-    EdgeOptions options = new EdgeOptions();
-    options.setExperimentalOption("prefs", prefs);
-
-    WebDriver driver = new EdgeDriver(options);
-    driver.get("https://www.cms.gov/medicare/payment/fee-for-service-providers/part-b-drugs/average-drug-sales-price");
-
-    // Click ASP Pricing Files
-    driver.findElement(By.linkText("ASP Pricing Files")).click();
-    Thread.sleep(2000);
-
-    // Track which years have already been expanded
-    Set<String> expandedYears = new HashSet<>();
-
-    for (String quarter : quarters) {
-        String year = getYearFromQuarter(quarter); // e.g., 2025
-        String month = getMonthFromQuarter(quarter); // e.g., July
-
-        // Expand year section only once
-        if (!expandedYears.contains(year)) {
-            String sectionXPath = "//button[h3[contains(text(), '" + year + " ASP Drug Pricing')]]";
-            WebElement yearButton = driver.findElement(By.xpath(sectionXPath));
-            if ("false".equals(yearButton.getAttribute("aria-expanded"))) {
-                yearButton.click();
-                Thread.sleep(2000);
-            }
-            expandedYears.add(year);
-        }
-
-        // Click the download link
-        String linkText = month + " " + year + " ASP Pricing File";
-        List<WebElement> links = driver.findElements(By.partialLinkText(linkText));
-        if (!links.isEmpty()) {
-            links.get(0).click();
-            waitForDownloadAndExtractExcel("C:\\\\users\\\\tfs\\\\54123\\\\CMS");
-        } else {
-            System.out.println("Download link not found for: " + quarter);
-        }
-    }
-
-    driver.quit();
-}
-
-***************************************************************
-
-import java.io.*;
-import java.nio.file.*;
-import java.util.zip.*;
-import java.util.stream.Stream;
-
-private static void waitForDownloadAndExtractExcel(String downloadDir) throws Exception {
-    Path downloadPath = Paths.get(downloadDir);
-    Path latestZip = null;
-
-    // Wait until .crdownload disappears and ZIP file appears
-    int retries = 60;
-    while (retries-- > 0) {
-        try (Stream<Path> files = Files.list(downloadPath)) {
-            latestZip = files
-                    .filter(path -> path.toString().endsWith(".zip"))
-                    .max(Comparator.comparingLong(f -> f.toFile().lastModified()))
-                    .orElse(null);
-
-            boolean downloading = Files.list(downloadPath)
-                    .anyMatch(f -> f.toString().endsWith(".crdownload"));
-
-            if (latestZip != null && !downloading) {
-                break;
-            }
-        }
-
-        Thread.sleep(1000); // Wait and retry
-    }
-
-    if (latestZip == null) throw new RuntimeException("No ZIP file found in download folder");
-
-    // Extract only Excel files from ZIP
-    try (ZipInputStream zis = new ZipInputStream(new FileInputStream(latestZip.toFile()))) {
-        ZipEntry entry;
-        while ((entry = zis.getNextEntry()) != null) {
-            if (entry.getName().endsWith(".xls") || entry.getName().endsWith(".xlsx")) {
-                Path outFile = downloadPath.resolve(entry.getName());
-                try (BufferedOutputStream bos = new BufferedOutputStream(Files.newOutputStream(outFile))) {
-                    byte[] buffer = new byte[4096];
-                    int len;
-                    while ((len = zis.read(buffer)) > 0) {
-                        bos.write(buffer, 0, len);
-                    }
-                }
-            }
-        }
-    }
-
-    // Optionally delete the zip file after extraction
-    Files.deleteIfExists(latestZip);
-}
-****************************************************************
-
-if (!links.isEmpty()) {
-    links.get(0).click();
-    waitForDownloadAndExtractExcel("C:\\users\\tfs\\54123\\CMS");
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-//button[h3[contains(text(),'2025 ASP Drug Pricing')]]
-
-driver.findElement(By.xpath("//button[h3[contains(text(),'2025 ASP Drug Pricing')]]")).click();
-
-String year = getYearFromQuarter(quarter);  // e.g., "2025"
-String sectionXPath = "//button[h3[contains(text(), '" + year + " ASP Drug Pricing')]]";
-
-WebElement yearButton = driver.findElement(By.xpath(sectionXPath));
-yearButton.click();
-Thread.sleep(2000);
-
-
-*****************************************************************
-
-
-String year = getYearFromQuarter(quarter);  // e.g. "2025"
-String sectionXPath = "//button[contains(text(), '" + year + " ASP Drug Pricing')]";
-
-// Expand the section
-WebElement yearButton = driver.findElement(By.xpath(sectionXPath));
-yearButton.click();
-Thread.sleep(2000);
-
-// Now find the file link under that year
-String month = getMonthFromQuarter(quarter);  // e.g. "July"
-String linkText = month + " " + year + " ASP Pricing File";
-List<WebElement> links = driver.findElements(By.partialLinkText(linkText));
-
-if (!links.isEmpty()) {
-    links.get(0).click();
-    Thread.sleep(5000);
-}
-
-******************
-
-String month = getMonthFromQuarter(quarter);
-String linkText = month + " " + year + " ASP Pricing File";
-
-List<WebElement> links = driver.findElements(By.partialLinkText(linkText));
-if (!links.isEmpty()) {
-    links.get(0).click(); // Download link
-    Thread.sleep(5000);
-}
-
-*********************
-
-
-
-
-function checkAndDownload(event) {
-    if (event) event.preventDefault(); // Prevent form from submitting
-
-    const selectedQuarters = Array.from(document.querySelectorAll("input[name='quarters']:checked"))
-                                  .map(cb => cb.value);
-    const selectedFeeSchedule = document.getElementById("feeSchedule").value;
-    const storyNumber = document.getElementById("storyNumber").textContent.trim();
-    const year = document.getElementById("year").textContent.trim();
-    const lob = document.getElementById("lob").textContent.trim();
-
-    fetch('/download_file', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            feeSchedule: selectedFeeSchedule,
-            quarters: selectedQuarters,
-            storyNumber: storyNumber,
-            year: year,
-            lob: lob
-        })
-    })
-    .then(res => res.text())
-    .then(msg => document.getElementById("status").innerText = msg)
-    .catch(err => console.error(err));
-}
-
-*************************************
-
-<button type="button" onclick="checkAndDownload(event)">Check and Download File</button>
-
-***************************************
-
-
-
-
-
-<div class="app-section">
-  <h3>File check in State Portal</h3>
-  
-  <label for="feeSchedule">Select Fee Schedule:</label>
-  <select id="feeSchedule" name="feeSchedule">
-    <option value="FS1">FS1</option>
-    <option value="FS2">FS2</option>
-    <!-- Add more fee schedules here -->
-  </select>
-
-  <br><br>
-
-  <label>Check Quarters:</label><br>
-  <input type="checkbox" name="quarters" value="Q3 2025"> Q3 2025<br>
-  <input type="checkbox" name="quarters" value="Q2 2025"> Q2 2025<br>
-  <input type="checkbox" name="quarters" value="Q1 2025"> Q1 2025<br>
-  <input type="checkbox" name="quarters" value="Q4 2024"> Q4 2024<br>
-  <input type="checkbox" name="quarters" value="Q3 2024"> Q3 2024<br>
-
-  <br>
-  <button onclick="checkAndDownload()">Check and Download File</button>
-
-  <p id="status"></p>
-</div>
-
-<script>
-  function checkAndDownload() {
-    const selectedQuarters = Array.from(document.querySelectorAll('input[name="quarters"]:checked'))
-                                  .map(cb => cb.value);
-    const selectedFeeSchedule = document.getElementById('feeSchedule').value;
-
-    fetch('/cms/download-file', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        feeSchedule: selectedFeeSchedule,
-        quarters: selectedQuarters
-      })
-    })
-    .then(res => res.text())
-    .then(msg => document.getElementById('status').innerText = msg)
-    .catch(err => console.error(err));
-  }
-</script>
-
-************************************************************************
-
-@RestController
-@RequestMapping("/cms")
-public class CmsFileDownloadController {
-
-    @PostMapping("/download-file")
-    public ResponseEntity<String> downloadFile(@RequestBody CmsRequest request) {
-        try {
-            CmsFileChecker.downloadSelectedFiles(request.getFeeSchedule(), request.getQuarters());
-            return ResponseEntity.ok("File(s) checked and downloaded successfully!");
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                 .body("Failed: " + e.getMessage());
-        }
-    }
-}
-
-*********************************************************************
-public class CmsRequest {
-    private String feeSchedule;
-    private List<String> quarters;
-
-    // Getters and Setters
-}
-***************************************************************
-
-public class CmsFileChecker {
-
-   public static void downloadSelectedFiles(String feeSchedule, List<String> quarters) throws Exception {
-        // Automatically resolves and sets up EdgeDriver
-        WebDriverManager.edgedriver().setup();
-
-        // Set download directory
-        HashMap<String, Object> edgePrefs = new HashMap<>();
-        edgePrefs.put("download.default_directory", "C:\\users\\tfs\\54123\\CMS");
-        edgePrefs.put("profile.default_content_settings.popups", 0);
-
-        EdgeOptions options = new EdgeOptions();
-        options.setExperimentalOption("prefs", edgePrefs);
-
-        WebDriver driver = new EdgeDriver(options);
-        driver.get("https://www.cms.gov/medicare/payment/fee-for-service-providers/part-b-drugs/average-drug-sales-price");
-
-        driver.findElement(By.linkText("ASP Pricing Files")).click();
-        Thread.sleep(2000); // Let the panel load
-
-        for (String quarter : quarters) {
-            String year = getYearFromQuarter(quarter);
-            String month = getMonthFromQuarter(quarter);
-            String sectionXPath = "//button[contains(text(),'" + year + "')]";
-
-            WebElement yearSection = driver.findElement(By.xpath(sectionXPath));
-            yearSection.click();
-            Thread.sleep(1000);
-
-            String linkText = month + " " + year + " ASP Pricing File";
-            List<WebElement> links = driver.findElements(By.partialLinkText(linkText));
-
-            if (!links.isEmpty()) {
-                links.get(0).click();
-                Thread.sleep(5000); // Wait for file to download
-            }
-        }
-
-        driver.quit();
-    }
-
-    private static String getYearFromQuarter(String q) {
-        return q.split(" ")[1];
-    }
-
-    private static String getMonthFromQuarter(String q) {
-        return switch (q.split(" ")[0]) {
-            case "Q1" -> "January";
-            case "Q2" -> "April";
-            case "Q3" -> "July";
-            case "Q4" -> "October";
-            default -> "";
-        };
-    }
+button:hover {
+  background-color: #0056b3;
 }
