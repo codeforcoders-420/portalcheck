@@ -1,0 +1,113 @@
+<div class="form-container">
+  <h2>Impact Report Form</h2>
+  <form id="impactReportForm">
+    <div class="form-row">
+      <label for="enhancement">Is this an enhancement (ENR) or BT?</label>
+      <input type="text" id="enhancement" name="enhancement" />
+    </div>
+
+    <div class="form-row">
+      <label for="trueBF">True BF (Yes/No):</label>
+      <input type="text" id="trueBF" name="trueBF" />
+    </div>
+
+    <div class="form-row">
+      <label for="category">Root cause category/classification:</label>
+      <input type="text" id="category" name="category" />
+    </div>
+
+    <div class="form-row">
+      <label for="arc">Recommended ARC:</label>
+      <input type="text" id="arc" name="arc" />
+    </div>
+
+    <div class="form-row">
+      <label for="awareDate">When did CareSource become aware of issue?</label>
+      <input type="date" id="awareDate" name="awareDate" />
+    </div>
+
+    <div class="form-row">
+      <label for="configDate">When did Config receive ticket?</label>
+      <input type="date" id="configDate" name="configDate" />
+    </div>
+
+    <div class="form-row">
+      <label for="correctedDate">When was the issue corrected in FACETS?</label>
+      <input type="date" id="correctedDate" name="correctedDate" />
+    </div>
+
+    <div class="form-row">
+      <label for="earliestDate">What is the earliest date of service on IR?</label>
+      <input type="date" id="earliestDate" name="earliestDate" />
+    </div>
+
+    <!-- Add more fields here following the same format -->
+
+    <div class="form-actions">
+      <button type="submit">Create IR Form</button>
+    </div>
+  </form>
+</div>
+
+
+***********************
+
+.form-container {
+  width: 70%;
+  margin: 30px auto;
+  background: #fff;
+  padding: 25px 40px;
+  border-radius: 12px;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.15);
+  font-family: 'Segoe UI', sans-serif;
+}
+
+h2 {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px 40px;
+}
+
+.form-row {
+  display: flex;
+  flex-direction: column;
+}
+
+label {
+  font-weight: 500;
+  margin-bottom: 5px;
+  text-align: left;
+}
+
+input,
+select {
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.form-actions {
+  grid-column: span 2;
+  text-align: center;
+  margin-top: 20px;
+}
+
+button {
+  background-color: #007bff;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+button:hover {
+  background-color: #0056b3;
+}
