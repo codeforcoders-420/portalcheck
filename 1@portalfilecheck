@@ -1,56 +1,165 @@
-@PostMapping("/download-file")
-@ResponseBody
-public ResponseEntity<String> downloadFile(@RequestBody CmsRequest filerequest) {
-    String storyNumber = filerequest.getStoryNumber();
-    String folderYear = filerequest.getFolderyear();       // Year from URL (used for folder path)
-    String userSelectedYear = filerequest.getUserSelectedyear(); // Year from dropdown (used for download logic)
-    String lob = filerequest.getLob();
-    String feeSchedule = filerequest.getFeeSchedule();
-    List<String> quarters = filerequest.getQuarters();
+Development of Spring Boot-Based Web Application for Automation Tools
+Overview:
+As part of our internal digital transformation and efficiency initiatives, I contributed significantly to the design and development of a Java-based Spring Boot web application that hosts a suite of automation tools. This project eliminates the dependency on standalone installations and enables cross-team accessibility through a centralized browser-based interface.
 
-    System.out.println("Story #: " + storyNumber);
-    System.out.println("Folder Year: " + folderYear);
-    System.out.println("Selected CMS Year: " + userSelectedYear);
-    System.out.println("LOB: " + lob);
-    System.out.println("Fee Schedule: " + feeSchedule);
-    System.out.println("Selected Quarters: " + quarters);
+Key Contributions:
 
-    try {
-        CmsFileChecker.downloadSelectedFiles(
-            feeSchedule,
-            quarters,
-            storyNumber,
-            folderYear,
-            lob,
-            feeSchedule,
-            userSelectedYear
-        );
-        return ResponseEntity.ok("Files checked and downloaded successfully!");
-    } catch (Exception e) {
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-            .body("Failed: " + e.getMessage());
-    }
-}
+Web Architecture & Backend:
 
-*******************************************
+Designed and developed a scalable backend using Spring Boot and Java 17, supporting multi-user sessions with Spring Security, role-based access, and session management.
 
-private String folderyear;          // from URL (used for folder structure)
-private String userSelectedyear;    // from dropdown (used for CMS file year)
+Implemented REST APIs to handle dynamic file input, validation, database queries, and Excel output generation.
 
-*******************************************
+Utilized Windows authentication to securely connect with Microsoft SQL Server Management Studio, eliminating hard-coded credentials.
 
-public String getFolderyear() {
-    return folderyear;
-}
-public void setFolderyear(String folderyear) {
-    this.folderyear = folderyear;
-}
+Frontend Development:
 
-public String getUserSelectedyear() {
-    return userSelectedyear;
-}
-public void setUserSelectedyear(String userSelectedyear) {
-    this.userSelectedyear = userSelectedyear;
-}
+Built interactive, responsive UI using HTML, CSS, Thymeleaf, and JavaScript, with intuitive forms for file uploads, dropdowns, and status messages.
 
-**************************************
+Integrated real-time features using WebSockets for live progress updates during long-running validations.
+
+Automation & Data Processing:
+
+Implemented logic to read Excel files, apply scrubbing/filtering rules, compare datasets, and generate result files.
+
+Automated workflows that previously required manual execution, improving speed and accuracy.
+
+Advanced Features:
+
+Auto-prefill mechanism to detect the latest files from shared folders for user convenience.
+
+Role-specific functionalities (Admin vs Analyst), such as user approval modals and login/session-based access control.
+
+Integrated post-processing logic for multi-quarter comparisons with intelligent categorization of changes (e.g., New Code, Rate Change, Terminate).
+
+DevOps and Deployment:
+
+Hosted the application using Apache Tomcat on a shared server, enabling access across the company network via browser.
+
+Managed version control and CI/CD pipelines using Git and internal repositories (e.g., JFrog Artifactory).
+
+Outcome & Impact:
+
+Improved operational efficiency and collaboration across teams by centralizing multiple utility tools into one platform.
+
+Reduced manual efforts by ~70% for validation and comparison tasks.
+
+Enabled faster turnaround and improved accuracy in data processing.
+
+Positive feedback received from both end users and stakeholders for usability and reliability.
+
+*******************************************************************************
+
+Automation Applications in the Spring Boot Web Platform
+Compare Files
+
+Compares two standard Excel files and highlights changes, including rate mismatches and new/terminated codes.
+
+Change File Generator
+
+Generates change files by comparing current and previous quarter fee schedules with precise classification of updates.
+
+PDF to Excel Converter
+
+Extracts tabular data from complex PDF files and converts it into clean, structured Excel sheets for further analysis.
+
+Standard File Analyzer
+
+Analyzes uploaded Excel files to apply scrub rules and classify records based on predefined logic and rate conditions.
+
+State Portal File Checker
+
+Navigates state portals to verify the availability of quarterly ASP pricing files and automates file downloads.
+
+Query Executor
+
+Executes dynamic SQL queries stored in Excel against the SQL Server database using Windows authentication and exports results to Excel.
+
+Access Database Comparator
+
+Uploads Excel data into MS Access and compares week-on-week data to identify mismatches and exact matches.
+
+DT Span Comparator
+
+Compares processed DT Span output with actual data from query results to identify discrepancies at a granular level.
+
+Pending Users Manager (Admin-only feature)
+
+Allows administrators to review and approve or reject pending user registrations from within the application UI.
+
+Login & Signup with Approval Workflow
+
+Enables secure login and user registration with admin approval and role-based access control.
+
+**********************************************************************************
+
+Project Title: Spring Boot Web Application for Automation Platform
+Overview:
+As part of a collaborative team initiative to centralize automation tools into a web-based platform, I played a key development role in designing and implementing a Spring Boot Java web application. This application replaces manual Excel-based processes with a scalable, browser-accessible interface that improves team productivity and reduces human errors.
+
+Key Contributions & Ownership:
+Core Development & Technical Leadership:
+
+Took primary ownership of the backend architecture using Spring Boot (Java 17), leading the implementation of key modules including file handling, Excel processing, database integration, and session-based login features.
+
+Collaborated with my team lead to validate the design approach, incorporating their suggestions into technical decisions.
+
+Modular Application Design:
+
+Designed and developed multiple automation modules, each built as a self-contained service, enabling smooth extensibility and maintenance.
+
+Collaboration & Team Integration:
+
+Worked closely with my team lead and peers during requirements gathering and sprint reviews, ensuring alignment with business needs and technical feasibility.
+
+Regularly shared progress through demos and Git commits, and participated in peer code reviews to uphold project code quality.
+
+Applications Developed (with Team Collaboration):
+Compare Files
+
+Led the development of this tool to detect mismatches between Excel files, including differences in procedure rates and modifier logic.
+
+Change File Generator
+
+Independently implemented file comparison logic to identify new codes, terminated records, and rate changes between quarterly fee schedules.
+
+PDF to Excel Converter
+
+Worked with the team to design parsing logic and took ownership of developing the core algorithm to extract complex PDF tables into structured Excel output.
+
+Standard File Analyzer
+
+Developed this module to apply scrub rules and automate classification of fee schedule entries based on business rules.
+
+State Portal File Checker
+
+Automated portal navigation using Selenium; collaborated with QA for validating various scenarios and file download confirmations.
+
+Query Executor
+
+Implemented logic to dynamically read SQL queries from Excel and connect to SQL Server using Windows authentication, reducing manual effort in executing bulk queries.
+
+Access Database Comparator
+
+Developed the workflow for importing Excel into MS Access and comparing weekly data for mismatches, working in sync with VBA developers to align logic.
+
+DT Span Comparator
+
+Owned the logic to match generated DT Span output with real-time database results, ensuring high accuracy in final reports.
+
+Pending Users Manager (Admin-only Feature)
+
+Built the modal interface and backend logic for admin-level approval of pending users, ensuring secure and seamless user management.
+
+User Authentication & Role Management
+
+Implemented role-based login/signup with session management, and introduced logic for account locking after failed login attempts.
+
+Outcome & Impact:
+Enabled cross-team access to critical automation tools through a single web interface.
+
+Reduced manual work and errors by 70–80% in comparison and validation processes.
+
+Fostered a collaborative development culture while independently delivering key modules on time.
+
+Received appreciation from stakeholders for the platform’s usability, reliability, and maintainability.
