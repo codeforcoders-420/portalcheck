@@ -225,3 +225,21 @@ Allows users to upload the most recent version of input files to initiate valida
 
 Facets NetworX Deliverable – Mississippi Medicaid Fee Schedule Deployment
 As part of the Facets NetworX initiative, I successfully led the delivery of the Mississippi Medicaid Fee Schedule to the Production environment. This deliverable involved handling 47 individual fee schedules, each of which I meticulously reviewed against Market-specific scrub rules to ensure data accuracy and compliance. I validated the structure, logic, and integrity of every fee schedule before deployment and worked closely with the relevant teams to ensure seamless integration into the Medicaid Fee Schedule tables. Additionally, I partnered with the RPA team to transition this manual process into a fully automated Robotic Process Automation (RPA) workflow — reducing future manual effort, ensuring repeatability, and enhancing long-term process efficiency.
+
+
+*******************
+
+Certainly! Here's a revised and enhanced version of **Point 3: Active Participation in Daily Triage and Proactive Ticket Management**, incorporating your additional responsibilities and contributions in a polished and professional tone:
+
+---
+
+### 3. Active Participation in Daily Triage and Proactive Ticket Management:
+
+Throughout this review period, I have consistently demonstrated active and accountable participation in our daily triage meetings. Acting as the first line of defense, I proactively accepted and analyzed stories during triage calls, especially those related to maintenance work. I have been responsible for providing accurate and timely change files to multiple teams across different workstreams. To ensure precision, I took extra care in **reviewing change records** meticulously, validating each record against its intended audience to avoid miscommunication or data gaps.
+
+Additionally, for fee schedules not included in the RPA automation process, I took initiative to **manually generate change files** using the **Maintenance Team's internal portal**, ensuring these were still delivered efficiently to the respective teams without delays. My collaboration with the RPA team further helped streamline automated change file generation, enabling smoother downstream processes and maintaining project timelines across multiple deliverables.
+
+---
+
+Let me know if you’d like Point 4 adjusted in a similar tone as well.
+
