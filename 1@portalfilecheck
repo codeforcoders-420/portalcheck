@@ -163,3 +163,59 @@ Reduced manual work and errors by 70–80% in comparison and validation processe
 Fostered a collaborative development culture while independently delivering key modules on time.
 
 Received appreciation from stakeholders for the platform’s usability, reliability, and maintainability.
+
+*************************************
+
+
+Applications in the E2E Workflow Automation Platform
+Change File [Scrub]
+
+Generates a change file after applying scrub rules to filter out invalid or incomplete records.
+
+Change File [No Scrub]
+
+Produces a raw change file by directly comparing datasets without applying scrub rules.
+
+DT Files Generate
+
+Creates DT Span files by transforming source Excel data into a standardized export format.
+
+PreDev - DB2DB
+
+Compares development environment database tables (pre-deployment) to identify discrepancies before release.
+
+PostDev - DB2DB
+
+Validates database integrity by comparing post-deployment tables in the development environment.
+
+Standard Change File
+
+Generates a standardized Excel change file summarizing procedure code updates across versions.
+
+Peer Review Validator
+
+Validates submitted peer review files for formatting, completeness, and logical consistency.
+
+IR Form Generator
+
+Automatically populates the Implementation Request (IR) form based on processed change data.
+
+PostPRD - DB2DB
+
+Compares production database tables after deployment to verify successful implementation.
+
+Impact Report Generator
+
+Generates a comprehensive report outlining the impact of fee schedule or procedural code changes.
+
+IR Compare
+
+Compares multiple Implementation Request files to identify differences and ensure consistency.
+
+Standard SQL Queries
+
+Executes a predefined set of SQL queries on the database to extract insights and verify data integrity.
+
+Upload Latest Files
+
+Allows users to upload the most recent version of input files to initiate validation and comparison workflows.
