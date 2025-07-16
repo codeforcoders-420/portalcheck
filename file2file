@@ -1,0 +1,204 @@
+package com.example.excelcompare;
+
+import java.util.*;
+import java.util.stream.Collectors;
+
+public class ExcelComparator {
+
+    public static void main(String[] args) throws Exception {
+        String file1Path = "src/main/resources/File1.xlsx";  // or .csv/.xls
+        String file2Path = "src/main/resources/File2.csv";
+        String outputPath = "output/Differences.xlsx";
+
+        List<Map<String, String>> data1 = ExcelUtils.readExcel(file1Path);
+        List<Map<String, String>> data2 = ExcelUtils.readExcel(file2Path);
+
+        List<Map<String, String>> differences = new ArrayList<>();
+
+        compareUsingHashMap(data1, data2, "File1", differences);
+        compareReverseForNewRecords(data2, data1, "File2", differences);
+
+        ExcelUtils.writeDifferences(outputPath,
+                data1.isEmpty() ? Set.of() : data1.get(0).keySet(),
+                differences);
+
+        System.out.println("✅ Comparison completed. Output written to: " + outputPath);
+    }
+
+    private static void compareUsingHashMap(List<Map<String, String>> source, List<Map<String, String>> target,
+                                            String sourceFileName, List<Map<String, String>> differences) {
+
+        Map<String, Map<String, String>> targetMap = target.stream()
+                .collect(Collectors.toMap(ExcelComparator::serializeRow, row -> row, (r1, r2) -> r1));
+
+        for (Map<String, String> row : source) {
+            String rowKey = serializeRow(row);
+            if (!targetMap.containsKey(rowKey)) {
+                boolean anyMatch = target.stream().anyMatch(tRow -> hasAnyMatchingField(row, tRow));
+                Map<String, String> diffRow = new LinkedHashMap<>(row);
+                diffRow.put("Differences", anyMatch ?
+                        findColumnDifferences(row, target) : "Record deleted in target file");
+                diffRow.put("File name", sourceFileName);
+                differences.add(diffRow);
+            }
+        }
+    }
+
+    private static void compareReverseForNewRecords(List<Map<String, String>> target, List<Map<String, String>> source,
+                                                    String targetFileName, List<Map<String, String>> differences) {
+
+        Map<String, Map<String, String>> sourceMap = source.stream()
+                .collect(Collectors.toMap(ExcelComparator::serializeRow, row -> row, (r1, r2) -> r1));
+
+        for (Map<String, String> row : target) {
+            String rowKey = serializeRow(row);
+            if (!sourceMap.containsKey(rowKey)) {
+                boolean anyMatch = source.stream().anyMatch(sRow -> hasAnyMatchingField(row, sRow));
+                Map<String, String> diffRow = new LinkedHashMap<>(row);
+                diffRow.put("Differences", anyMatch ?
+                        findColumnDifferences(row, source) : "New Record added in target");
+                diffRow.put("File name", targetFileName);
+                differences.add(diffRow);
+            }
+        }
+    }
+
+    private static String serializeRow(Map<String, String> row) {
+        return row.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(e -> e.getKey() + "=" + e.getValue())
+                .collect(Collectors.joining("|"));
+    }
+
+    private static String findColumnDifferences(Map<String, String> baseRow, List<Map<String, String>> compareList) {
+        Set<String> diffCols = new LinkedHashSet<>();
+        for (Map<String, String> compRow : compareList) {
+            for (String col : baseRow.keySet()) {
+                if (!baseRow.getOrDefault(col, "").equalsIgnoreCase(compRow.getOrDefault(col, ""))) {
+                    diffCols.add(col);
+                }
+            }
+        }
+        return String.join(", ", diffCols);
+    }
+
+    private static boolean hasAnyMatchingField(Map<String, String> row1, Map<String, String> row2) {
+        return row1.keySet().stream()
+                .anyMatch(col -> row1.getOrDefault(col, "").equalsIgnoreCase(row2.getOrDefault(col, "")));
+    }
+}
+
+
+***************************************
+
+package com.example.excelcompare;
+
+import org.apache.poi.hssf.usermodel.HSSFWorkbook;
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.*;
+import java.util.*;
+
+public class ExcelUtils {
+
+    public static List<Map<String, String>> readExcel(String filePath) throws IOException {
+        if (filePath.endsWith(".xlsx") || filePath.endsWith(".xls")) {
+            return readExcelSheet(filePath);
+        } else if (filePath.endsWith(".csv")) {
+            return readCSV(filePath);
+        } else {
+            throw new IllegalArgumentException("Unsupported file format: " + filePath);
+        }
+    }
+
+    private static List<Map<String, String>> readExcelSheet(String filePath) throws IOException {
+        List<Map<String, String>> data = new ArrayList<>();
+        try (InputStream is = new FileInputStream(filePath);
+             Workbook workbook = filePath.endsWith(".xls") ? new HSSFWorkbook(is) : new XSSFWorkbook(is)) {
+
+            Sheet sheet = workbook.getSheetAt(0);
+            Iterator<Row> rowIterator = sheet.iterator();
+            if (!rowIterator.hasNext()) return data;
+
+            Row headerRow = rowIterator.next();
+            List<String> headers = new ArrayList<>();
+            headerRow.forEach(cell -> headers.add(cell.getStringCellValue().trim()));
+
+            while (rowIterator.hasNext()) {
+                Row row = rowIterator.next();
+                Map<String, String> rowData = new LinkedHashMap<>();
+                for (int i = 0; i < headers.size(); i++) {
+                    Cell cell = row.getCell(i, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+                    rowData.put(headers.get(i), getCellValue(cell));
+                }
+                data.add(rowData);
+            }
+        }
+        return data;
+    }
+
+    private static List<Map<String, String>> readCSV(String filePath) throws IOException {
+        List<Map<String, String>> data = new ArrayList<>();
+        try (BufferedReader br = new BufferedReader(new FileReader(filePath))) {
+            String headerLine = br.readLine();
+            if (headerLine == null) return data;
+
+            String[] headers = headerLine.split(",");
+
+            String line;
+            while ((line = br.readLine()) != null) {
+                String[] values = line.split(",", -1);
+                Map<String, String> rowData = new LinkedHashMap<>();
+                for (int i = 0; i < headers.length; i++) {
+                    rowData.put(headers[i].trim(), i < values.length ? values[i].trim() : "");
+                }
+                data.add(rowData);
+            }
+        }
+        return data;
+    }
+
+    private static String getCellValue(Cell cell) {
+        return switch (cell.getCellType()) {
+            case STRING -> cell.getStringCellValue().trim();
+            case NUMERIC -> DateUtil.isCellDateFormatted(cell) ?
+                    cell.getDateCellValue().toString() :
+                    String.valueOf(cell.getNumericCellValue());
+            case BOOLEAN -> String.valueOf(cell.getBooleanCellValue());
+            case FORMULA -> cell.getCellFormula();
+            default -> "";
+        };
+    }
+
+    public static void writeDifferences(String outputPath, Set<String> headers, List<Map<String, String>> rows)
+            throws IOException {
+
+        try (Workbook workbook = new XSSFWorkbook();
+             FileOutputStream fos = new FileOutputStream(outputPath)) {
+
+            Sheet sheet = workbook.createSheet("Differences");
+            int rowIndex = 0;
+
+            Row headerRow = sheet.createRow(rowIndex++);
+            int colIndex = 0;
+            for (String h : headers) {
+                headerRow.createCell(colIndex++).setCellValue(h);
+            }
+            headerRow.createCell(colIndex++).setCellValue("Differences");
+            headerRow.createCell(colIndex).setCellValue("File name");
+
+            for (Map<String, String> rowData : rows) {
+                Row row = sheet.createRow(rowIndex++);
+                colIndex = 0;
+                for (String h : headers) {
+                    row.createCell(colIndex++).setCellValue(rowData.getOrDefault(h, ""));
+                }
+                row.createCell(colIndex++).setCellValue(rowData.getOrDefault("Differences", ""));
+                row.createCell(colIndex).setCellValue(rowData.getOrDefault("File name", ""));
+            }
+
+            workbook.write(fos);
+        }
+    }
+}
