@@ -202,3 +202,111 @@ public class ExcelUtils {
         }
     }
 }
+
+
+***************************************************************
+
+
+package com.example.excelcompare;
+
+import java.io.File;
+import java.util.*;
+import java.util.stream.Collectors;
+
+public class ExcelComparator {
+
+    public static void main(String[] args) throws Exception {
+        String inputFolder = "input/";
+        String outputPath = "output/Differences.xlsx";
+
+        File[] files = new File(inputFolder).listFiles((dir, name) ->
+                name.endsWith(".xlsx") || name.endsWith(".xls") || name.endsWith(".csv"));
+
+        if (files == null || files.length != 2) {
+            System.err.println("❌ Please make sure exactly TWO input files (.xlsx/.xls/.csv) are placed in the 'input/' folder.");
+            return;
+        }
+
+        String file1Path = files[0].getPath();
+        String file2Path = files[1].getPath();
+
+        System.out.println("✅ Comparing files:\n1. " + file1Path + "\n2. " + file2Path);
+
+        List<Map<String, String>> data1 = ExcelUtils.readExcel(file1Path);
+        List<Map<String, String>> data2 = ExcelUtils.readExcel(file2Path);
+
+        List<Map<String, String>> differences = new ArrayList<>();
+
+        compareUsingHashMap(data1, data2, files[0].getName(), differences);
+        compareReverseForNewRecords(data2, data1, files[1].getName(), differences);
+
+        ExcelUtils.writeDifferences(outputPath,
+                data1.isEmpty() ? Set.of() : data1.get(0).keySet(),
+                differences);
+
+        System.out.println("🎉 Comparison complete. Output written to: " + outputPath);
+    }
+
+    private static void compareUsingHashMap(List<Map<String, String>> source, List<Map<String, String>> target,
+                                            String sourceFileName, List<Map<String, String>> differences) {
+
+        Map<String, Map<String, String>> targetMap = target.stream()
+                .collect(Collectors.toMap(ExcelComparator::serializeRow, row -> row, (r1, r2) -> r1));
+
+        for (Map<String, String> row : source) {
+            String rowKey = serializeRow(row);
+            if (!targetMap.containsKey(rowKey)) {
+                boolean anyMatch = target.stream().anyMatch(tRow -> hasAnyMatchingField(row, tRow));
+                Map<String, String> diffRow = new LinkedHashMap<>(row);
+                diffRow.put("Differences", anyMatch ?
+                        findColumnDifferences(row, target) : "Record deleted in target file");
+                diffRow.put("File name", sourceFileName);
+                differences.add(diffRow);
+            }
+        }
+    }
+
+    private static void compareReverseForNewRecords(List<Map<String, String>> target, List<Map<String, String>> source,
+                                                    String targetFileName, List<Map<String, String>> differences) {
+
+        Map<String, Map<String, String>> sourceMap = source.stream()
+                .collect(Collectors.toMap(ExcelComparator::serializeRow, row -> row, (r1, r2) -> r1));
+
+        for (Map<String, String> row : target) {
+            String rowKey = serializeRow(row);
+            if (!sourceMap.containsKey(rowKey)) {
+                boolean anyMatch = source.stream().anyMatch(sRow -> hasAnyMatchingField(row, sRow));
+                Map<String, String> diffRow = new LinkedHashMap<>(row);
+                diffRow.put("Differences", anyMatch ?
+                        findColumnDifferences(row, source) : "New Record added in target");
+                diffRow.put("File name", targetFileName);
+                differences.add(diffRow);
+            }
+        }
+    }
+
+    private static String serializeRow(Map<String, String> row) {
+        return row.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(e -> e.getKey() + "=" + e.getValue())
+                .collect(Collectors.joining("|"));
+    }
+
+    private static String findColumnDifferences(Map<String, String> baseRow, List<Map<String, String>> compareList) {
+        Set<String> diffCols = new LinkedHashSet<>();
+        for (Map<String, String> compRow : compareList) {
+            for (String col : baseRow.keySet()) {
+                if (!baseRow.getOrDefault(col, "").equalsIgnoreCase(compRow.getOrDefault(col, ""))) {
+                    diffCols.add(col);
+                }
+            }
+        }
+        return String.join(", ", diffCols);
+    }
+
+    private static boolean hasAnyMatchingField(Map<String, String> row1, Map<String, String> row2) {
+        return row1.keySet().stream()
+                .anyMatch(col -> row1.getOrDefault(col, "").equalsIgnoreCase(row2.getOrDefault(col, "")));
+    }
+}
+
