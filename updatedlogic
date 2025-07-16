@@ -330,3 +330,62 @@ public class ExcelComparator {
     }
 }
 
+******************************
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.*;
+import java.util.Arrays;
+import java.util.List;
+
+public class FileMover {
+
+    public static void main(String[] args) {
+        // List of file names to extract (with extension)
+        List<String> filenamesToExtract = Arrays.asList(
+            "example1.txt", "report.pdf", "data.xlsx"
+        );
+
+        // Define source and target directories
+        String sourceFolderPath = "C:/Users/YourUsername/Downloads/sourceFolder";
+        String targetFolderPath = "C:/Users/YourUsername/Downloads/targetFolder";
+
+        moveMatchingFiles(filenamesToExtract, sourceFolderPath, targetFolderPath);
+    }
+
+    public static void moveMatchingFiles(List<String> filenames, String sourcePath, String targetPath) {
+        File sourceFolder = new File(sourcePath);
+        File targetFolder = new File(targetPath);
+
+        // Create target folder if it doesn't exist
+        if (!targetFolder.exists()) {
+            boolean created = targetFolder.mkdirs();
+            if (!created) {
+                System.err.println("Failed to create target folder.");
+                return;
+            }
+        }
+
+        File[] sourceFiles = sourceFolder.listFiles();
+        if (sourceFiles == null) {
+            System.err.println("Source folder does not exist or is not accessible.");
+            return;
+        }
+
+        for (File file : sourceFiles) {
+            if (file.isFile() && filenames.contains(file.getName())) {
+                try {
+                    Path sourceFile = file.toPath();
+                    Path targetFile = Paths.get(targetPath, file.getName());
+
+                    Files.move(sourceFile, targetFile, StandardCopyOption.REPLACE_EXISTING);
+                    System.out.println("Moved: " + file.getName());
+                } catch (IOException e) {
+                    System.err.println("Error moving file: " + file.getName());
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+}
+
