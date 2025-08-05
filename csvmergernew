@@ -1,0 +1,247 @@
+import com.opencsv.CSVReader;
+import com.opencsv.CSVWriter;
+
+import java.io.*;
+import java.nio.file.*;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.regex.*;
+import java.util.stream.Collectors;
+
+public class CsvMonthlyFileMerger {
+
+    record RecordWithSource(
+            String procCode, String mod, String eff, String term, String method,
+            String allowed, String mod2, String mod3, String mod4, String active,
+            String fileMonth) {
+
+        String getKey() {
+            return procCode + "|" + mod + "|" + mod2 + "|" + mod3 + "|" + mod4;
+        }
+
+        boolean isOpenTerm() {
+            return term.equals("12/31/9999");
+        }
+
+        double getAllowedVal() {
+            try {
+                return Double.parseDouble(allowed.trim());
+            } catch (Exception e) {
+                return 0;
+            }
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (!(o instanceof RecordWithSource other)) return false;
+            return procCode.equals(other.procCode) &&
+                    mod.equals(other.mod) &&
+                    eff.equals(other.eff) &&
+                    term.equals(other.term) &&
+                    method.equals(other.method) &&
+                    allowed.equals(other.allowed) &&
+                    mod2.equals(other.mod2) &&
+                    mod3.equals(other.mod3) &&
+                    mod4.equals(other.mod4) &&
+                    active.equals(other.active);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(procCode, mod, eff, term, method, allowed, mod2, mod3, mod4, active);
+        }
+    }
+
+    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("M/d/yyyy");
+    private static final List<String> MONTHS = List.of(
+            "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+            "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"
+    );
+    private static final Map<String, Integer> MONTH_INDEX_MAP = new HashMap<>();
+    static {
+        for (int i = 0; i < MONTHS.size(); i++) {
+            MONTH_INDEX_MAP.put(MONTHS.get(i), i);
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
+        String inputFolder = "src/files/";
+        String outputFile = "src/output/Combined.csv";
+
+        List<Path> monthlyFiles = Files.list(Paths.get(inputFolder))
+                .filter(Files::isRegularFile)
+                .filter(p -> p.toString().endsWith(".csv"))
+                .filter(p -> containsMonth(p.getFileName().toString()))
+                .sorted(Comparator.comparingInt(p ->
+                        MONTHS.indexOf(extractMonthFromFileName(p.getFileName().toString()).toUpperCase())))
+                .collect(Collectors.toList());
+
+        Map<String, List<RecordWithSource>> monthToRecords = new LinkedHashMap<>();
+        Map<String, List<RecordWithSource>> partialMonthToRecords = new LinkedHashMap<>();
+        Map<String, Integer> monthToYear = new HashMap<>();
+
+        for (Path file : monthlyFiles) {
+            String fileName = file.getFileName().toString();
+            String month = extractMonthFromFileName(fileName);
+            int year = extractYearFromFileName(fileName);
+            boolean isPartial = fileName.toUpperCase().contains("PARTIAL");
+
+            List<RecordWithSource> records = readValidRecords(file.toString(), month);
+            if (isPartial) {
+                partialMonthToRecords.put(month, records);
+            } else {
+                monthToRecords.put(month, records);
+            }
+            monthToYear.put(month, year);
+        }
+
+        // ✅ Apply Partial File Logic
+        for (String partialMonth : partialMonthToRecords.keySet()) {
+            List<RecordWithSource> partialRecords = partialMonthToRecords.get(partialMonth);
+            int partialIndex = MONTH_INDEX_MAP.get(partialMonth.toUpperCase());
+            if (partialIndex <= 0) continue;
+
+            String prevMonth = MONTHS.get(partialIndex - 1);
+            List<RecordWithSource> previousRecords = monthToRecords.get(prevMonth);
+            if (previousRecords == null) continue;
+
+            LocalDate partialStart = LocalDate.of(monthToYear.get(partialMonth), partialIndex + 1, 1);
+            String newTermStr = partialStart.minusDays(1).format(DATE_FORMAT);
+
+            for (RecordWithSource partialRec : partialRecords) {
+                if (!partialRec.isOpenTerm()) continue;
+
+                for (int i = 0; i < previousRecords.size(); i++) {
+                    RecordWithSource prevRec = previousRecords.get(i);
+                    if (prevRec.isOpenTerm() && partialRec.getKey().equals(prevRec.getKey())) {
+                        // Update Termination in previous record
+                        RecordWithSource updated = new RecordWithSource(
+                                prevRec.procCode(), prevRec.mod(), prevRec.eff(), newTermStr,
+                                prevRec.method(), prevRec.allowed(), prevRec.mod2(),
+                                prevRec.mod3(), prevRec.mod4(), prevRec.active(), prevRec.fileMonth()
+                        );
+                        previousRecords.set(i, updated);
+                    }
+                }
+            }
+        }
+
+        // ✅ Merge all records
+        Map<String, List<RecordWithSource>> groupedByKey = new HashMap<>();
+        monthToRecords.forEach((month, list) ->
+                list.forEach(r -> groupedByKey.computeIfAbsent(r.getKey(), k -> new ArrayList<>()).add(r)));
+        partialMonthToRecords.forEach((month, list) ->
+                list.forEach(r -> groupedByKey.computeIfAbsent(r.getKey(), k -> new ArrayList<>()).add(r)));
+
+        Map<RecordWithSource, RecordWithSource> uniqueRecords = new LinkedHashMap<>();
+
+        for (Map.Entry<String, List<RecordWithSource>> entry : groupedByKey.entrySet()) {
+            List<RecordWithSource> group = entry.getValue();
+            group.sort(Comparator.comparingInt(r -> MONTHS.indexOf(r.fileMonth().toUpperCase())));
+
+            boolean hasClosed = group.stream().anyMatch(r -> !r.isOpenTerm());
+            boolean hasOpen = group.stream().anyMatch(RecordWithSource::isOpenTerm);
+
+            if (hasClosed && hasOpen) {
+                RecordWithSource latestOpen = group.stream()
+                        .filter(RecordWithSource::isOpenTerm)
+                        .max(Comparator.comparingDouble(RecordWithSource::getAllowedVal))
+                        .orElse(null);
+
+                group.stream()
+                        .filter(r -> !r.isOpenTerm())
+                        .forEach(r -> uniqueRecords.put(r, r));
+
+                if (latestOpen != null) {
+                    uniqueRecords.put(latestOpen, latestOpen);
+                }
+
+            } else if (hasOpen) {
+                RecordWithSource highestAllowedOpen = group.stream()
+                        .filter(RecordWithSource::isOpenTerm)
+                        .max(Comparator.comparingDouble(RecordWithSource::getAllowedVal))
+                        .orElse(null);
+
+                if (highestAllowedOpen != null) {
+                    uniqueRecords.put(highestAllowedOpen, highestAllowedOpen);
+                }
+
+            } else {
+                for (RecordWithSource r : group) {
+                    RecordWithSource existing = uniqueRecords.get(r);
+                    if (existing == null ||
+                            MONTHS.indexOf(r.fileMonth().toUpperCase()) >
+                                    MONTHS.indexOf(existing.fileMonth().toUpperCase())) {
+                        uniqueRecords.put(r, r);
+                    }
+                }
+            }
+        }
+
+        // ✅ Write final output
+        try (CSVWriter writer = new CSVWriter(new FileWriter(outputFile))) {
+            writer.writeNext(new String[]{
+                    "Procedure Code", "Modifier", "Effective", "Termination",
+                    "Reimbursement Method", "Allowed", "Modifier2", "Modifier3", "Modifier4", "Active", "File Name"
+            });
+
+            for (RecordWithSource r : uniqueRecords.values()) {
+                writer.writeNext(new String[]{
+                        r.procCode(), r.mod(), r.eff(), r.term(), r.method(), r.allowed(),
+                        r.mod2(), r.mod3(), r.mod4(), r.active(), r.fileMonth()
+                });
+            }
+        }
+
+        System.out.println("✅ Final output written to: " + outputFile);
+    }
+
+    private static boolean containsMonth(String fileName) {
+        return MONTHS.stream().anyMatch(m -> fileName.toUpperCase().contains(m));
+    }
+
+    private static String extractMonthFromFileName(String fileName) {
+        return MONTHS.stream()
+                .filter(fileName.toUpperCase()::contains)
+                .findFirst()
+                .orElse("Unknown");
+    }
+
+    private static int extractYearFromFileName(String filename) {
+        Pattern p = Pattern.compile("(20\\d{2})");
+        Matcher m = p.matcher(filename);
+        if (m.find()) {
+            return Integer.parseInt(m.group(1));
+        }
+        return 2025; // default fallback
+    }
+
+    private static List<RecordWithSource> readValidRecords(String filePath, String fileMonth) throws Exception {
+        List<RecordWithSource> records = new ArrayList<>();
+
+        try (CSVReader reader = new CSVReader(new FileReader(filePath))) {
+            reader.readNext(); // skip header
+            String[] line;
+            while ((line = reader.readNext()) != null) {
+                String term = line[4];
+                LocalDate termDate = parseDate(term);
+                if (termDate == null || termDate.isBefore(LocalDate.of(2024, 12, 31))) continue;
+
+                records.add(new RecordWithSource(
+                        line[0], line[1], line[3], line[4], line[5], line[6],
+                        line[10], line[11], line[12], line[13], fileMonth
+                ));
+            }
+        }
+        return records;
+    }
+
+    private static LocalDate parseDate(String dateStr) {
+        try {
+            return LocalDate.parse(dateStr, DATE_FORMAT);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+}
