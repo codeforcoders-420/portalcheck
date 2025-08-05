@@ -1,0 +1,115 @@
+import com.opencsv.CSVReader;
+import com.opencsv.CSVWriter;
+
+import java.io.*;
+import java.nio.file.*;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.stream.Collectors;
+
+public class CsvMonthlyFileMerger {
+
+    record Record(String procCode, String mod, String eff, String term, String method,
+                  String allowed, String mod2, String mod3, String mod4, String active) {}
+
+    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("M/d/yyyy");
+
+    private static final List<String> MONTHS = List.of(
+            "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+            "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"
+    );
+
+    public static void main(String[] args) throws Exception {
+        String inputFolder = "src/files/";
+        String outputFile = "src/output/Combined.csv";
+
+        // Step 1: Read all valid files from folder
+        List<Path> monthlyFiles = Files.list(Paths.get(inputFolder))
+                .filter(Files::isRegularFile)
+                .filter(p -> p.toString().endsWith(".csv"))
+                .filter(p -> containsMonth(p.getFileName().toString()))
+                .collect(Collectors.toList());
+
+        if (monthlyFiles.size() < 3) {
+            System.out.println("Less than 3 monthly files found. Please check folder.");
+            return;
+        }
+
+        // Step 2: Load filtered records from each file
+        List<Set<Record>> monthlyRecordSets = new ArrayList<>();
+        for (Path file : monthlyFiles) {
+            monthlyRecordSets.add(readValidRecords(file.toString()));
+        }
+
+        // Step 3: Find common records across all months
+        Set<Record> commonInAll = new HashSet<>(monthlyRecordSets.get(0));
+        for (int i = 1; i < monthlyRecordSets.size(); i++) {
+            commonInAll.retainAll(monthlyRecordSets.get(i));
+        }
+
+        // Step 4: Group records by procedure+modifiers
+        Map<String, List<Record>> grouped = monthlyRecordSets.stream()
+                .flatMap(Set::stream)
+                .collect(Collectors.groupingBy(rec -> rec.procCode() + "|" + rec.mod() + "|" +
+                        rec.mod2() + "|" + rec.mod3() + "|" + rec.mod4()));
+
+        // Step 5: Write output
+        try (CSVWriter writer = new CSVWriter(new FileWriter(outputFile))) {
+            writer.writeNext(new String[]{"Procedure Code", "Modifier", "Effective", "Termination", "Reimbursement Method",
+                    "Allowed", "Modifier2", "Modifier3", "Modifier4", "Active"});
+
+            commonInAll.forEach(r -> writer.writeNext(toRow(r)));
+
+            writer.writeNext(new String[]{"", "", "", "", "", "", "", "", "", ""});
+            writer.writeNext(new String[]{"Grouped Records:"});
+
+            for (var entry : grouped.entrySet()) {
+                for (Record r : entry.getValue()) {
+                    writer.writeNext(toRow(r));
+                }
+                writer.writeNext(new String[]{"----------------------"});
+            }
+        }
+
+        System.out.println("Merged CSV written to: " + outputFile);
+    }
+
+    private static boolean containsMonth(String fileName) {
+        return MONTHS.stream().anyMatch(m -> fileName.toUpperCase().contains(m));
+    }
+
+    private static Set<Record> readValidRecords(String filePath) throws Exception {
+        Set<Record> records = new HashSet<>();
+        try (CSVReader reader = new CSVReader(new FileReader(filePath))) {
+            String[] header = reader.readNext(); // Skip header
+            String[] line;
+            while ((line = reader.readNext()) != null) {
+                String termination = line[4];
+                LocalDate termDate = parseDate(termination);
+                if (termDate != null && !termDate.isBefore(LocalDate.of(2024, 12, 31))) {
+                    records.add(new Record(
+                            line[0], line[1], line[3], line[4], line[5], line[6],
+                            line[10], line[11], line[12], line[13]
+                    ));
+                }
+            }
+        }
+        return records;
+    }
+
+    private static LocalDate parseDate(String dateStr) {
+        try {
+            return LocalDate.parse(dateStr.replace("9999", "9999"), DATE_FORMAT);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String[] toRow(Record r) {
+        return new String[]{
+                r.procCode(), r.mod(), r.eff(), r.term(), r.method(), r.allowed(),
+                r.mod2(), r.mod3(), r.mod4(), r.active()
+        };
+    }
+}
