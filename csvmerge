@@ -228,3 +228,55 @@ public class CsvMonthlyFileMerger {
     }
 }
 
+
+********************************************************************************************
+
+private static Set<Record> readValidRecords(String filePath) throws Exception {
+    Map<String, Record> latestAllowedMap = new LinkedHashMap<>();
+    try (CSVReader reader = new CSVReader(new FileReader(filePath))) {
+        String[] header = reader.readNext(); // skip header
+        String[] line;
+        while ((line = reader.readNext()) != null) {
+            String term = line[4];
+            LocalDate termDate = parseDate(term);
+            if (termDate == null || termDate.isBefore(LocalDate.of(2024, 12, 31))) continue;
+
+            String allowedStr = line[6].trim();
+            double allowed;
+            try {
+                allowed = Double.parseDouble(allowedStr);
+            } catch (NumberFormatException e) {
+                continue; // Skip rows with invalid allowed values
+            }
+
+            Record current = new Record(
+                    line[0], line[1], line[3], line[4], line[5], line[6],
+                    line[10], line[11], line[12], line[13]
+            );
+
+            // Key: PROC + MOD1 + MOD2 + MOD3 + MOD4 only for Term = 12/31/9999
+            String key = line[0] + "|" + line[1] + "|" + line[10] + "|" + line[11] + "|" + line[12];
+            if (term.equals("12/31/9999")) {
+                Record existing = latestAllowedMap.get(key);
+                if (existing == null || parseDouble(existing.allowed()) < allowed) {
+                    latestAllowedMap.put(key, current);
+                }
+            } else {
+                // If term is not 9999, just add as is (no override check)
+                latestAllowedMap.put(UUID.randomUUID().toString(), current);
+            }
+        }
+    }
+    return new LinkedHashSet<>(latestAllowedMap.values());
+}
+
+private static double parseDouble(String value) {
+    try {
+        return Double.parseDouble(value.trim());
+    } catch (Exception e) {
+        return 0;
+    }
+}
+
+
+
