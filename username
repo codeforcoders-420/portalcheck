@@ -1,0 +1,27 @@
+<input type="hidden" id="csid" name="csid" th:value="${csid}" />
+
+
+***************************
+
+@GetMapping("/index")
+public String index(Model model, Principal principal) {
+    String csid = principal.getName(); // example: cs920074
+    model.addAttribute("csid", csid);
+    return "index"; // loads index.html
+}
+
+
+*******************************
+
+<span style="font-weight:bold;">Logged in user: <span th:text="${csid}"></span></span>
+
+
+***************************
+
+<input type="hidden" id="csid" name="csid" th:value="${csid}" />
+
+const csid = document.getElementById('csid').value;
+
+
+**********************************
+
