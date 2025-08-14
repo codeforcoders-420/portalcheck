@@ -1,3 +1,21 @@
+# === H2 file database (persists to disk) ===
+spring.datasource.url=jdbc:h2:file:./data/portaldb;DB_CLOSE_DELAY=-1;AUTO_SERVER=TRUE
+spring.datasource.driverClassName=org.h2.Driver
+spring.datasource.username=sa
+spring.datasource.password=
+
+# JPA
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=false
+
+# H2 console (handy on remote)
+spring.h2.console.enabled=true
+spring.h2.console.path=/h2-console
+
+
+************************************************************************************
+
+
 src/main/java/com/yourco/portal/audit/AuditUserSession.java
 
 package com.yourco.portal.audit;
