@@ -131,3 +131,21 @@ public class SessionEndedListener implements ApplicationListener<SessionDestroye
 }
 
 ******************************************
+
+@Bean
+public LogoutSuccessHandler logoutSuccess(UserSessionService sessions) {
+    return (request, response, authentication) -> {
+        if (request.getSession(false) != null) {
+            String sessionId = request.getSession(false).getId();
+            System.out.println("🟡 Logging out session: " + sessionId); // ADD THIS
+            sessions.end(sessionId);
+        }
+        response.sendRedirect("/login?logout");
+    };
+}
+
+
+System.out.println("✅ Session ended: " + sessionId);
+
+
+
