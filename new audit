@@ -1,0 +1,133 @@
+src/main/java/com/yourco/portal/audit/UserSessionService.java
+
+package com.yourco.portal.audit;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
+
+@Service
+public class UserSessionService {
+    private final AuditUserSessionRepo repo;
+
+    public UserSessionService(AuditUserSessionRepo repo) {
+        this.repo = repo;
+    }
+
+    @Transactional
+    public void start(String csid, String sessionId, String ip, String userAgent) {
+        var session = new AuditUserSession();
+        session.setCsid(csid);
+        session.setSessionId(sessionId);
+        session.setLoginAt(Instant.now());
+        session.setIp(ip);
+        session.setUserAgent(userAgent);
+        repo.save(session);
+    }
+
+    @Transactional
+    public void end(String sessionId) {
+        repo.findTopBySessionIdOrderByLoginAtDesc(sessionId).ifPresent(session -> {
+            if (session.getLogoutAt() == null) {
+                session.setLogoutAt(Instant.now());
+                repo.save(session);
+            }
+        });
+    }
+}
+
+*****************************************************************
+
+src/main/java/com/yourco/portal/security/SecurityConfig.java
+
+package com.yourco.portal.security;
+
+import com.yourco.portal.audit.UserSessionService;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
+import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
+
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+
+@Configuration
+public class SecurityConfig {
+
+    @Bean
+    public AuthenticationSuccessHandler authSuccess(UserSessionService sessions) {
+        return (request, response, authentication) -> {
+            String csid = authentication.getName(); // Logged-in CSID
+            String sessionId = request.getSession().getId();
+            String ip = clientIp(request);
+            String userAgent = request.getHeader("User-Agent");
+            sessions.start(csid, sessionId, ip, userAgent);
+            response.sendRedirect("/index"); // redirect after login
+        };
+    }
+
+    @Bean
+    public LogoutSuccessHandler logoutSuccess(UserSessionService sessions) {
+        return (request, response, authentication) -> {
+            if (request.getSession(false) != null) {
+                sessions.end(request.getSession(false).getId());
+            }
+            response.sendRedirect("/login?logout");
+        };
+    }
+
+    private String clientIp(HttpServletRequest request) {
+        String xff = request.getHeader("X-Forwarded-For");
+        return (xff != null && !xff.isBlank()) ? xff.split(",")[0].trim() : request.getRemoteAddr();
+    }
+
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http,
+                                           AuthenticationSuccessHandler successHandler,
+                                           LogoutSuccessHandler logoutHandler) throws Exception {
+        http
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/login", "/signup", "/h2-console/**", "/css/**", "/js/**").permitAll()
+                .anyRequest().authenticated())
+            .formLogin(login -> login
+                .loginPage("/login")
+                .successHandler(successHandler)
+                .permitAll())
+            .logout(logout -> logout
+                .logoutUrl("/logout")
+                .logoutSuccessHandler(logoutHandler)
+                .permitAll())
+            .headers(headers -> headers.frameOptions().sameOrigin());
+
+        return http.build();
+    }
+}
+
+****************************************************************
+
+src/main/java/com/yourco/portal/audit/SessionEndedListener.java
+
+package com.yourco.portal.audit;
+
+import org.springframework.context.ApplicationListener;
+import org.springframework.security.core.session.SessionDestroyedEvent;
+import org.springframework.stereotype.Component;
+
+@Component
+public class SessionEndedListener implements ApplicationListener<SessionDestroyedEvent> {
+
+    private final UserSessionService sessions;
+
+    public SessionEndedListener(UserSessionService sessions) {
+        this.sessions = sessions;
+    }
+
+    @Override
+    public void onApplicationEvent(SessionDestroyedEvent event) {
+        sessions.end(event.getId()); // closes session if browser is closed
+    }
+}
+
+******************************************
