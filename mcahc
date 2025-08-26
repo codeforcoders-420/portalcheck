@@ -1,0 +1,147 @@
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.poi.xssf.streaming.SXSSFWorkbook;
+
+import java.io.*;
+import java.util.*;
+
+public class MCAHCScrubber {
+
+    private static final String INPUT_FILE = "src/main/resources/CAHCP_012025.xlsx";
+    private static final String OUTPUT_FILE = "src/main/resources/MI_MD_MCAHC_Scrubbed.xlsx";
+
+    public static void main(String[] args) {
+        try (Workbook inputWorkbook = new XSSFWorkbook(new FileInputStream(INPUT_FILE));
+             SXSSFWorkbook outputWorkbook = new SXSSFWorkbook();
+             FileOutputStream fos = new FileOutputStream(OUTPUT_FILE)) {
+
+            Sheet inputSheet = inputWorkbook.getSheetAt(0);
+            Sheet outputSheet = outputWorkbook.createSheet("Scrubbed Data");
+
+            // Dynamically find header row
+            int headerRowIndex = findHeaderRowIndex(inputSheet);
+            if (headerRowIndex == -1) {
+                throw new RuntimeException("❌ Could not locate header row.");
+            }
+
+            Row headerRow = inputSheet.getRow(headerRowIndex);
+
+            // Track needed column indexes
+            Map<String, Integer> selectedColIndexes = new HashMap<>();
+            int rateCol = -1, ageCol = -1;
+
+            // Build output header row with selected columns
+            Row outputHeader = outputSheet.createRow(0);
+            List<String> selectedColumns = List.of("Code", "Modifier", "Age Range", "Rate", "Effective Date");
+            for (Cell cell : headerRow) {
+                String colName = cell.getStringCellValue().trim().replaceAll("\\*+", "");
+                int colIndex = cell.getColumnIndex();
+                if (selectedColumns.contains(colName)) {
+                    selectedColIndexes.put(colName, colIndex);
+                    outputHeader.createCell(selectedColIndexes.size() - 1).setCellValue(colName);
+                }
+                if (colName.equalsIgnoreCase("Rate")) rateCol = colIndex;
+                if (colName.equalsIgnoreCase("Age Range")) ageCol = colIndex;
+            }
+
+            if (rateCol == -1 || ageCol == -1) {
+                throw new IllegalStateException("Missing required columns: Rate or Age Range.");
+            }
+
+            int outputRowNum = 1;
+            for (int i = headerRowIndex + 1; i <= inputSheet.getLastRowNum(); i++) {
+                Row row = inputSheet.getRow(i);
+                if (row == null) continue;
+
+                String rate = getCellValue(row.getCell(rateCol));
+                String ageRange = getCellValue(row.getCell(ageCol));
+
+                if (shouldIncludeRow(rate, ageRange)) {
+                    Row outRow = outputSheet.createRow(outputRowNum++);
+                    for (String colName : selectedColumns) {
+                        Integer j = selectedColIndexes.get(colName);
+                        if (j == null || j >= row.getLastCellNum()) continue;
+
+                        Cell sourceCell = row.getCell(j);
+                        Cell targetCell = outRow.createCell(selectedColumns.indexOf(colName));
+                        if (sourceCell == null) continue;
+
+                        switch (sourceCell.getCellType()) {
+                            case STRING -> targetCell.setCellValue(sourceCell.getStringCellValue());
+                            case NUMERIC -> {
+                                if (colName.equalsIgnoreCase("Rate")) {
+                                    targetCell.setCellValue(String.format("%.4f", sourceCell.getNumericCellValue()));
+                                } else {
+                                    targetCell.setCellValue(sourceCell.getNumericCellValue());
+                                }
+                            }
+                            case BOOLEAN -> targetCell.setCellValue(sourceCell.getBooleanCellValue());
+                            default -> targetCell.setCellValue(getCellValue(sourceCell));
+                        }
+                    }
+                }
+            }
+
+            outputWorkbook.write(fos);
+            System.out.println("✅ Export completed: " + OUTPUT_FILE);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static int findHeaderRowIndex(Sheet sheet) {
+        List<String> requiredHeaders = List.of("Code", "Modifier", "Age Range", "Rate", "Effective Date");
+
+        for (int i = 0; i <= sheet.getLastRowNum(); i++) {
+            Row row = sheet.getRow(i);
+            if (row == null) continue;
+
+            Set<String> cellValues = new HashSet<>();
+            for (Cell cell : row) {
+                if (cell.getCellType() == CellType.STRING) {
+                    String value = cell.getStringCellValue().trim().replaceAll("\\*+", "");
+                    cellValues.add(value);
+                }
+            }
+
+            if (cellValues.containsAll(requiredHeaders)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static boolean shouldIncludeRow(String rate, String ageRange) {
+        if (rate == null || rate.isBlank()) return false;
+        String cleanedRate = rate.trim().toUpperCase();
+        if (cleanedRate.equals("$0.00") || cleanedRate.equals("0") || cleanedRate.equals("M") || cleanedRate.equals("NA")) {
+            return false;
+        }
+
+        return !isUnder21(ageRange);
+    }
+
+    private static boolean isUnder21(String ageRange) {
+        try {
+            String lower = ageRange.split("to")[0].trim().toLowerCase();
+            if (lower.contains("month") || lower.contains("week") || lower.contains("day")) return true;
+
+            double minAge = Double.parseDouble(lower.replaceAll("[^\\d.]", ""));
+            return minAge < 21;
+        } catch (Exception e) {
+            return true; // exclude if parsing fails
+        }
+    }
+
+    private static String getCellValue(Cell cell) {
+        if (cell == null) return "";
+        return switch (cell.getCellType()) {
+            case STRING -> cell.getStringCellValue();
+            case NUMERIC -> String.valueOf(cell.getNumericCellValue());
+            case BOOLEAN -> String.valueOf(cell.getBooleanCellValue());
+            case FORMULA -> cell.getCellFormula();
+            default -> "";
+        };
+    }
+}
