@@ -148,17 +148,22 @@ public class MCAHCScrubber {
     }
 
     // Check if the lower bound of age range is under 21
-    private static boolean isUnder21(String ageRange) {
-        try {
-            String lower = ageRange.split("to")[0].trim().toLowerCase();
-            if (lower.contains("month") || lower.contains("week") || lower.contains("day")) return true;
+   private static boolean isUnder21(String ageRange) {
+    try {
+        String lower = ageRange.split("to")[0].trim().toLowerCase();
 
-            double minAge = Double.parseDouble(lower.replaceAll("[^\\d.]", ""));
-            return minAge < 21;
-        } catch (Exception e) {
-            return false; // If parsing fails, assume valid
-        }
+        if (lower.contains("month") || lower.contains("week") || lower.contains("day")) return true;
+
+        // Extract just the first numeric part (before "to")
+        String[] numbers = lower.split("[^0-9.]+");
+        double minAge = Double.parseDouble(numbers[0]);
+
+        return minAge < 21;
+    } catch (Exception e) {
+        return false; // If parsing fails, assume valid
     }
+}
+
 
     private static String getCellValue(Cell cell) {
         if (cell == null) return "";
