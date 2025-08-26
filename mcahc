@@ -15,12 +15,10 @@ public class MCAHCScrubber {
             File inputDir = new File(INPUT_FOLDER);
             File outputDir = new File(OUTPUT_FOLDER);
 
-            // Create output folder if not exists
             if (!outputDir.exists()) {
                 outputDir.mkdirs();
             }
 
-            // Get the first .xlsx file in the input folder
             File[] excelFiles = inputDir.listFiles((dir, name) -> name.toLowerCase().endsWith(".xlsx") && !name.startsWith("~$"));
             if (excelFiles == null || excelFiles.length == 0) {
                 System.out.println("❌ No Excel (.xlsx) file found in the input folder.");
@@ -39,9 +37,7 @@ public class MCAHCScrubber {
                 Sheet outputSheet = outputWorkbook.createSheet("Scrubbed Data");
 
                 int headerRowIndex = findHeaderRowIndex(inputSheet);
-                if (headerRowIndex == -1) {
-                    throw new RuntimeException("❌ Could not locate header row.");
-                }
+                if (headerRowIndex == -1) throw new RuntimeException("❌ Header row not found.");
 
                 Row headerRow = inputSheet.getRow(headerRowIndex);
                 Map<String, Integer> selectedColIndexes = new HashMap<>();
@@ -61,9 +57,7 @@ public class MCAHCScrubber {
                     if (colName.equalsIgnoreCase("Age Range")) ageCol = colIndex;
                 }
 
-                if (rateCol == -1 || ageCol == -1) {
-                    throw new IllegalStateException("Missing required columns: Rate or Age Range.");
-                }
+                if (rateCol == -1 || ageCol == -1) throw new IllegalStateException("Missing Rate or Age Range columns.");
 
                 int outputRowNum = 1;
                 for (int i = headerRowIndex + 1; i <= inputSheet.getLastRowNum(); i++) {
@@ -100,7 +94,7 @@ public class MCAHCScrubber {
                 }
 
                 outputWorkbook.write(fos);
-                System.out.println("✅ Scrubbed file exported to: " + outputFilePath);
+                System.out.println("✅ Exported to: " + outputFilePath);
 
             }
 
@@ -109,7 +103,6 @@ public class MCAHCScrubber {
         }
     }
 
-    // Find header row based on required column names
     private static int findHeaderRowIndex(Sheet sheet) {
         List<String> requiredHeaders = List.of("Code", "Modifier", "Age Range", "Rate", "Effective Date");
 
@@ -125,45 +118,45 @@ public class MCAHCScrubber {
                 }
             }
 
-            if (cellValues.containsAll(requiredHeaders)) {
-                return i;
-            }
+            if (cellValues.containsAll(requiredHeaders)) return i;
         }
         return -1;
     }
 
-    // Row inclusion logic
     private static boolean shouldIncludeRow(String rate, String ageRange) {
         if (rate == null || rate.isBlank()) return false;
-        String cleanedRate = rate.trim().toUpperCase();
-        if (cleanedRate.equals("$0.00") || cleanedRate.equals("0") || cleanedRate.equals("M") || cleanedRate.equals("NA")) {
-            return false;
+
+        String cleanedRate = rate.trim().toUpperCase()
+                .replace("$", "")
+                .replace(",", "")
+                .trim();
+
+        if (cleanedRate.equals("M") || cleanedRate.equals("NA")) return false;
+
+        try {
+            double rateValue = Double.parseDouble(cleanedRate);
+            if (rateValue == 0.0) return false;
+        } catch (NumberFormatException e) {
+            return false; // Invalid rate format
         }
 
-        if (ageRange == null || ageRange.isBlank()) {
-            return true; // ✅ Include if age range is blank
+        if (ageRange == null || ageRange.isBlank()) return true;
+        return !isUnder21(ageRange);
+    }
+
+    private static boolean isUnder21(String ageRange) {
+        try {
+            String lower = ageRange.split("to")[0].trim().toLowerCase();
+            if (lower.contains("month") || lower.contains("week") || lower.contains("day")) return true;
+
+            String[] numbers = lower.split("[^0-9.]+");
+            double minAge = Double.parseDouble(numbers[0]);
+
+            return minAge < 21;
+        } catch (Exception e) {
+            return false; // Assume valid if parsing fails
         }
-
-        return !isUnder21(ageRange); // ✅ Exclude only if age is under 21
     }
-
-    // Check if the lower bound of age range is under 21
-   private static boolean isUnder21(String ageRange) {
-    try {
-        String lower = ageRange.split("to")[0].trim().toLowerCase();
-
-        if (lower.contains("month") || lower.contains("week") || lower.contains("day")) return true;
-
-        // Extract just the first numeric part (before "to")
-        String[] numbers = lower.split("[^0-9.]+");
-        double minAge = Double.parseDouble(numbers[0]);
-
-        return minAge < 21;
-    } catch (Exception e) {
-        return false; // If parsing fails, assume valid
-    }
-}
-
 
     private static String getCellValue(Cell cell) {
         if (cell == null) return "";
