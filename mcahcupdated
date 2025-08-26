@@ -1,16 +1,20 @@
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
 import java.io.*;
 import java.text.DecimalFormat;
 import java.util.*;
 
 public class MCAHCScrubber {
 
-    public static void main(String[] args) {
-        String inputFolderPath = "input";   // Folder containing input file
-        String outputFolderPath = "output"; // Folder to write output files
+    private static final List<String> TARGET_HEADERS = Arrays.asList(
+            "Code", "Modifier", "Age Range", "Rate", "Effective Date");
 
-        File folder = new File(inputFolderPath);
+    public static void main(String[] args) {
+        String inputFolder = "src/input/";
+        String outputFolder = "src/output/";
+
+        File folder = new File(inputFolder);
         File[] files = folder.listFiles((dir, name) -> name.endsWith(".xlsx"));
 
         if (files == null || files.length == 0) {
@@ -18,132 +22,202 @@ public class MCAHCScrubber {
             return;
         }
 
-        for (File inputFile : files) {
-            try (FileInputStream fis = new FileInputStream(inputFile);
-                 Workbook workbook = new XSSFWorkbook(fis)) {
+        File inputFile = files[0]; // pick first
+        String outputPath = outputFolder + inputFile.getName().replace(".xlsx", "_");
 
-                Sheet sheet = workbook.getSheetAt(0);
-                int headerRowIndex = findHeaderRow(sheet);
-                if (headerRowIndex == -1) {
-                    System.out.println("Header row not found in: " + inputFile.getName());
-                    continue;
-                }
+        try (FileInputStream fis = new FileInputStream(inputFile);
+             Workbook workbook = new XSSFWorkbook(fis)) {
 
-                // Logic 1: Default MCAHC logic (excluding under 21, M/NA/$0)
-                List<List<String>> filteredData1 = processSheet(sheet, headerRowIndex, false, false);
-                writeFilteredDataToExcel(filteredData1, outputFolderPath, "MI MD MCAHC");
+            Sheet sheet = workbook.getSheetAt(0);
+            int headerRowIndex = findHeaderRow(sheet);
 
-                // Logic 2: MAN logic (Rate = M only, export as 0.0100)
-                List<List<String>> filteredData2 = processSheet(sheet, headerRowIndex, true, false);
-                writeFilteredDataToExcel(filteredData2, outputFolderPath, "MI MD MCAHC MAN");
-
-                System.out.println("Filtered data saved from: " + inputFile.getName());
-
-            } catch (Exception e) {
-                e.printStackTrace();
+            if (headerRowIndex == -1) {
+                System.out.println("Header row not found.");
+                return;
             }
+
+            // File 1: MI MD MCAHC
+            List<List<String>> file1 = processFile1(sheet, headerRowIndex);
+            writeToExcel(file1, outputPath + "MI_MD_MCAHC.xlsx");
+
+            // File 2: MI MD MCAHC MAN
+            List<List<String>> file2 = processFile2(sheet, headerRowIndex);
+            writeToExcel(file2, outputPath + "MI_MD_MCAHC_MAN.xlsx");
+
+            System.out.println("Files exported successfully.");
+
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 
     private static int findHeaderRow(Sheet sheet) {
-        for (Row row : sheet) {
+        for (int i = 0; i < sheet.getLastRowNum(); i++) {
+            Row row = sheet.getRow(i);
+            if (row == null) continue;
+
+            List<String> headersFound = new ArrayList<>();
             for (Cell cell : row) {
-                if (getCellValue(cell).equalsIgnoreCase("Code")) {
-                    return row.getRowNum();
+                String value = getCellValue(cell).trim();
+                if (TARGET_HEADERS.contains(value)) {
+                    headersFound.add(value);
                 }
+            }
+
+            if (headersFound.containsAll(TARGET_HEADERS)) {
+                return i;
             }
         }
         return -1;
     }
 
-    private static List<List<String>> processSheet(Sheet sheet, int headerRowIndex, boolean isManMode, boolean debug) {
-        List<List<String>> filteredRows = new ArrayList<>();
-        Row headerRow = sheet.getRow(headerRowIndex);
+    private static List<List<String>> processFile1(Sheet sheet, int headerIndex) {
+        List<List<String>> result = new ArrayList<>();
+        Row header = sheet.getRow(headerIndex);
+        Map<String, Integer> colMap = mapColumns(header);
 
-        Map<String, Integer> colIndex = new HashMap<>();
-        for (Cell cell : headerRow) {
-            colIndex.put(getCellValue(cell), cell.getColumnIndex());
-        }
+        result.add(new ArrayList<>(TARGET_HEADERS));
 
-        for (int i = headerRowIndex + 1; i <= sheet.getLastRowNum(); i++) {
+        for (int i = headerIndex + 1; i <= sheet.getLastRowNum(); i++) {
             Row row = sheet.getRow(i);
             if (row == null) continue;
 
-            String code = getCellValue(row.getCell(colIndex.getOrDefault("Code", -1)));
-            String modifier = getCellValue(row.getCell(colIndex.getOrDefault("Modifier", -1)));
-            String ageRange = getCellValue(row.getCell(colIndex.getOrDefault("Age Range", -1)));
-            String rate = getCellValue(row.getCell(colIndex.getOrDefault("Rate", -1)));
-            String effDate = getCellValue(row.getCell(colIndex.getOrDefault("Effective Date**", -1)));
+            String ageRange = getCellValue(row.getCell(colMap.get("Age Range")));
+            String rateVal = getCellValue(row.getCell(colMap.get("Rate")));
 
-            // Apply filtering based on mode
-            if (isManMode) {
-                if (!"M".equalsIgnoreCase(rate)) continue;
-                rate = "0.0100";
-            } else {
-                if (rate == null || rate.equalsIgnoreCase("M") || rate.equalsIgnoreCase("NA") || rate.equalsIgnoreCase("$0")) continue;
-                if (!shouldIncludeAgeRange(ageRange)) continue;
+            // Check $0 condition
+            if (rateVal != null && rateVal.trim().equalsIgnoreCase("$0")) continue;
+
+            // Check age rule
+            if (ageRange == null || ageRange.trim().isEmpty() || !isUnder21(ageRange)) {
+                List<String> rowData = extractRow(row, colMap, false);
+                result.add(rowData);
+            }
+        }
+        return result;
+    }
+
+    private static List<List<String>> processFile2(Sheet sheet, int headerIndex) {
+        List<List<String>> result = new ArrayList<>();
+        Row header = sheet.getRow(headerIndex);
+        Map<String, Integer> colMap = mapColumns(header);
+
+        result.add(new ArrayList<>(TARGET_HEADERS));
+
+        for (int i = headerIndex + 1; i <= sheet.getLastRowNum(); i++) {
+            Row row = sheet.getRow(i);
+            if (row == null) continue;
+
+            String rateVal = getCellValue(row.getCell(colMap.get("Rate")));
+            if (rateVal != null && rateVal.trim().equalsIgnoreCase("M")) {
+                List<String> rowData = extractRow(row, colMap, true); // true means apply 0.0100
+                result.add(rowData);
+            }
+        }
+        return result;
+    }
+
+    private static Map<String, Integer> mapColumns(Row row) {
+        Map<String, Integer> map = new HashMap<>();
+        for (Cell cell : row) {
+            String val = getCellValue(cell);
+            if (TARGET_HEADERS.contains(val)) {
+                map.put(val, cell.getColumnIndex());
+            }
+        }
+        return map;
+    }
+
+    private static List<String> extractRow(Row row, Map<String, Integer> colMap, boolean isManualRate) {
+        List<String> rowData = new ArrayList<>();
+        DecimalFormat df = new DecimalFormat("0.0000");
+
+        for (String header : TARGET_HEADERS) {
+            Cell cell = row.getCell(colMap.get(header));
+            String value = getCellValue(cell);
+
+            if (header.equals("Rate")) {
+                if (isManualRate) {
+                    value = df.format(0.0100);
+                } else {
+                    try {
+                        double d = Double.parseDouble(value.replace("$", "").trim());
+                        value = df.format(d);
+                    } catch (Exception e) {
+                        value = value; // keep original
+                    }
+                }
             }
 
-            filteredRows.add(Arrays.asList(code, modifier, ageRange, rateFormatted(rate), effDate));
+            rowData.add(value);
         }
-        return filteredRows;
+        return rowData;
     }
 
-    private static boolean shouldIncludeAgeRange(String ageRange) {
-        if (ageRange == null || ageRange.isBlank()) return true;
-        List<Integer> nums = new ArrayList<>();
-        for (String word : ageRange.split(" ")) {
-            try {
-                nums.add(Integer.parseInt(word));
-            } catch (NumberFormatException ignored) {}
-        }
-        if (nums.isEmpty()) return false;
-        int min = nums.get(0);
-        return min >= 21;
-    }
-
-    private static String rateFormatted(String rate) {
+    private static boolean isUnder21(String ageRange) {
         try {
-            double val = Double.parseDouble(rate.replace("$", ""));
-            return String.format("%.4f", val);
+            String[] parts = ageRange.toLowerCase().replace("years", "").trim().split("to");
+            if (parts.length != 2) return true;
+            int min = Integer.parseInt(parts[0].replaceAll("[^0-9]", "").trim());
+            int max = Integer.parseInt(parts[1].replaceAll("[^0-9]", "").trim());
+            return max <= 21;
         } catch (Exception e) {
-            return rate;
+            return true;
         }
     }
 
-    private static void writeFilteredDataToExcel(List<List<String>> data, String folder, String filename) throws IOException {
-        Workbook workbook = new XSSFWorkbook();
-        Sheet sheet = workbook.createSheet("Filtered Data");
-        int rowIndex = 0;
+    private static void writeToExcel(List<List<String>> data, String outputPath) {
+        try (Workbook wb = new XSSFWorkbook()) {
+            Sheet sheet = wb.createSheet("Output");
+            CellStyle rateStyle = wb.createCellStyle();
+            DataFormat format = wb.createDataFormat();
+            rateStyle.setDataFormat(format.getFormat("0.0000"));
 
-        Row header = sheet.createRow(rowIndex++);
-        String[] headers = {"Code", "Modifier", "Age Range", "Rate", "Effective Date"};
-        for (int i = 0; i < headers.length; i++) {
-            header.createCell(i).setCellValue(headers[i]);
-        }
+            for (int i = 0; i < data.size(); i++) {
+                Row row = sheet.createRow(i);
+                List<String> rowData = data.get(i);
 
-        for (List<String> rowData : data) {
-            Row row = sheet.createRow(rowIndex++);
-            for (int i = 0; i < rowData.size(); i++) {
-                row.createCell(i).setCellValue(rowData.get(i));
+                for (int j = 0; j < rowData.size(); j++) {
+                    Cell cell = row.createCell(j);
+                    String value = rowData.get(j);
+
+                    if (i == 0) {
+                        cell.setCellValue(value);
+                    } else if (TARGET_HEADERS.get(j).equals("Rate")) {
+                        try {
+                            double val = Double.parseDouble(value.replace("$", ""));
+                            cell.setCellValue(val);
+                            cell.setCellStyle(rateStyle);
+                        } catch (Exception e) {
+                            cell.setCellValue(value);
+                        }
+                    } else {
+                        cell.setCellValue(value);
+                    }
+                }
             }
-        }
 
-        File outFile = new File(folder, filename + ".xlsx");
-        try (FileOutputStream fos = new FileOutputStream(outFile)) {
-            workbook.write(fos);
+            try (FileOutputStream fos = new FileOutputStream(outputPath)) {
+                wb.write(fos);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
         }
-        workbook.close();
     }
 
     private static String getCellValue(Cell cell) {
         if (cell == null) return "";
-        return switch (cell.getCellType()) {
-            case STRING -> cell.getStringCellValue();
-            case NUMERIC -> String.valueOf(cell.getNumericCellValue());
-            case BOOLEAN -> String.valueOf(cell.getBooleanCellValue());
-            case FORMULA -> cell.getCellFormula();
-            default -> "";
-        };
+        switch (cell.getCellType()) {
+            case STRING:
+                return cell.getStringCellValue();
+            case NUMERIC:
+                return String.valueOf((long) cell.getNumericCellValue());
+            case BOOLEAN:
+                return String.valueOf(cell.getBooleanCellValue());
+            case FORMULA:
+                return cell.getCellFormula();
+            default:
+                return "";
+        }
     }
 }
