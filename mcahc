@@ -7,83 +7,102 @@ import java.util.*;
 
 public class MCAHCScrubber {
 
-    private static final String INPUT_FILE = "src/main/resources/CAHCP_012025.xlsx";
-    private static final String OUTPUT_FILE = "src/main/resources/MI_MD_MCAHC_Scrubbed.xlsx";
+    private static final String INPUT_FOLDER = "input";
+    private static final String OUTPUT_FOLDER = "output";
 
     public static void main(String[] args) {
-        try (Workbook inputWorkbook = new XSSFWorkbook(new FileInputStream(INPUT_FILE));
-             SXSSFWorkbook outputWorkbook = new SXSSFWorkbook();
-             FileOutputStream fos = new FileOutputStream(OUTPUT_FILE)) {
+        try {
+            File inputDir = new File(INPUT_FOLDER);
+            File outputDir = new File(OUTPUT_FOLDER);
 
-            Sheet inputSheet = inputWorkbook.getSheetAt(0);
-            Sheet outputSheet = outputWorkbook.createSheet("Scrubbed Data");
-
-            // Dynamically find header row
-            int headerRowIndex = findHeaderRowIndex(inputSheet);
-            if (headerRowIndex == -1) {
-                throw new RuntimeException("❌ Could not locate header row.");
+            // Create output folder if not exists
+            if (!outputDir.exists()) {
+                outputDir.mkdirs();
             }
 
-            Row headerRow = inputSheet.getRow(headerRowIndex);
+            // Get the first .xlsx file in the input folder
+            File[] excelFiles = inputDir.listFiles((dir, name) -> name.toLowerCase().endsWith(".xlsx") && !name.startsWith("~$"));
+            if (excelFiles == null || excelFiles.length == 0) {
+                System.out.println("❌ No Excel (.xlsx) file found in the input folder.");
+                return;
+            }
 
-            // Track needed column indexes
-            Map<String, Integer> selectedColIndexes = new HashMap<>();
-            int rateCol = -1, ageCol = -1;
+            File inputFile = excelFiles[0];
+            String inputFileName = inputFile.getName().replace(".xlsx", "");
+            String outputFilePath = OUTPUT_FOLDER + "/" + inputFileName + "_Scrubbed.xlsx";
 
-            // Build output header row with selected columns
-            Row outputHeader = outputSheet.createRow(0);
-            List<String> selectedColumns = List.of("Code", "Modifier", "Age Range", "Rate", "Effective Date");
-            for (Cell cell : headerRow) {
-                String colName = cell.getStringCellValue().trim().replaceAll("\\*+", "");
-                int colIndex = cell.getColumnIndex();
-                if (selectedColumns.contains(colName)) {
-                    selectedColIndexes.put(colName, colIndex);
-                    outputHeader.createCell(selectedColIndexes.size() - 1).setCellValue(colName);
+            try (Workbook inputWorkbook = new XSSFWorkbook(new FileInputStream(inputFile));
+                 SXSSFWorkbook outputWorkbook = new SXSSFWorkbook();
+                 FileOutputStream fos = new FileOutputStream(outputFilePath)) {
+
+                Sheet inputSheet = inputWorkbook.getSheetAt(0);
+                Sheet outputSheet = outputWorkbook.createSheet("Scrubbed Data");
+
+                int headerRowIndex = findHeaderRowIndex(inputSheet);
+                if (headerRowIndex == -1) {
+                    throw new RuntimeException("❌ Could not locate header row.");
                 }
-                if (colName.equalsIgnoreCase("Rate")) rateCol = colIndex;
-                if (colName.equalsIgnoreCase("Age Range")) ageCol = colIndex;
-            }
 
-            if (rateCol == -1 || ageCol == -1) {
-                throw new IllegalStateException("Missing required columns: Rate or Age Range.");
-            }
+                Row headerRow = inputSheet.getRow(headerRowIndex);
+                Map<String, Integer> selectedColIndexes = new HashMap<>();
+                int rateCol = -1, ageCol = -1;
 
-            int outputRowNum = 1;
-            for (int i = headerRowIndex + 1; i <= inputSheet.getLastRowNum(); i++) {
-                Row row = inputSheet.getRow(i);
-                if (row == null) continue;
+                Row outputHeader = outputSheet.createRow(0);
+                List<String> selectedColumns = List.of("Code", "Modifier", "Age Range", "Rate", "Effective Date");
 
-                String rate = getCellValue(row.getCell(rateCol));
-                String ageRange = getCellValue(row.getCell(ageCol));
+                for (Cell cell : headerRow) {
+                    String colName = cell.getStringCellValue().trim().replaceAll("\\*+", "");
+                    int colIndex = cell.getColumnIndex();
+                    if (selectedColumns.contains(colName)) {
+                        selectedColIndexes.put(colName, colIndex);
+                        outputHeader.createCell(selectedColIndexes.size() - 1).setCellValue(colName);
+                    }
+                    if (colName.equalsIgnoreCase("Rate")) rateCol = colIndex;
+                    if (colName.equalsIgnoreCase("Age Range")) ageCol = colIndex;
+                }
 
-                if (shouldIncludeRow(rate, ageRange)) {
-                    Row outRow = outputSheet.createRow(outputRowNum++);
-                    for (String colName : selectedColumns) {
-                        Integer j = selectedColIndexes.get(colName);
-                        if (j == null || j >= row.getLastCellNum()) continue;
+                if (rateCol == -1 || ageCol == -1) {
+                    throw new IllegalStateException("Missing required columns: Rate or Age Range.");
+                }
 
-                        Cell sourceCell = row.getCell(j);
-                        Cell targetCell = outRow.createCell(selectedColumns.indexOf(colName));
-                        if (sourceCell == null) continue;
+                int outputRowNum = 1;
+                for (int i = headerRowIndex + 1; i <= inputSheet.getLastRowNum(); i++) {
+                    Row row = inputSheet.getRow(i);
+                    if (row == null) continue;
 
-                        switch (sourceCell.getCellType()) {
-                            case STRING -> targetCell.setCellValue(sourceCell.getStringCellValue());
-                            case NUMERIC -> {
-                                if (colName.equalsIgnoreCase("Rate")) {
-                                    targetCell.setCellValue(String.format("%.4f", sourceCell.getNumericCellValue()));
-                                } else {
-                                    targetCell.setCellValue(sourceCell.getNumericCellValue());
+                    String rate = getCellValue(row.getCell(rateCol));
+                    String ageRange = getCellValue(row.getCell(ageCol));
+
+                    if (shouldIncludeRow(rate, ageRange)) {
+                        Row outRow = outputSheet.createRow(outputRowNum++);
+                        for (String colName : selectedColumns) {
+                            Integer j = selectedColIndexes.get(colName);
+                            if (j == null || j >= row.getLastCellNum()) continue;
+
+                            Cell sourceCell = row.getCell(j);
+                            Cell targetCell = outRow.createCell(selectedColumns.indexOf(colName));
+                            if (sourceCell == null) continue;
+
+                            switch (sourceCell.getCellType()) {
+                                case STRING -> targetCell.setCellValue(sourceCell.getStringCellValue());
+                                case NUMERIC -> {
+                                    if (colName.equalsIgnoreCase("Rate")) {
+                                        targetCell.setCellValue(String.format("%.4f", sourceCell.getNumericCellValue()));
+                                    } else {
+                                        targetCell.setCellValue(sourceCell.getNumericCellValue());
+                                    }
                                 }
+                                case BOOLEAN -> targetCell.setCellValue(sourceCell.getBooleanCellValue());
+                                default -> targetCell.setCellValue(getCellValue(sourceCell));
                             }
-                            case BOOLEAN -> targetCell.setCellValue(sourceCell.getBooleanCellValue());
-                            default -> targetCell.setCellValue(getCellValue(sourceCell));
                         }
                     }
                 }
-            }
 
-            outputWorkbook.write(fos);
-            System.out.println("✅ Export completed: " + OUTPUT_FILE);
+                outputWorkbook.write(fos);
+                System.out.println("✅ Scrubbed file exported to: " + outputFilePath);
+
+            }
 
         } catch (Exception e) {
             e.printStackTrace();
