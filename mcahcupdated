@@ -7,75 +7,76 @@ import java.util.*;
 
 public class MCAHCScrubber {
 
-    private static final List<String> TARGET_HEADERS = Arrays.asList(
-            "Code", "Modifier", "Age Range", "Rate", "Effective Date");
+    private static final List<String> TARGET_HEADERS = Arrays.asList("Code", "Modifier", "Age Range", "Rate", "Effective Date");
 
     public static void main(String[] args) {
-        String inputFolder = "src/input/";
-        String outputFolder = "src/output/";
+        String inputFolder = "Input/";
+        String outputFolder = "Output/";
 
         File folder = new File(inputFolder);
-        File[] files = folder.listFiles((dir, name) -> name.endsWith(".xlsx"));
+        File[] files = folder.listFiles((dir, name) -> name.toLowerCase().endsWith(".xlsx"));
 
         if (files == null || files.length == 0) {
             System.out.println("No Excel files found in input folder.");
             return;
         }
 
-        File inputFile = files[0]; // pick first
-        String outputPath = outputFolder + inputFile.getName().replace(".xlsx", "_");
+        for (File file : files) {
+            try (FileInputStream fis = new FileInputStream(file);
+                 Workbook workbook = new XSSFWorkbook(fis)) {
 
-        try (FileInputStream fis = new FileInputStream(inputFile);
-             Workbook workbook = new XSSFWorkbook(fis)) {
+                Sheet sheet = workbook.getSheetAt(0);
+                int headerRowIndex = findHeaderRow(sheet);
+                if (headerRowIndex == -1) {
+                    System.out.println("Header row not found in: " + file.getName());
+                    continue;
+                }
 
-            Sheet sheet = workbook.getSheetAt(0);
-            int headerRowIndex = findHeaderRow(sheet);
+                // Process for File 1
+                List<List<String>> result1 = processFile1(sheet, headerRowIndex);
+                writeToExcel(result1, outputFolder + file.getName().replace(".xlsx", "_Filtered1.xlsx"));
 
-            if (headerRowIndex == -1) {
-                System.out.println("Header row not found.");
-                return;
+                // Process for File 2
+                List<List<String>> result2 = processFile2(sheet, headerRowIndex);
+                writeToExcel(result2, outputFolder + file.getName().replace(".xlsx", "_Filtered2.xlsx"));
+
+                System.out.println("Processed: " + file.getName());
+
+            } catch (Exception e) {
+                e.printStackTrace();
             }
-
-            // File 1: MI MD MCAHC
-            List<List<String>> file1 = processFile1(sheet, headerRowIndex);
-            writeToExcel(file1, outputPath + "MI_MD_MCAHC.xlsx");
-
-            // File 2: MI MD MCAHC MAN
-            List<List<String>> file2 = processFile2(sheet, headerRowIndex);
-            writeToExcel(file2, outputPath + "MI_MD_MCAHC_MAN.xlsx");
-
-            System.out.println("Files exported successfully.");
-
-        } catch (Exception e) {
-            e.printStackTrace();
         }
     }
 
     private static int findHeaderRow(Sheet sheet) {
-        for (int i = 0; i < sheet.getLastRowNum(); i++) {
+        for (int i = 0; i <= sheet.getLastRowNum(); i++) {
             Row row = sheet.getRow(i);
             if (row == null) continue;
-
-            List<String> headersFound = new ArrayList<>();
+            int match = 0;
             for (Cell cell : row) {
-                String value = getCellValue(cell).trim();
-                if (TARGET_HEADERS.contains(value)) {
-                    headersFound.add(value);
-                }
+                String value = getCellValue(cell);
+                if (TARGET_HEADERS.contains(value)) match++;
             }
-
-            if (headersFound.containsAll(TARGET_HEADERS)) {
-                return i;
-            }
+            if (match >= 3) return i; // match threshold
         }
         return -1;
+    }
+
+    private static Map<String, Integer> mapColumns(Row header) {
+        Map<String, Integer> map = new HashMap<>();
+        for (int i = 0; i < header.getLastCellNum(); i++) {
+            String key = getCellValue(header.getCell(i));
+            if (TARGET_HEADERS.contains(key)) {
+                map.put(key, i);
+            }
+        }
+        return map;
     }
 
     private static List<List<String>> processFile1(Sheet sheet, int headerIndex) {
         List<List<String>> result = new ArrayList<>();
         Row header = sheet.getRow(headerIndex);
         Map<String, Integer> colMap = mapColumns(header);
-
         result.add(new ArrayList<>(TARGET_HEADERS));
 
         for (int i = headerIndex + 1; i <= sheet.getLastRowNum(); i++) {
@@ -83,17 +84,16 @@ public class MCAHCScrubber {
             if (row == null) continue;
 
             String ageRange = getCellValue(row.getCell(colMap.get("Age Range")));
-            String rateVal = getCellValue(row.getCell(colMap.get("Rate")));
+            String rateVal = getCellValue(row.getCell(colMap.get("Rate"))).replace("$", "").trim();
 
-            // Check $0 condition
-            if (rateVal != null && rateVal.trim().equalsIgnoreCase("$0")) continue;
+            // Scrub if rate is 0
+            if (rateVal.equalsIgnoreCase("0.0000") || rateVal.equalsIgnoreCase("0") || rateVal.equalsIgnoreCase("$0")) continue;
 
-            // Check age rule
             if (ageRange == null || ageRange.trim().isEmpty() || !isUnder21(ageRange)) {
-                List<String> rowData = extractRow(row, colMap, false);
-                result.add(rowData);
+                result.add(extractRow(row, colMap, false));
             }
         }
+
         return result;
     }
 
@@ -101,36 +101,40 @@ public class MCAHCScrubber {
         List<List<String>> result = new ArrayList<>();
         Row header = sheet.getRow(headerIndex);
         Map<String, Integer> colMap = mapColumns(header);
-
         result.add(new ArrayList<>(TARGET_HEADERS));
 
         for (int i = headerIndex + 1; i <= sheet.getLastRowNum(); i++) {
             Row row = sheet.getRow(i);
             if (row == null) continue;
 
-            String rateVal = getCellValue(row.getCell(colMap.get("Rate")));
-            if (rateVal != null && rateVal.trim().equalsIgnoreCase("M")) {
-                List<String> rowData = extractRow(row, colMap, true); // true means apply 0.0100
-                result.add(rowData);
+            String rateVal = getCellValue(row.getCell(colMap.get("Rate"))).trim();
+            if (rateVal.equalsIgnoreCase("M")) {
+                List<String> rowData = extractRow(row, colMap, true);
+                if (!rowData.get(3).equals("0.0000")) {
+                    result.add(rowData);
+                }
             }
         }
+
         return result;
     }
 
-    private static Map<String, Integer> mapColumns(Row row) {
-        Map<String, Integer> map = new HashMap<>();
-        for (Cell cell : row) {
-            String val = getCellValue(cell);
-            if (TARGET_HEADERS.contains(val)) {
-                map.put(val, cell.getColumnIndex());
+    private static boolean isUnder21(String ageRange) {
+        try {
+            if (ageRange.toLowerCase().contains("to")) {
+                String[] parts = ageRange.split("to");
+                int lower = Integer.parseInt(parts[0].trim());
+                return lower < 21;
             }
+        } catch (Exception e) {
+            return false;
         }
-        return map;
+        return false;
     }
 
     private static List<String> extractRow(Row row, Map<String, Integer> colMap, boolean isManualRate) {
         List<String> rowData = new ArrayList<>();
-        DecimalFormat df = new DecimalFormat("0.0000");
+        DecimalFormat rateFormat = new DecimalFormat("0.0000");
 
         for (String header : TARGET_HEADERS) {
             Cell cell = row.getCell(colMap.get(header));
@@ -138,69 +142,40 @@ public class MCAHCScrubber {
 
             if (header.equals("Rate")) {
                 if (isManualRate) {
-                    value = df.format(0.0100);
+                    value = rateFormat.format(0.0100);
                 } else {
                     try {
                         double d = Double.parseDouble(value.replace("$", "").trim());
-                        value = df.format(d);
+                        value = rateFormat.format(d);
                     } catch (Exception e) {
-                        value = value; // keep original
+                        value = value;
                     }
                 }
+            }
+
+            if (header.equals("Code") && value.endsWith(".0")) {
+                value = value.replace(".0", "");
             }
 
             rowData.add(value);
         }
+
         return rowData;
     }
 
-    private static boolean isUnder21(String ageRange) {
-        try {
-            String[] parts = ageRange.toLowerCase().replace("years", "").trim().split("to");
-            if (parts.length != 2) return true;
-            int min = Integer.parseInt(parts[0].replaceAll("[^0-9]", "").trim());
-            int max = Integer.parseInt(parts[1].replaceAll("[^0-9]", "").trim());
-            return max <= 21;
-        } catch (Exception e) {
-            return true;
-        }
-    }
-
-    private static void writeToExcel(List<List<String>> data, String outputPath) {
-        try (Workbook wb = new XSSFWorkbook()) {
+    private static void writeToExcel(List<List<String>> data, String filePath) {
+        try (Workbook wb = new XSSFWorkbook(); FileOutputStream fos = new FileOutputStream(filePath)) {
             Sheet sheet = wb.createSheet("Output");
-            CellStyle rateStyle = wb.createCellStyle();
-            DataFormat format = wb.createDataFormat();
-            rateStyle.setDataFormat(format.getFormat("0.0000"));
-
             for (int i = 0; i < data.size(); i++) {
                 Row row = sheet.createRow(i);
-                List<String> rowData = data.get(i);
-
-                for (int j = 0; j < rowData.size(); j++) {
+                List<String> line = data.get(i);
+                for (int j = 0; j < line.size(); j++) {
                     Cell cell = row.createCell(j);
-                    String value = rowData.get(j);
-
-                    if (i == 0) {
-                        cell.setCellValue(value);
-                    } else if (TARGET_HEADERS.get(j).equals("Rate")) {
-                        try {
-                            double val = Double.parseDouble(value.replace("$", ""));
-                            cell.setCellValue(val);
-                            cell.setCellStyle(rateStyle);
-                        } catch (Exception e) {
-                            cell.setCellValue(value);
-                        }
-                    } else {
-                        cell.setCellValue(value);
-                    }
+                    cell.setCellValue(line.get(j));
                 }
             }
-
-            try (FileOutputStream fos = new FileOutputStream(outputPath)) {
-                wb.write(fos);
-            }
-        } catch (IOException e) {
+            wb.write(fos);
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
@@ -208,16 +183,18 @@ public class MCAHCScrubber {
     private static String getCellValue(Cell cell) {
         if (cell == null) return "";
         switch (cell.getCellType()) {
-            case STRING:
-                return cell.getStringCellValue();
+            case STRING: return cell.getStringCellValue().trim();
             case NUMERIC:
-                return String.valueOf((long) cell.getNumericCellValue());
-            case BOOLEAN:
-                return String.valueOf(cell.getBooleanCellValue());
+                if (DateUtil.isCellDateFormatted(cell)) return cell.getDateCellValue().toString();
+                return String.valueOf(cell.getNumericCellValue());
+            case BOOLEAN: return String.valueOf(cell.getBooleanCellValue());
             case FORMULA:
-                return cell.getCellFormula();
-            default:
-                return "";
+                try {
+                    return String.valueOf(cell.getNumericCellValue());
+                } catch (Exception e) {
+                    return cell.getCellFormula();
+                }
+            default: return "";
         }
     }
 }
