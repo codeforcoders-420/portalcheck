@@ -176,3 +176,29 @@ public class MCAHCScrubber {
         }
     }
 }
+
+******************************
+
+private static boolean isUnder21(String ageRange) {
+    try {
+        if (ageRange == null || ageRange.isBlank()) {
+            return false; // ✅ Export if Age Range is blank
+        }
+
+        String lower = ageRange.split("to")[0].trim().toLowerCase();
+
+        // Handle months, days, weeks explicitly
+        if (lower.contains("month") || lower.contains("week") || lower.contains("day")) {
+            return true; // ❌ Skip if in months/days/weeks
+        }
+
+        // Extract only digits from the lower bound
+        String[] numbers = lower.split("[^0-9.]+");
+        double minAge = Double.parseDouble(numbers[0]);
+
+        return minAge < 21; // ❌ Skip if under 21
+    } catch (Exception e) {
+        return false; // ✅ Export if anything fails (assume safe)
+    }
+}
+
