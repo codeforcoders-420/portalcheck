@@ -1,0 +1,220 @@
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.*;
+import java.text.DecimalFormat;
+import java.util.*;
+
+public class MCAHCScrubber {
+
+    public static void main(String[] args) {
+        String inputFolder = "C:/your_path/Input/";
+        String outputFolder = "C:/your_path/Output/";
+
+        File[] files = new File(inputFolder).listFiles((dir, name) -> name.toLowerCase().endsWith(".xlsx") || name.toLowerCase().endsWith(".xls"));
+        if (files == null || files.length == 0) {
+            System.out.println("No input files found.");
+            return;
+        }
+
+        for (File file : files) {
+            try (FileInputStream fis = new FileInputStream(file);
+                 Workbook workbook = new XSSFWorkbook(fis)) {
+
+                Sheet sheet = workbook.getSheetAt(0);
+                int headerRowIndex = findHeaderRow(sheet);
+                if (headerRowIndex == -1) {
+                    System.out.println("Header not found in file: " + file.getName());
+                    continue;
+                }
+
+                // File 1: default scrub (exclude under 21; exclude $0/M/NA)
+                List<List<String>> f1 = processFile1(sheet, headerRowIndex);
+                writeFilteredDataToExcel(f1, outputFolder + "MI_MD_MCAHC.xlsx");
+
+                // File 2: MAN (only rows with M in Rate, set Rate=0.0100)
+                List<List<String>> f2 = processFile2_MAN(sheet, headerRowIndex);
+                writeFilteredDataToExcel(f2, outputFolder + "MI_MD_MCAHC_MAN.xlsx");
+
+                // File 3: U21 (ONLY under 21; exclude $0/M/NA/N/A)
+                List<List<String>> f3 = processFile3_U21(sheet, headerRowIndex);
+                writeFilteredDataToExcel(f3, outputFolder + "MI_MD_MCAHC_U21.xlsx");
+
+                System.out.println("Processed: " + file.getName());
+
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    // ------------------ FILE 1 (default) -----------------------
+    // Export rows with blank Age Range OR Age >= 21; exclude $0/M/NA
+    private static List<List<String>> processFile1(Sheet sheet, int headerRowIndex) {
+        List<List<String>> out = new ArrayList<>();
+        out.add(Arrays.asList("Code", "Modifier", "Age Range", "Rate", "Effective Date"));
+
+        for (int i = headerRowIndex + 1; i <= sheet.getLastRowNum(); i++) {
+            Row row = sheet.getRow(i);
+            if (row == null) continue;
+
+            List<String> r = extractColumns(row);
+            if (!isValidProcedureCode(r.get(0))) continue; // require real code
+
+            String rate = r.get(3).trim();
+            String ageRange = r.get(2).trim();
+
+            if (!shouldInclude_File1(rate, ageRange)) continue;
+            out.add(r);
+        }
+        return out;
+    }
+
+    private static boolean shouldInclude_File1(String rateStr, String ageRange) {
+        if (isExcludedRate(rateStr)) return false;
+        if (ageRange.isBlank()) return true;      // include blanks
+        return !isUnder21(ageRange);              // include 21+ only
+    }
+
+    // ------------------ FILE 2 (MAN) -----------------------
+    private static List<List<String>> processFile2_MAN(Sheet sheet, int headerRowIndex) {
+        List<List<String>> out = new ArrayList<>();
+        out.add(Arrays.asList("Code", "Modifier", "Age Range", "Rate", "Effective Date"));
+
+        for (int i = headerRowIndex + 1; i <= sheet.getLastRowNum(); i++) {
+            Row row = sheet.getRow(i); if (row == null) continue;
+
+            List<String> r = extractColumns(row);
+            if (!isValidProcedureCode(r.get(0))) continue;
+
+            String rate = r.get(3).trim();
+            if (rate.equalsIgnoreCase("M")) {
+                r.set(3, "0.0100");               // force rate
+                out.add(r);
+            }
+        }
+        return out;
+    }
+
+    // ------------------ FILE 3 (U21 ONLY) -----------------------
+    // Include only rows where Age Range is under 21; exclude $0/M/NA/N/A
+    private static List<List<String>> processFile3_U21(Sheet sheet, int headerRowIndex) {
+        List<List<String>> out = new ArrayList<>();
+        out.add(Arrays.asList("Code", "Modifier", "Age Range", "Rate", "Effective Date"));
+
+        for (int i = headerRowIndex + 1; i <= sheet.getLastRowNum(); i++) {
+            Row row = sheet.getRow(i); if (row == null) continue;
+
+            List<String> r = extractColumns(row);
+            if (!isValidProcedureCode(r.get(0))) continue;
+
+            String rate = r.get(3).trim();
+            String ageRange = r.get(2).trim();
+
+            if (ageRange.isBlank()) continue;        // U21 requires an actual age range
+            if (isExcludedRate(rate)) continue;      // scrub $0/M/NA/N/A
+            if (!isUnder21(ageRange)) continue;      // only under 21
+
+            out.add(r);
+        }
+        return out;
+    }
+
+    // ------------------ Shared helpers -----------------------
+
+    private static boolean isExcludedRate(String rateStr) {
+        if (rateStr == null) return true;
+        String s = rateStr.trim().toUpperCase(Locale.ROOT);
+        if (s.equals("M") || s.equals("NA") || s.equals("N/A") || s.equals("$0") || s.equals("$0.00") || s.equals("0") || s.equals("0.0000"))
+            return true;
+        // Also catch numeric 0 after stripping currency/commas
+        try {
+            double v = Double.parseDouble(s.replace("$", "").replace(",", ""));
+            return v == 0.0;
+        } catch (NumberFormatException ignored) {}
+        return false;
+    }
+
+    // Parse age range and decide if lower bound is < 21 (months/weeks/days => under 21)
+    private static boolean isUnder21(String ageRange) {
+        try {
+            String lower = ageRange.split("to")[0].trim().toLowerCase(Locale.ROOT);
+            if (lower.contains("month") || lower.contains("week") || lower.contains("day")) return true;
+            String[] nums = lower.split("[^0-9]+");
+            if (nums.length == 0 || nums[0].isEmpty()) return false;
+            int min = Integer.parseInt(nums[0]);
+            return min < 21;
+        } catch (Exception e) {
+            return false; // if unclear, treat as not under 21 for File3 (we require explicit <21)
+        }
+    }
+
+    private static boolean isValidProcedureCode(String code) {
+        return code != null && code.matches("^(\\d{5}|[A-Z]\\d{4})$");
+    }
+
+    // Extract only required columns, fix Code and Rate formatting
+    private static List<String> extractColumns(Row row) {
+        DataFormatter fmt = new DataFormatter();
+        List<String> values = new ArrayList<>(5);
+
+        // Code
+        String code = fmt.formatCellValue(row.getCell(0)).trim();
+        if (code.endsWith(".0")) code = code.substring(0, code.length() - 2);
+        values.add(code);
+
+        // Modifier
+        values.add(fmt.formatCellValue(row.getCell(1)).trim());
+
+        // Age Range
+        values.add(fmt.formatCellValue(row.getCell(2)).trim());
+
+        // Rate -> 0.0000 if numeric
+        String rawRate = fmt.formatCellValue(row.getCell(3)).trim();
+        rawRate = rawRate.replace("$", "").replace(",", "");
+        String rateOut;
+        try {
+            double d = Double.parseDouble(rawRate);
+            rateOut = new DecimalFormat("0.0000").format(d);
+        } catch (NumberFormatException e) {
+            rateOut = rawRate; // keep M/NA etc for filtering
+        }
+        values.add(rateOut);
+
+        // Effective Date
+        values.add(fmt.formatCellValue(row.getCell(4)).trim());
+
+        return values;
+    }
+
+    private static int findHeaderRow(Sheet sheet) {
+        for (int i = 0; i <= sheet.getLastRowNum(); i++) {
+            Row row = sheet.getRow(i); if (row == null) continue;
+            for (Cell cell : row) {
+                try {
+                    String val = cell.getStringCellValue().trim().toLowerCase(Locale.ROOT);
+                    if (val.contains("code") && val.contains("rate")) return i;
+                } catch (Exception ignored) {}
+            }
+        }
+        return -1;
+    }
+
+    private static void writeFilteredDataToExcel(List<List<String>> data, String filePath) {
+        try (Workbook wb = new XSSFWorkbook()) {
+            Sheet sheet = wb.createSheet("Output");
+            for (int r = 0; r < data.size(); r++) {
+                Row row = sheet.createRow(r);
+                List<String> rowData = data.get(r);
+                for (int c = 0; c < rowData.size(); c++) {
+                    row.createCell(c).setCellValue(rowData.get(c));
+                }
+            }
+            try (FileOutputStream out = new FileOutputStream(filePath)) {
+                wb.write(out);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
