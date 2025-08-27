@@ -6,31 +6,52 @@ import org.apache.poi.xssf.streaming.SXSSFSheet;
 import java.io.*;
 import java.math.BigDecimal;
 import java.nio.file.*;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.*;
 
 /**
- * Compare a DT worksheet (left) vs a Database dump (right) and write "New Code" rows to
- * Differences Record.xlsx (sheet: Differences) with requested headers.
+ * Compare a DT worksheet (left) vs a Database dump (right) and write "New Code" rows to:
+ *   <OUTPUT_DIR>/Differences Record.xlsx
  *
- * Usage (example):
- *   java CompareDTvsDB "C:/path/DT_Span.xlsx" "C:/path/DB_Dump.xlsx" "C:/path/Differences Record.xlsx"
+ * HOW TO USE:
+ *  1) Set INPUT_DIR to the folder that contains both workbooks.
+ *  2) Set OUTPUT_DIR to where you want the result workbook written.
+ *  3) Option A (recommended): keep DT_KEYWORD / DB_KEYWORD to let the program pick the most-recent .xlsx
+ *     whose filename contains the keyword (case-insensitive).
+ *     Example file names that would match:
+ *       ...\DT_Span_20250827.xlsx      (contains "DT")
+ *       ...\Database_Dump_20250827.xlsx (contains "DUMP" or "DB")
+ *     Adjust the keywords below to match your naming.
+ *  4) Option B: set DT_EXACT_FILENAME / DB_EXACT_FILENAME (non-empty) to use exact file names instead.
  *
- * Assumptions (to match your screenshot/fields):
- *  - DT file columns (header names not case-sensitive): PROC, MOD, MOD2, Start Date, End Date, Rate
- *  - DB dump columns: Procedure Code, Modifier, Modifier 2, Modifier 3, Modifier 4, Effective, Termination, Allowed
- *  - Stage 1 (exact) and Stage 2 (partial) matches are ignored.
- *  - Stage 3 writes only rows from DT that DO NOT exist in DB by PROC+MOD+MOD2.
- *    We consider a DB record "existing" for Stage 3 if there is any DB row whose
- *    (proc, mod, mod2) equal the DT values (DB’s Mod3/Mod4 may be blank; if present we still treat as existing).
- *    If you want to require DB.Mod3/Mod4 to be blank, flip the flag REQUIRE_DB_MOD3_MOD4_BLANK below to true.
+ * Maven deps:
+ *   org.apache.poi:poi-ooxml:5.2.5
+ *   org.apache.poi:poi:5.2.5
  */
-public class CompareDTvsDB {
+public class CompareDTvsDBFromFolder {
 
-    // ---------- configuration ----------
-    private static final boolean REQUIRE_DB_MOD3_MOD4_BLANK = false; // set true if Stage 3 should only match DB rows with empty Mod3/Mod4
+    // ====== FOLDERS ======
+    private static final Path INPUT_DIR  = Paths.get("C:/data/in");   // <--- change
+    private static final Path OUTPUT_DIR = Paths.get("C:/data/out");  // <--- change
+
+    // ====== FILE DISCOVERY ======
+    // Option A: choose the latest *.xlsx containing this keyword (case-insensitive)
+    private static final String DT_KEYWORD = "DT";     // e.g., "DT", "DT_Span"
+    private static final String DB_KEYWORD = "DUMP";   // e.g., "DB", "Dump", "Database"
+
+    // Option B: exact filenames (leave "" to disable exact matching)
+    private static final String DT_EXACT_FILENAME = ""; // e.g., "DT_Span_20250827.xlsx"
+    private static final String DB_EXACT_FILENAME = ""; // e.g., "Database_Dump_20250827.xlsx"
+
+    // ====== BEHAVIOR ======
+    private static final boolean REQUIRE_DB_MOD3_MOD4_BLANK = false; // Stage-3: only match DB rows whose Mod3/Mod4 are blank
+
+    private static final String OUTPUT_FILENAME = "Differences Record.xlsx";
+    private static final String OUTPUT_SHEET    = "Differences";
+
     private static final DateTimeFormatter OUT_DTF = DateTimeFormatter.ofPattern("MM/dd/yyyy");
     private static final List<DateTimeFormatter> IN_DTFS = List.of(
             DateTimeFormatter.ofPattern("M/d/yyyy"),
@@ -41,34 +62,63 @@ public class CompareDTvsDB {
     );
 
     public static void main(String[] args) throws Exception {
-        if (args.length < 3) {
-            System.out.println("Usage: java CompareDTvsDB <DT.xlsx> <DB.xlsx> <Differences Record.xlsx>");
-            return;
-        }
-        Path dtPath = Paths.get(args[0]);
-        Path dbPath = Paths.get(args[1]);
-        Path outPath = Paths.get(args[2]);
+        Files.createDirectories(INPUT_DIR);
+        Files.createDirectories(OUTPUT_DIR);
 
-        try (InputStream dtIn = Files.newInputStream(dtPath);
-             InputStream dbIn = Files.newInputStream(dbPath);
-             Workbook dtWb = new XSSFWorkbook(dtIn);
-             Workbook dbWb = new XSSFWorkbook(dbIn)) {
+        Path dtPath = DT_EXACT_FILENAME.isBlank()
+                ? latestXlsxByKeyword(INPUT_DIR, DT_KEYWORD)
+                : INPUT_DIR.resolve(DT_EXACT_FILENAME);
 
-            Sheet dtSheet = dtWb.getSheetAt(0); // use first sheet; change if needed
+        Path dbPath = DB_EXACT_FILENAME.isBlank()
+                ? latestXlsxByKeyword(INPUT_DIR, DB_KEYWORD)
+                : INPUT_DIR.resolve(DB_EXACT_FILENAME);
+
+        if (dtPath == null) throw new IllegalStateException("DT file not found in " + INPUT_DIR + " (keyword=" + DT_KEYWORD + ").");
+        if (dbPath == null) throw new IllegalStateException("DB dump file not found in " + INPUT_DIR + " (keyword=" + DB_KEYWORD + ").");
+
+        System.out.println("DT file: " + dtPath);
+        System.out.println("DB file: " + dbPath);
+
+        try (Workbook dtWb = new XSSFWorkbook(Files.newInputStream(dtPath));
+             Workbook dbWb = new XSSFWorkbook(Files.newInputStream(dbPath))) {
+
+            Sheet dtSheet = dtWb.getSheetAt(0);
             Sheet dbSheet = dbWb.getSheetAt(0);
 
-            System.out.println("Reading Database dump into lookup sets ...");
+            System.out.println("Indexing DB dump ...");
             DbIndex db = buildDbIndex(dbSheet);
 
-            System.out.println("Scanning DT and writing differences ...");
+            Path outPath = OUTPUT_DIR.resolve(OUTPUT_FILENAME);
+            System.out.println("Comparing DT vs DB and writing: " + outPath);
+
             writeDifferences(dtSheet, db, outPath);
 
-            System.out.println("Done -> " + outPath.toAbsolutePath());
+            System.out.println("Done.");
         }
     }
 
-    // ----- Data structures for fast matching -----
+    // ---------- file discovery ----------
+    private static Path latestXlsxByKeyword(Path dir, String keyword) throws IOException {
+        final String kw = keyword == null ? "" : keyword.toLowerCase(Locale.ROOT);
+        Path[] best = new Path[1];
+        FileTime[] bestTime = new FileTime[1];
 
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir, "*.xlsx")) {
+            for (Path p : stream) {
+                String name = p.getFileName().toString().toLowerCase(Locale.ROOT);
+                if (!kw.isBlank() && !name.contains(kw)) continue;
+
+                BasicFileAttributes attrs = Files.readAttributes(p, BasicFileAttributes.class);
+                if (best[0] == null || attrs.lastModifiedTime().compareTo(bestTime[0]) > 0) {
+                    best[0] = p;
+                    bestTime[0] = attrs.lastModifiedTime();
+                }
+            }
+        }
+        return best[0];
+    }
+
+    // ---------- data structures ----------
     private record ExactKey(String proc, String mod, String mod2, LocalDate eff, LocalDate term, String rate4dp) { }
     private record PartialKey(String proc, String mod, String mod2, LocalDate term, String rate4dp) { }
     private record TripleKey(String proc, String mod, String mod2) { }
@@ -93,7 +143,7 @@ public class CompareDTvsDB {
             if (row == null) continue;
 
             String proc = norm(fmt.formatCellValue(getCell(row, col,"Procedure Code")));
-            if (proc.isEmpty()) continue; // skip blank proc rows
+            if (proc.isEmpty()) continue;
 
             String mod  = norm(fmt.formatCellValue(getCell(row, col,"Modifier")));
             String mod2 = norm(fmt.formatCellValue(getCell(row, col,"Modifier 2")));
@@ -103,12 +153,9 @@ public class CompareDTvsDB {
             LocalDate term = parseDate(fmt.formatCellValue(getCell(row, col,"Termination")));
             String rate4  = rateTo4(fmt.formatCellValue(getCell(row, col,"Allowed")));
 
-            // Stage 1 / exact
             idx.exact.add(new ExactKey(proc, mod, mod2, eff, term, rate4));
-            // Stage 2 / partial (ignore start/eff)
             idx.partial.add(new PartialKey(proc, mod, mod2, term, rate4));
 
-            // Stage 3 / presence of triplet
             if (REQUIRE_DB_MOD3_MOD4_BLANK) {
                 if (mod3.isEmpty() && mod4.isEmpty())
                     idx.triplets.add(new TripleKey(proc, mod, mod2));
@@ -119,23 +166,18 @@ public class CompareDTvsDB {
         return idx;
     }
 
-    // ----- Main comparison & write -----
-
     private static void writeDifferences(Sheet dtSheet, DbIndex db, Path outPath) throws IOException {
         DataFormatter fmt = new DataFormatter();
         Map<String,Integer> col = headerMap(dtSheet.getRow(dtSheet.getFirstRowNum()), fmt);
 
-        // DT columns expected
         String[] needed = {"PROC","MOD","MOD2","Start Date","End Date","Rate"};
         for (String n: needed) ensure(col, n, "DT file");
 
-        // Output workbook (streaming)
         try (SXSSFWorkbook outWb = new SXSSFWorkbook(1000)) {
             outWb.setCompressTempFiles(true);
-            SXSSFSheet outSh = outWb.createSheet("Differences");
-            int wr = 0;
+            SXSSFSheet outSh = outWb.createSheet(OUTPUT_SHEET);
 
-            // Header
+            int wr = 0;
             Row h = outSh.createRow(wr++);
             write(h, 0, "Procedure code");
             write(h, 1, "Mod");
@@ -150,13 +192,12 @@ public class CompareDTvsDB {
             write(h,10, "Old Rate");
             write(h,11, "Comments");
 
-            // Iterate DT rows once
             for (int r = dtSheet.getFirstRowNum()+1; r <= dtSheet.getLastRowNum(); r++) {
                 Row row = dtSheet.getRow(r);
                 if (row == null) continue;
 
                 String proc = norm(fmt.formatCellValue(getCell(row, col,"PROC")));
-                if (proc.isEmpty()) continue; // ignore blanks
+                if (proc.isEmpty()) continue;
 
                 String mod  = norm(fmt.formatCellValue(getCell(row, col,"MOD")));
                 String mod2 = norm(fmt.formatCellValue(getCell(row, col,"MOD2")));
@@ -164,39 +205,32 @@ public class CompareDTvsDB {
                 LocalDate end   = parseDate(fmt.formatCellValue(getCell(row, col,"End Date")));
                 String rate4    = rateTo4(fmt.formatCellValue(getCell(row, col,"Rate")));
 
-                // Stage 1: exact match? -> ignore
-                if (db.exact.contains(new ExactKey(proc, mod, mod2, start, end, rate4))) {
-                    continue;
-                }
-                // Stage 2: partial match? -> ignore
-                if (db.partial.contains(new PartialKey(proc, mod, mod2, end, rate4))) {
-                    continue;
-                }
-                // Stage 3: triplet not found in DB? -> New Code (write)
+                // Stage 1: exact match -> ignore
+                if (db.exact.contains(new ExactKey(proc, mod, mod2, start, end, rate4))) continue;
+                // Stage 2: partial match -> ignore
+                if (db.partial.contains(new PartialKey(proc, mod, mod2, end, rate4))) continue;
+                // Stage 3: triplet missing -> New Code
                 if (!db.triplets.contains(new TripleKey(proc, mod, mod2))) {
                     Row out = outSh.createRow(wr++);
                     int c = 0;
-                    write(out, c++, proc);         // Procedure code
-                    write(out, c++, mod);          // Mod
-                    write(out, c++, mod2);         // Mod 1
-                    write(out, c++, "");           // Mod2
-                    write(out, c++, "");           // Mod3
-                    write(out, c++, "");           // Mod 4
-                    write(out, c++, fmtDate(start)); // Effective Date (DT Start)
-                    write(out, c++, fmtDate(end));   // Termination Date (DT End)
-                    write(out, c++, rate4);        // Pricing Method -> per spec you mapped to Allowed; DT does not have it → leaving as New Rate value is common; change if you want constant or separate
-                    write(out, c++, rate4);        // New Rate (DT Rate)
-                    write(out, c++, "N/A");        // Old Rate
-                    write(out, c++, "New Code");   // Comments
+                    write(out, c++, proc);
+                    write(out, c++, mod);
+                    write(out, c++, mod2);          // Mod 1 from DT.MOD2
+                    write(out, c++, "");            // Mod2 (blank)
+                    write(out, c++, "");            // Mod3 (blank)
+                    write(out, c++, "");            // Mod 4 (blank)
+                    write(out, c++, fmtDate(start));// Effective
+                    write(out, c++, fmtDate(end));  // Termination
+                    write(out, c++, "Allowed");     // Pricing Method (as requested mapping)
+                    write(out, c++, rate4);         // New Rate (DT Rate)
+                    write(out, c++, "N/A");         // Old Rate
+                    write(out, c++, "New Code");    // Comments
                 }
             }
 
-            // Autosize a few important columns (cheap)
             for (int c = 0; c <= 11; c++) outSh.trackColumnForAutoSizing(c);
             for (int c = 0; c <= 11; c++) outSh.autoSizeColumn(c);
 
-            // Save
-            Files.createDirectories(outPath.getParent());
             try (OutputStream os = Files.newOutputStream(outPath)) {
                 outWb.write(os);
             }
@@ -204,8 +238,7 @@ public class CompareDTvsDB {
         }
     }
 
-    // ----- helpers -----
-
+    // ---------- helpers ----------
     private static Map<String,Integer> headerMap(Row header, DataFormatter fmt) {
         if (header == null) throw new IllegalArgumentException("Missing header row.");
         Map<String,Integer> map = new HashMap<>();
@@ -231,24 +264,20 @@ public class CompareDTvsDB {
         if (s == null) return "";
         s = s.trim();
         if (s.equalsIgnoreCase("null")) return "";
-        // common normalizations for codes/modifiers
         return s.toUpperCase(Locale.ROOT);
     }
 
     private static LocalDate parseDate(String s) {
         s = s == null ? "" : s.trim();
         if (s.isEmpty()) return null;
-        // Try numeric Excel date (e.g., "45235")? DataFormatter already gives formatted text; skip.
         for (DateTimeFormatter f: IN_DTFS) {
             try { return LocalDate.parse(s, f); } catch (DateTimeParseException ignored) {}
         }
-        // Fallback: try to read as serial if user pasted numbers
         try {
             double serial = Double.parseDouble(s);
-            // Excel epoch 1899-12-30
             return LocalDate.of(1899,12,30).plusDays((long)serial);
         } catch (Exception ignored) {}
-        return null; // treat unparseable as blank
+        return null;
     }
 
     private static String fmtDate(LocalDate d) {
@@ -257,15 +286,12 @@ public class CompareDTvsDB {
 
     private static String rateTo4(String raw) {
         String s = raw == null ? "" : raw.trim();
-        if (s.isEmpty()) return "0.0000"; // or ""
-        // strip $ and commas
+        if (s.isEmpty()) return "0.0000";
         s = s.replace("$","").replace(",","");
-        // handle M / NA / N/A → treat as 0? (not required here; we keep numeric)
         try {
             BigDecimal bd = new BigDecimal(s);
             return bd.setScale(4, BigDecimal.ROUND_HALF_UP).toPlainString();
         } catch (NumberFormatException e) {
-            // non-numeric → normalize to 0.0000 to avoid key blow-ups
             return "0.0000";
         }
     }
