@@ -1,0 +1,277 @@
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.poi.xssf.streaming.SXSSFWorkbook;
+import org.apache.poi.xssf.streaming.SXSSFSheet;
+
+import java.io.*;
+import java.math.BigDecimal;
+import java.nio.file.*;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.*;
+
+/**
+ * Compare a DT worksheet (left) vs a Database dump (right) and write "New Code" rows to
+ * Differences Record.xlsx (sheet: Differences) with requested headers.
+ *
+ * Usage (example):
+ *   java CompareDTvsDB "C:/path/DT_Span.xlsx" "C:/path/DB_Dump.xlsx" "C:/path/Differences Record.xlsx"
+ *
+ * Assumptions (to match your screenshot/fields):
+ *  - DT file columns (header names not case-sensitive): PROC, MOD, MOD2, Start Date, End Date, Rate
+ *  - DB dump columns: Procedure Code, Modifier, Modifier 2, Modifier 3, Modifier 4, Effective, Termination, Allowed
+ *  - Stage 1 (exact) and Stage 2 (partial) matches are ignored.
+ *  - Stage 3 writes only rows from DT that DO NOT exist in DB by PROC+MOD+MOD2.
+ *    We consider a DB record "existing" for Stage 3 if there is any DB row whose
+ *    (proc, mod, mod2) equal the DT values (DB’s Mod3/Mod4 may be blank; if present we still treat as existing).
+ *    If you want to require DB.Mod3/Mod4 to be blank, flip the flag REQUIRE_DB_MOD3_MOD4_BLANK below to true.
+ */
+public class CompareDTvsDB {
+
+    // ---------- configuration ----------
+    private static final boolean REQUIRE_DB_MOD3_MOD4_BLANK = false; // set true if Stage 3 should only match DB rows with empty Mod3/Mod4
+    private static final DateTimeFormatter OUT_DTF = DateTimeFormatter.ofPattern("MM/dd/yyyy");
+    private static final List<DateTimeFormatter> IN_DTFS = List.of(
+            DateTimeFormatter.ofPattern("M/d/yyyy"),
+            DateTimeFormatter.ofPattern("MM/dd/yyyy"),
+            DateTimeFormatter.ofPattern("yyyy-MM-dd"),
+            DateTimeFormatter.ofPattern("M/d/yy"),
+            DateTimeFormatter.ofPattern("MM/dd/yy")
+    );
+
+    public static void main(String[] args) throws Exception {
+        if (args.length < 3) {
+            System.out.println("Usage: java CompareDTvsDB <DT.xlsx> <DB.xlsx> <Differences Record.xlsx>");
+            return;
+        }
+        Path dtPath = Paths.get(args[0]);
+        Path dbPath = Paths.get(args[1]);
+        Path outPath = Paths.get(args[2]);
+
+        try (InputStream dtIn = Files.newInputStream(dtPath);
+             InputStream dbIn = Files.newInputStream(dbPath);
+             Workbook dtWb = new XSSFWorkbook(dtIn);
+             Workbook dbWb = new XSSFWorkbook(dbIn)) {
+
+            Sheet dtSheet = dtWb.getSheetAt(0); // use first sheet; change if needed
+            Sheet dbSheet = dbWb.getSheetAt(0);
+
+            System.out.println("Reading Database dump into lookup sets ...");
+            DbIndex db = buildDbIndex(dbSheet);
+
+            System.out.println("Scanning DT and writing differences ...");
+            writeDifferences(dtSheet, db, outPath);
+
+            System.out.println("Done -> " + outPath.toAbsolutePath());
+        }
+    }
+
+    // ----- Data structures for fast matching -----
+
+    private record ExactKey(String proc, String mod, String mod2, LocalDate eff, LocalDate term, String rate4dp) { }
+    private record PartialKey(String proc, String mod, String mod2, LocalDate term, String rate4dp) { }
+    private record TripleKey(String proc, String mod, String mod2) { }
+
+    private static class DbIndex {
+        final Set<ExactKey> exact = new HashSet<>();
+        final Set<PartialKey> partial = new HashSet<>();
+        final Set<TripleKey> triplets = new HashSet<>();
+    }
+
+    private static DbIndex buildDbIndex(Sheet dbSheet) {
+        DataFormatter fmt = new DataFormatter();
+        Map<String,Integer> col = headerMap(dbSheet.getRow(dbSheet.getFirstRowNum()), fmt);
+
+        String[] needed = {"Procedure Code","Modifier","Modifier 2","Modifier 3","Modifier 4","Effective","Termination","Allowed"};
+        for (String n: needed) ensure(col, n, "DB dump");
+
+        DbIndex idx = new DbIndex();
+
+        for (int r = dbSheet.getFirstRowNum()+1; r <= dbSheet.getLastRowNum(); r++) {
+            Row row = dbSheet.getRow(r);
+            if (row == null) continue;
+
+            String proc = norm(fmt.formatCellValue(getCell(row, col,"Procedure Code")));
+            if (proc.isEmpty()) continue; // skip blank proc rows
+
+            String mod  = norm(fmt.formatCellValue(getCell(row, col,"Modifier")));
+            String mod2 = norm(fmt.formatCellValue(getCell(row, col,"Modifier 2")));
+            String mod3 = norm(fmt.formatCellValue(getCell(row, col,"Modifier 3")));
+            String mod4 = norm(fmt.formatCellValue(getCell(row, col,"Modifier 4")));
+            LocalDate eff  = parseDate(fmt.formatCellValue(getCell(row, col,"Effective")));
+            LocalDate term = parseDate(fmt.formatCellValue(getCell(row, col,"Termination")));
+            String rate4  = rateTo4(fmt.formatCellValue(getCell(row, col,"Allowed")));
+
+            // Stage 1 / exact
+            idx.exact.add(new ExactKey(proc, mod, mod2, eff, term, rate4));
+            // Stage 2 / partial (ignore start/eff)
+            idx.partial.add(new PartialKey(proc, mod, mod2, term, rate4));
+
+            // Stage 3 / presence of triplet
+            if (REQUIRE_DB_MOD3_MOD4_BLANK) {
+                if (mod3.isEmpty() && mod4.isEmpty())
+                    idx.triplets.add(new TripleKey(proc, mod, mod2));
+            } else {
+                idx.triplets.add(new TripleKey(proc, mod, mod2));
+            }
+        }
+        return idx;
+    }
+
+    // ----- Main comparison & write -----
+
+    private static void writeDifferences(Sheet dtSheet, DbIndex db, Path outPath) throws IOException {
+        DataFormatter fmt = new DataFormatter();
+        Map<String,Integer> col = headerMap(dtSheet.getRow(dtSheet.getFirstRowNum()), fmt);
+
+        // DT columns expected
+        String[] needed = {"PROC","MOD","MOD2","Start Date","End Date","Rate"};
+        for (String n: needed) ensure(col, n, "DT file");
+
+        // Output workbook (streaming)
+        try (SXSSFWorkbook outWb = new SXSSFWorkbook(1000)) {
+            outWb.setCompressTempFiles(true);
+            SXSSFSheet outSh = outWb.createSheet("Differences");
+            int wr = 0;
+
+            // Header
+            Row h = outSh.createRow(wr++);
+            write(h, 0, "Procedure code");
+            write(h, 1, "Mod");
+            write(h, 2, "Mod 1");
+            write(h, 3, "Mod2");
+            write(h, 4, "Mod3");
+            write(h, 5, "Mod 4");
+            write(h, 6, "Effective Date");
+            write(h, 7, "Termination Date");
+            write(h, 8, "Pricing Method");
+            write(h, 9, "New Rate");
+            write(h,10, "Old Rate");
+            write(h,11, "Comments");
+
+            // Iterate DT rows once
+            for (int r = dtSheet.getFirstRowNum()+1; r <= dtSheet.getLastRowNum(); r++) {
+                Row row = dtSheet.getRow(r);
+                if (row == null) continue;
+
+                String proc = norm(fmt.formatCellValue(getCell(row, col,"PROC")));
+                if (proc.isEmpty()) continue; // ignore blanks
+
+                String mod  = norm(fmt.formatCellValue(getCell(row, col,"MOD")));
+                String mod2 = norm(fmt.formatCellValue(getCell(row, col,"MOD2")));
+                LocalDate start = parseDate(fmt.formatCellValue(getCell(row, col,"Start Date")));
+                LocalDate end   = parseDate(fmt.formatCellValue(getCell(row, col,"End Date")));
+                String rate4    = rateTo4(fmt.formatCellValue(getCell(row, col,"Rate")));
+
+                // Stage 1: exact match? -> ignore
+                if (db.exact.contains(new ExactKey(proc, mod, mod2, start, end, rate4))) {
+                    continue;
+                }
+                // Stage 2: partial match? -> ignore
+                if (db.partial.contains(new PartialKey(proc, mod, mod2, end, rate4))) {
+                    continue;
+                }
+                // Stage 3: triplet not found in DB? -> New Code (write)
+                if (!db.triplets.contains(new TripleKey(proc, mod, mod2))) {
+                    Row out = outSh.createRow(wr++);
+                    int c = 0;
+                    write(out, c++, proc);         // Procedure code
+                    write(out, c++, mod);          // Mod
+                    write(out, c++, mod2);         // Mod 1
+                    write(out, c++, "");           // Mod2
+                    write(out, c++, "");           // Mod3
+                    write(out, c++, "");           // Mod 4
+                    write(out, c++, fmtDate(start)); // Effective Date (DT Start)
+                    write(out, c++, fmtDate(end));   // Termination Date (DT End)
+                    write(out, c++, rate4);        // Pricing Method -> per spec you mapped to Allowed; DT does not have it → leaving as New Rate value is common; change if you want constant or separate
+                    write(out, c++, rate4);        // New Rate (DT Rate)
+                    write(out, c++, "N/A");        // Old Rate
+                    write(out, c++, "New Code");   // Comments
+                }
+            }
+
+            // Autosize a few important columns (cheap)
+            for (int c = 0; c <= 11; c++) outSh.trackColumnForAutoSizing(c);
+            for (int c = 0; c <= 11; c++) outSh.autoSizeColumn(c);
+
+            // Save
+            Files.createDirectories(outPath.getParent());
+            try (OutputStream os = Files.newOutputStream(outPath)) {
+                outWb.write(os);
+            }
+            outWb.dispose();
+        }
+    }
+
+    // ----- helpers -----
+
+    private static Map<String,Integer> headerMap(Row header, DataFormatter fmt) {
+        if (header == null) throw new IllegalArgumentException("Missing header row.");
+        Map<String,Integer> map = new HashMap<>();
+        for (int c = header.getFirstCellNum(); c < header.getLastCellNum(); c++) {
+            Cell cell = header.getCell(c);
+            String key = cell == null ? "" : fmt.formatCellValue(cell).trim();
+            if (!key.isEmpty()) map.put(key.toUpperCase(Locale.ROOT), c);
+        }
+        return map;
+    }
+
+    private static void ensure(Map<String,Integer> col, String name, String where) {
+        if (!col.containsKey(name.toUpperCase(Locale.ROOT)))
+            throw new IllegalArgumentException("Expected column \"" + name + "\" in " + where + " header.");
+    }
+
+    private static Cell getCell(Row row, Map<String,Integer> col, String name) {
+        Integer idx = col.get(name.toUpperCase(Locale.ROOT));
+        return (idx == null) ? null : row.getCell(idx, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
+    }
+
+    private static String norm(String s) {
+        if (s == null) return "";
+        s = s.trim();
+        if (s.equalsIgnoreCase("null")) return "";
+        // common normalizations for codes/modifiers
+        return s.toUpperCase(Locale.ROOT);
+    }
+
+    private static LocalDate parseDate(String s) {
+        s = s == null ? "" : s.trim();
+        if (s.isEmpty()) return null;
+        // Try numeric Excel date (e.g., "45235")? DataFormatter already gives formatted text; skip.
+        for (DateTimeFormatter f: IN_DTFS) {
+            try { return LocalDate.parse(s, f); } catch (DateTimeParseException ignored) {}
+        }
+        // Fallback: try to read as serial if user pasted numbers
+        try {
+            double serial = Double.parseDouble(s);
+            // Excel epoch 1899-12-30
+            return LocalDate.of(1899,12,30).plusDays((long)serial);
+        } catch (Exception ignored) {}
+        return null; // treat unparseable as blank
+    }
+
+    private static String fmtDate(LocalDate d) {
+        return d == null ? "" : OUT_DTF.format(d);
+    }
+
+    private static String rateTo4(String raw) {
+        String s = raw == null ? "" : raw.trim();
+        if (s.isEmpty()) return "0.0000"; // or ""
+        // strip $ and commas
+        s = s.replace("$","").replace(",","");
+        // handle M / NA / N/A → treat as 0? (not required here; we keep numeric)
+        try {
+            BigDecimal bd = new BigDecimal(s);
+            return bd.setScale(4, BigDecimal.ROUND_HALF_UP).toPlainString();
+        } catch (NumberFormatException e) {
+            // non-numeric → normalize to 0.0000 to avoid key blow-ups
+            return "0.0000";
+        }
+    }
+
+    private static void write(Row r, int c, String v) {
+        Cell cell = r.createCell(c, CellType.STRING);
+        cell.setCellValue(v == null ? "" : v);
+    }
+}
