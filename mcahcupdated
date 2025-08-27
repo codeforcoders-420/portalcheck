@@ -29,11 +29,9 @@ public class MCAHCScrubber {
                 }
 
                 if (file.getName().contains("MCAHC MAN")) {
-                    // File 2 logic
                     List<List<String>> filtered = processFile2(sheet, headerRowIndex);
                     writeFilteredDataToExcel(filtered, outputFolder + "MI_MD_MCAHC_MAN_Output.xlsx");
                 } else {
-                    // File 1 logic
                     List<List<String>> filtered = processFile1(sheet, headerRowIndex);
                     writeFilteredDataToExcel(filtered, outputFolder + "MI_MD_MCAHC_U21_Output.xlsx");
                 }
@@ -49,29 +47,38 @@ public class MCAHCScrubber {
     // ------------------ FILE 1 -----------------------
     private static List<List<String>> processFile1(Sheet sheet, int headerRowIndex) {
         List<List<String>> filteredRows = new ArrayList<>();
-        Row headerRow = sheet.getRow(headerRowIndex);
-        filteredRows.add(getStringRow(headerRow));
+        filteredRows.add(Arrays.asList("Code", "Modifier", "Age Range", "Rate", "Effective Date"));
 
         for (int i = headerRowIndex + 1; i <= sheet.getLastRowNum(); i++) {
             Row row = sheet.getRow(i);
             if (row == null) continue;
 
-            List<String> stringRow = getStringRow(row);
-            if (shouldIncludeRow(stringRow)) {
-                filteredRows.add(stringRow);
+            String code = getFormattedCellValue(row.getCell(0), true);
+            String modifier = getFormattedCellValue(row.getCell(1), false);
+            String ageRange = getFormattedCellValue(row.getCell(2), false);
+            String rate = getFormattedCellValue(row.getCell(3), false);
+            String effDate = getFormattedCellValue(row.getCell(4), false);
+
+            if (shouldIncludeRow(rate, ageRange)) {
+                String formattedRate = formatRate(rate);
+                filteredRows.add(Arrays.asList(code, modifier, ageRange, formattedRate, effDate));
             }
         }
+
         return filteredRows;
     }
 
-    private static boolean shouldIncludeRow(List<String> row) {
-        String rateStr = row.get(3).trim(); // Assuming Rate is at index 3
-        String ageRange = row.get(2).trim(); // Assuming Age Range is at index 2
+    private static boolean shouldIncludeRow(String rateStr, String ageRange) {
+        if (rateStr == null) return false;
+        rateStr = rateStr.trim();
 
-        if (rateStr.equalsIgnoreCase("M") || rateStr.equalsIgnoreCase("$0") || rateStr.equalsIgnoreCase("$0.00") || rateStr.equalsIgnoreCase("0") || rateStr.equalsIgnoreCase("0.0000"))
-            return false;
+        if (rateStr.equalsIgnoreCase("M") ||
+            rateStr.equalsIgnoreCase("$0") ||
+            rateStr.equalsIgnoreCase("$0.00") ||
+            rateStr.equalsIgnoreCase("0") ||
+            rateStr.equalsIgnoreCase("0.0000")) return false;
 
-        if (ageRange.isBlank()) return true;
+        if (ageRange == null || ageRange.isBlank()) return true;
 
         return !isUnder21(ageRange);
     }
@@ -79,18 +86,20 @@ public class MCAHCScrubber {
     // ------------------ FILE 2 -----------------------
     private static List<List<String>> processFile2(Sheet sheet, int headerRowIndex) {
         List<List<String>> filteredRows = new ArrayList<>();
-        Row headerRow = sheet.getRow(headerRowIndex);
-        filteredRows.add(getStringRow(headerRow));
+        filteredRows.add(Arrays.asList("Code", "Modifier", "Age Range", "Rate", "Effective Date"));
 
         for (int i = headerRowIndex + 1; i <= sheet.getLastRowNum(); i++) {
             Row row = sheet.getRow(i);
             if (row == null) continue;
 
-            List<String> rowData = getStringRow(row);
-            String rateVal = rowData.get(3).trim();
-            if (rateVal.equalsIgnoreCase("M")) {
-                rowData.set(3, "0.0100");
-                filteredRows.add(rowData);
+            String code = getFormattedCellValue(row.getCell(0), true);
+            String modifier = getFormattedCellValue(row.getCell(1), false);
+            String ageRange = getFormattedCellValue(row.getCell(2), false);
+            String rate = getFormattedCellValue(row.getCell(3), false);
+            String effDate = getFormattedCellValue(row.getCell(4), false);
+
+            if (rate.equalsIgnoreCase("M")) {
+                filteredRows.add(Arrays.asList(code, modifier, ageRange, "0.0100", effDate));
             }
         }
 
@@ -106,8 +115,7 @@ public class MCAHCScrubber {
                 try {
                     int age = Integer.parseInt(part);
                     if (age < 21) return true;
-                } catch (NumberFormatException ignored) {
-                }
+                } catch (NumberFormatException ignored) {}
             }
         } catch (Exception e) {
             return true;
@@ -115,33 +123,24 @@ public class MCAHCScrubber {
         return false;
     }
 
-    private static List<String> getStringRow(Row row) {
-        List<String> values = new ArrayList<>();
-        DataFormatter formatter = new DataFormatter();
-
-        for (int i = 0; i < row.getLastCellNum(); i++) {
-            Cell cell = row.getCell(i);
-            String value = formatter.formatCellValue(cell);
-
-            // Remove .0 from Code column (assume Code is column 0)
-            if (i == 0 && value.matches("\\d+\\.0")) {
-                value = value.substring(0, value.indexOf('.'));
-            }
-
-            // Format Rate column (assume Rate is column 3)
-            if (i == 3) {
-                try {
-                    double rate = Double.parseDouble(value.replace("$", ""));
-                    value = new DecimalFormat("0.0000").format(rate);
-                } catch (NumberFormatException e) {
-                    // Keep original if not a number
-                }
-            }
-
-            values.add(value);
+    private static String formatRate(String rateStr) {
+        try {
+            double rate = Double.parseDouble(rateStr.replace("$", "").trim());
+            return new DecimalFormat("0.0000").format(rate);
+        } catch (NumberFormatException e) {
+            return rateStr;
         }
+    }
 
-        return values;
+    private static String getFormattedCellValue(Cell cell, boolean isCodeColumn) {
+        if (cell == null) return "";
+        DataFormatter formatter = new DataFormatter();
+        String value = formatter.formatCellValue(cell);
+
+        if (isCodeColumn && value.matches("\\d+\\.0")) {
+            value = value.substring(0, value.indexOf('.'));
+        }
+        return value.trim();
     }
 
     private static int findHeaderRow(Sheet sheet) {
@@ -159,6 +158,7 @@ public class MCAHCScrubber {
     private static void writeFilteredDataToExcel(List<List<String>> data, String filePath) {
         try (Workbook wb = new XSSFWorkbook()) {
             Sheet sheet = wb.createSheet("Output");
+
             for (int r = 0; r < data.size(); r++) {
                 Row row = sheet.createRow(r);
                 List<String> rowData = data.get(r);
@@ -167,6 +167,7 @@ public class MCAHCScrubber {
                     cell.setCellValue(rowData.get(c));
                 }
             }
+
             try (FileOutputStream out = new FileOutputStream(filePath)) {
                 wb.write(out);
             }
