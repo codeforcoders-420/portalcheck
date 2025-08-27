@@ -202,3 +202,15 @@ private static boolean isUnder21(String ageRange) {
     }
 }
 
+**********************************
+
+private static boolean isValidProcedureCode(String code) {
+        // CPT (5 digits) or HCPCS Level II (one letter + 4 digits)
+        // Accepts e.g., 10021, J1950, Q0114, L4361, U0002, etc.
+        return code != null && code.matches("^(\\d{5}|[A-Z]\\d{4})$");
+    }
+
+String code = rowData.get(0).trim(); 
+if (!isValidProcedureCode(code)) continue;
+ 
+
