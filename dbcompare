@@ -13,49 +13,48 @@ import java.time.format.DateTimeParseException;
 import java.util.*;
 
 /**
- * Compares DT file vs DB dump and writes differences to:
+ * Compares a DT file vs a DB dump and writes differences to:
  *   <OUTPUT_DIR>/Differences Record.xlsx   (sheet: Differences)
  *
- * Rules (in order):
- *   A) Ignore "Exact":  PROC+MOD+MOD2+Start+End+Rate == Procedure+Modifier+Modifier2+Effective+Termination+Allowed
- *   B) Ignore "Partial": PROC+MOD+MOD2+End+Rate == Procedure+Modifier+Modifier2+Termination+Allowed
- *   C) If triplet (PROC,MOD,MOD2) exists in DB:
- *        - Pick best DB period for that triplet.
- *        - If Rate != Allowed (4dp-normalized) -> write "Rate change".
- *      Else:
- *        - Write "New Code".
+ * Decision order per row in DT:
+ *   1) Ignore if EXACT matches DB on (PROC, MOD, MOD2, Start, End, Rate) == (Procedure Code, Modifier, Modifier 2, Effective, Termination, Allowed)
+ *   2) Ignore if PARTIAL matches DB on (PROC, MOD, MOD2, End, Rate) == (Procedure Code, Modifier, Modifier 2, Termination, Allowed)
+ *   3) Else if the (PROC, MOD, MOD2) triplet does not exist in DB -> write "New Code"
+ *   4) Else (triplet exists):
+ *        - pick the most relevant DB row for that period (overlap preferred)
+ *        - if DT Rate != DB Allowed -> write "Rate change"
+ *        - else if DT End < DB Termination -> write "Terminate"
+ *        - else ignore
  *
- * HOW TO USE:
- *  1) Set INPUT_DIR and OUTPUT_DIR below.
- *  2) EITHER set keywords (DT_KEYWORD/DB_KEYWORD) -> program picks latest matching .xlsx,
- *     OR set exact filenames (DT_EXACT_FILENAME/DB_EXACT_FILENAME).
- *
- * Maven deps:
- *   org.apache.poi:poi-ooxml:5.2.5
- *   org.apache.poi:poi:5.2.5
+ * USAGE:
+ *   - Set INPUT_DIR and OUTPUT_DIR.
+ *   - Option A: use DT_KEYWORD/DB_KEYWORD and it will pick the latest .xlsx containing those keywords.
+ *   - Option B: set DT_EXACT_FILENAME/DB_EXACT_FILENAME to use exact files.
  */
 public class CompareDTvsDB_Complete {
 
-    // ====== FOLDERS ======
-    private static final Path INPUT_DIR  = Paths.get("C:/data/in");   // <--- change for your environment
-    private static final Path OUTPUT_DIR = Paths.get("C:/data/out");  // <--- change for your environment
+    // ====== FOLDERS (change for your env) ======
+    private static final Path INPUT_DIR  = Paths.get("C:/data/in");
+    private static final Path OUTPUT_DIR = Paths.get("C:/data/out");
 
     // ====== FILE DISCOVERY ======
-    // Option A: choose the latest *.xlsx containing this keyword (case-insensitive)
+    // Option A: pick latest *.xlsx containing the keyword (case-insensitive)
     private static final String DT_KEYWORD = "DT";     // e.g., "DT", "DT_Span"
     private static final String DB_KEYWORD = "DUMP";   // e.g., "DB", "Dump", "Database"
 
-    // Option B: exact filenames (leave "" to disable exact matching)
-    private static final String DT_EXACT_FILENAME = ""; // e.g., "DT_Span_20250827.xlsx"
-    private static final String DB_EXACT_FILENAME = ""; // e.g., "Database_Dump_20250827.xlsx"
+    // Option B: exact filenames (leave "" to disable)
+    private static final String DT_EXACT_FILENAME = "";
+    private static final String DB_EXACT_FILENAME = "";
 
     // ====== BEHAVIOR SWITCHES ======
-    // Stage-3 triplet existence: if true, only consider DB rows with blank Mod3 & Mod4 as "existing"
+    // Treat DB triplet as "exists" only if Mod3 & Mod4 are blank
     private static final boolean REQUIRE_DB_MOD3_MOD4_BLANK = false;
 
+    // ====== OUTPUT ======
     private static final String OUTPUT_FILENAME = "Differences Record.xlsx";
     private static final String OUTPUT_SHEET    = "Differences";
 
+    // ====== DATE FORMATS ======
     private static final DateTimeFormatter OUT_DTF = DateTimeFormatter.ofPattern("MM/dd/yyyy");
     private static final List<DateTimeFormatter> IN_DTFS = List.of(
             DateTimeFormatter.ofPattern("M/d/yyyy"),
@@ -86,7 +85,7 @@ public class CompareDTvsDB_Complete {
         try (Workbook dtWb = new XSSFWorkbook(Files.newInputStream(dtPath));
              Workbook dbWb = new XSSFWorkbook(Files.newInputStream(dbPath))) {
 
-            Sheet dtSheet = dtWb.getSheetAt(0); // use first sheet; change to getSheet("...") if needed
+            Sheet dtSheet = dtWb.getSheetAt(0);
             Sheet dbSheet = dbWb.getSheetAt(0);
 
             System.out.println("Indexing DB dump ...");
@@ -144,8 +143,15 @@ public class CompareDTvsDB_Complete {
         DataFormatter fmt = new DataFormatter();
         Map<String,Integer> col = headerMap(dbSheet.getRow(dbSheet.getFirstRowNum()), fmt);
 
-        String[] needed = {"Procedure Code","Modifier","Modifier 2","Modifier 3","Modifier 4","Effective","Termination","Allowed"};
-        for (String n: needed) ensure(col, n, "DB dump");
+        // Accept common synonyms
+        String pcode = key(col, "Procedure Code", "Procedure", "ProcedureCode");
+        String mod   = key(col, "Modifier", "Mod");
+        String mod2  = key(col, "Modifier 2", "Modifier2", "Mod2");
+        String mod3  = key(col, "Modifier 3", "Modifier3", "Mod3");
+        String mod4  = key(col, "Modifier 4", "Modifier4", "Mod4");
+        String eff   = key(col, "Effective", "Start Date", "Eff");
+        String term  = key(col, "Termination", "End Date", "Term");
+        String allow = key(col, "Allowed", "Rate");
 
         DbIndex idx = new DbIndex();
 
@@ -153,35 +159,31 @@ public class CompareDTvsDB_Complete {
             Row row = dbSheet.getRow(r);
             if (row == null) continue;
 
-            String proc = norm(fmt.formatCellValue(getCell(row, col,"Procedure Code")));
+            String proc = norm(fmt.formatCellValue(row.getCell(pcode, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
             if (proc.isEmpty()) continue;
 
-            String mod  = norm(fmt.formatCellValue(getCell(row, col,"Modifier")));
-            String mod2 = norm(fmt.formatCellValue(getCell(row, col,"Modifier 2")));
-            String mod3 = norm(fmt.formatCellValue(getCell(row, col,"Modifier 3")));
-            String mod4 = norm(fmt.formatCellValue(getCell(row, col,"Modifier 4")));
-            LocalDate eff  = parseDate(fmt.formatCellValue(getCell(row, col,"Effective")));
-            LocalDate term = parseDate(fmt.formatCellValue(getCell(row, col,"Termination")));
-            String rate4  = rateTo4(fmt.formatCellValue(getCell(row, col,"Allowed")));
+            String m1  = norm(fmt.formatCellValue(row.getCell(mod,   Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
+            String m2  = norm(fmt.formatCellValue(row.getCell(mod2,  Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
+            String m3  = norm(fmt.formatCellValue(row.getCell(mod3,  Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
+            String m4  = norm(fmt.formatCellValue(row.getCell(mod4,  Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
+            LocalDate e1  = parseDate(fmt.formatCellValue(row.getCell(eff,  Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
+            LocalDate e2  = parseDate(fmt.formatCellValue(row.getCell(term, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
+            String rate4  = rateTo4(fmt.formatCellValue(row.getCell(allow, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
 
-            // sets for fast ignore checks
-            idx.exact.add(new ExactKey(proc, mod, mod2, eff, term, rate4));
-            idx.partial.add(new PartialKey(proc, mod, mod2, term, rate4));
+            idx.exact.add(new ExactKey(proc, m1, m2, e1, e2, rate4));
+            idx.partial.add(new PartialKey(proc, m1, m2, e2, rate4));
 
-            // triplet existence
             if (REQUIRE_DB_MOD3_MOD4_BLANK) {
-                if (mod3.isEmpty() && mod4.isEmpty())
-                    idx.triplets.add(new TripleKey(proc, mod, mod2));
+                if (m3.isEmpty() && m4.isEmpty()) idx.triplets.add(new TripleKey(proc, m1, m2));
             } else {
-                idx.triplets.add(new TripleKey(proc, mod, mod2));
+                idx.triplets.add(new TripleKey(proc, m1, m2));
             }
 
-            // store full row for best-match / rate comparison
             DbRow dr = new DbRow();
-            dr.proc = proc; dr.mod = mod; dr.mod2 = mod2; dr.mod3 = mod3; dr.mod4 = mod4;
-            dr.eff = eff; dr.term = term; dr.allowed4 = rate4;
+            dr.proc = proc; dr.mod = m1; dr.mod2 = m2; dr.mod3 = m3; dr.mod4 = m4;
+            dr.eff = e1; dr.term = e2; dr.allowed4 = rate4;
 
-            idx.byTriplet.computeIfAbsent(new TripleKey(proc, mod, mod2), k -> new ArrayList<>()).add(dr);
+            idx.byTriplet.computeIfAbsent(new TripleKey(proc, m1, m2), k -> new ArrayList<>()).add(dr);
         }
         return idx;
     }
@@ -191,8 +193,13 @@ public class CompareDTvsDB_Complete {
         DataFormatter fmt = new DataFormatter();
         Map<String,Integer> col = headerMap(dtSheet.getRow(dtSheet.getFirstRowNum()), fmt);
 
-        String[] needed = {"PROC","MOD","MOD2","Start Date","End Date","Rate"};
-        for (String n: needed) ensure(col, n, "DT file");
+        // DT columns with synonyms
+        String cPROC = key(col, "PROC", "PROCEDURE CODE", "Procedure", "ProcedureCode");
+        String cMOD  = key(col, "MOD", "Modifier", "Mod");
+        String cMOD2 = key(col, "MOD2", "Modifier 2", "Modifier2", "Mod2");
+        String cSD   = key(col, "Start Date", "Effective", "Eff");
+        String cED   = key(col, "End Date", "Termination", "Term");
+        String cRATE = key(col, "Rate", "Allowed");
 
         try (SXSSFWorkbook outWb = new SXSSFWorkbook(1000)) {
             outWb.setCompressTempFiles(true);
@@ -217,22 +224,22 @@ public class CompareDTvsDB_Complete {
                 Row row = dtSheet.getRow(r);
                 if (row == null) continue;
 
-                String proc = norm(fmt.formatCellValue(getCell(row, col,"PROC")));
-                if (proc.isEmpty()) continue; // skip blank rows
+                String proc = norm(fmt.formatCellValue(row.getCell(cPROC, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
+                if (proc.isEmpty()) continue;
 
-                String mod  = norm(fmt.formatCellValue(getCell(row, col,"MOD")));
-                String mod2 = norm(fmt.formatCellValue(getCell(row, col,"MOD2")));
-                LocalDate start = parseDate(fmt.formatCellValue(getCell(row, col,"Start Date")));
-                LocalDate end   = parseDate(fmt.formatCellValue(getCell(row, col,"End Date")));
-                String rate4    = rateTo4(fmt.formatCellValue(getCell(row, col,"Rate")));
+                String mod  = norm(fmt.formatCellValue(row.getCell(cMOD,  Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
+                String mod2 = norm(fmt.formatCellValue(row.getCell(cMOD2, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
+                LocalDate start = parseDate(fmt.formatCellValue(row.getCell(cSD,   Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
+                LocalDate end   = parseDate(fmt.formatCellValue(row.getCell(cED,   Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
+                String rate4    = rateTo4(fmt.formatCellValue(row.getCell(cRATE, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
 
-                // A) Exact ignore
+                // 1) Exact ignore
                 if (db.exact.contains(new ExactKey(proc, mod, mod2, start, end, rate4))) continue;
 
-                // B) Partial ignore
+                // 2) Partial ignore
                 if (db.partial.contains(new PartialKey(proc, mod, mod2, end, rate4))) continue;
 
-                // C) Triplet present?
+                // 3) Triplet present?
                 TripleKey trip = new TripleKey(proc, mod, mod2);
                 List<DbRow> candidates = db.byTriplet.get(trip);
 
@@ -255,28 +262,53 @@ public class CompareDTvsDB_Complete {
                     continue;
                 }
 
-                // ---- RATE CHANGE detection for existing triplet ----
+                // ---- For existing triplet: Rate change / Terminate ----
                 DbRow best = pickBest(candidates, start, end);
-                if (best != null && !rate4.equals(best.allowed4)) {
-                    Row out = outSh.createRow(wr++);
-                    int c = 0;
-                    write(out, c++, proc);
-                    write(out, c++, mod);
-                    write(out, c++, mod2);            // Mod 1
-                    write(out, c++, "");              // Mod2
-                    write(out, c++, "");              // Mod3
-                    write(out, c++, "");              // Mod 4
-                    write(out, c++, fmtDate(start));  // Effective Date (DT)
-                    write(out, c++, fmtDate(end));    // Termination Date (DT)
-                    write(out, c++, "Allowed");       // Pricing Method
-                    write(out, c++, rate4);           // New Rate (DT)
-                    write(out, c++, best.allowed4);   // Old Rate (DB)
-                    write(out, c++, "Rate change");   // Comments
+                if (best != null) {
+                    boolean rateDiff = !rate4.equals(best.allowed4);
+                    boolean canCompareDates = (end != null && best.term != null);
+
+                    if (rateDiff) {
+                        // ---- RATE CHANGE ----
+                        Row out = outSh.createRow(wr++);
+                        int c = 0;
+                        write(out, c++, proc);
+                        write(out, c++, mod);
+                        write(out, c++, mod2);
+                        write(out, c++, "");
+                        write(out, c++, "");
+                        write(out, c++, "");
+                        write(out, c++, fmtDate(start));
+                        write(out, c++, fmtDate(end));
+                        write(out, c++, "Allowed");
+                        write(out, c++, rate4);          // New Rate (DT)
+                        write(out, c++, best.allowed4);  // Old Rate (DB)
+                        write(out, c++, "Rate change");
+                        continue;
+                    }
+
+                    if (canCompareDates && end.isBefore(best.term)) {
+                        // ---- TERMINATE ----
+                        Row out = outSh.createRow(wr++);
+                        int c = 0;
+                        write(out, c++, proc);
+                        write(out, c++, mod);
+                        write(out, c++, mod2);
+                        write(out, c++, "");
+                        write(out, c++, "");
+                        write(out, c++, "");
+                        write(out, c++, fmtDate(start));  // Effective (DT)
+                        write(out, c++, fmtDate(end));    // Termination (DT)
+                        write(out, c++, "Allowed");
+                        write(out, c++, rate4);           // New Rate (DT)
+                        write(out, c++, best.allowed4);   // Old Rate (DB)
+                        write(out, c++, "Terminate");
+                        continue;
+                    }
                 }
-                // else: same rate as best DB row → nothing to write
+                // else: same rate and not terminating earlier -> nothing to write
             }
 
-            // Tidy columns (cheap autosize)
             for (int c = 0; c <= 11; c++) outSh.trackColumnForAutoSizing(c);
             for (int c = 0; c <= 11; c++) outSh.autoSizeColumn(c);
 
@@ -287,32 +319,29 @@ public class CompareDTvsDB_Complete {
         }
     }
 
-    // ---------- best-match picking ----------
+    // ---------- choose best DB row for a DT period ----------
     private static boolean overlaps(LocalDate aStart, LocalDate aEnd, LocalDate bStart, LocalDate bEnd) {
         if (aStart == null || aEnd == null || bStart == null || bEnd == null) return false;
         return !aStart.isAfter(bEnd) && !bStart.isAfter(aEnd);
     }
 
     /**
-     * Choose the most relevant DB row for a given DT period:
-     *  1) Prefer rows whose period overlaps DT period; among them, prefer latest eff <= DT.start.
-     *  2) If none overlap: choose the row with the nearest eff prior to DT.start.
-     *  3) Else: choose earliest future eff.
+     * Most relevant DB row for a given DT period:
+     *  1) Prefer overlapping rows; among them, prefer latest eff <= DT.start.
+     *  2) Else the nearest prior eff.
+     *  3) Else the earliest future eff.
      */
     private static DbRow pickBest(List<DbRow> rows, LocalDate dStart, LocalDate dEnd) {
         if (rows == null || rows.isEmpty()) return null;
 
         List<DbRow> overlapping = new ArrayList<>();
-        for (DbRow r : rows) {
-            if (overlaps(dStart, dEnd, r.eff, r.term)) overlapping.add(r);
-        }
+        for (DbRow r : rows) if (overlaps(dStart, dEnd, r.eff, r.term)) overlapping.add(r);
+
         if (!overlapping.isEmpty()) {
             overlapping.sort(Comparator
                     .comparing((DbRow r) -> r.eff == null ? LocalDate.MIN : r.eff)
                     .reversed());
-            for (DbRow r : overlapping) {
-                if (r.eff == null || !r.eff.isAfter(dStart)) return r;
-            }
+            for (DbRow r : overlapping) if (r.eff == null || !r.eff.isAfter(dStart)) return r;
             return overlapping.get(0);
         }
 
@@ -340,14 +369,13 @@ public class CompareDTvsDB_Complete {
         return map;
     }
 
-    private static void ensure(Map<String,Integer> col, String name, String where) {
-        if (!col.containsKey(name.toUpperCase(Locale.ROOT)))
-            throw new IllegalArgumentException("Expected column \"" + name + "\" in " + where + " header.");
-    }
-
-    private static Cell getCell(Row row, Map<String,Integer> col, String name) {
-        Integer idx = col.get(name.toUpperCase(Locale.ROOT));
-        return (idx == null) ? null : row.getCell(idx, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
+    /** get index for first alias that exists; throws if none found */
+    private static int key(Map<String,Integer> col, String... aliases) {
+        for (String a : aliases) {
+            Integer idx = col.get(a.toUpperCase(Locale.ROOT));
+            if (idx != null) return idx;
+        }
+        throw new IllegalArgumentException("Expected one of columns: " + Arrays.toString(aliases));
     }
 
     private static String norm(String s) {
