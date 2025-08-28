@@ -6,30 +6,21 @@ import org.apache.poi.xssf.streaming.SXSSFSheet;
 import java.io.*;
 import java.math.BigDecimal;
 import java.nio.file.*;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.*;
 
-public class CompareDTvsDB_Complete {
+public class CompareDTvsDB_DirectPaths {
 
-    // ====== FOLDERS ======
-    private static final Path INPUT_DIR  = Paths.get("C:/data/in");   // <-- change
-    private static final Path OUTPUT_DIR = Paths.get("C:/data/out");  // <-- change
+    // ---- Set these OR pass 3 args: <DT.xlsx> <DB.xlsx> <Output.xlsx>
+    private static final String DT_PATH_DEFAULT  = "C:/data/in/DT.xlsx";
+    private static final String DB_PATH_DEFAULT  = "C:/data/in/DB.xlsx";
+    private static final String OUT_PATH_DEFAULT = "C:/data/out/Differences Record.xlsx";
 
-    // ====== FILE DISCOVERY ======
-    private static final String DT_KEYWORD = "DT";
-    private static final String DB_KEYWORD = "DUMP";
-    private static final String DT_EXACT_FILENAME = "";
-    private static final String DB_EXACT_FILENAME = "";
-
-    // ====== BEHAVIOR ======
     private static final boolean REQUIRE_DB_MOD3_MOD4_BLANK = false;
 
-    private static final String OUTPUT_FILENAME = "Differences Record.xlsx";
-    private static final String OUTPUT_SHEET    = "Differences";
-
+    private static final String OUTPUT_SHEET = "Differences";
     private static final DateTimeFormatter OUT_DTF = DateTimeFormatter.ofPattern("MM/dd/yyyy");
     private static final List<DateTimeFormatter> IN_DTFS = List.of(
             DateTimeFormatter.ofPattern("M/d/yyyy"),
@@ -38,23 +29,12 @@ public class CompareDTvsDB_Complete {
             DateTimeFormatter.ofPattern("M/d/yy"),
             DateTimeFormatter.ofPattern("MM/dd/yy")
     );
-
     private static final LocalDate OPEN_END = LocalDate.of(9999, 12, 31);
 
     public static void main(String[] args) throws Exception {
-        Files.createDirectories(INPUT_DIR);
-        Files.createDirectories(OUTPUT_DIR);
-
-        Path dtPath = DT_EXACT_FILENAME.isBlank()
-                ? latestXlsxByKeyword(INPUT_DIR, DT_KEYWORD)
-                : INPUT_DIR.resolve(DT_EXACT_FILENAME);
-
-        Path dbPath = DB_EXACT_FILENAME.isBlank()
-                ? latestXlsxByKeyword(INPUT_DIR, DB_KEYWORD)
-                : INPUT_DIR.resolve(DB_EXACT_FILENAME);
-
-        if (dtPath == null) throw new IllegalStateException("DT file not found in " + INPUT_DIR + " (keyword=" + DT_KEYWORD + ").");
-        if (dbPath == null) throw new IllegalStateException("DB dump file not found in " + INPUT_DIR + " (keyword=" + DB_KEYWORD + ").");
+        Path dtPath  = Paths.get(args.length >= 1 ? args[0] : DT_PATH_DEFAULT);
+        Path dbPath  = Paths.get(args.length >= 2 ? args[1] : DB_PATH_DEFAULT);
+        Path outPath = Paths.get(args.length >= 3 ? args[2] : OUT_PATH_DEFAULT);
 
         try (Workbook dtWb = new XSSFWorkbook(Files.newInputStream(dtPath));
              Workbook dbWb = new XSSFWorkbook(Files.newInputStream(dbPath))) {
@@ -65,30 +45,8 @@ public class CompareDTvsDB_Complete {
             DbIndex db = buildDbIndex(dbSheet);
             DtScan scan = scanDtForOpenEnded(dtSheet);
 
-            Path outPath = OUTPUT_DIR.resolve(OUTPUT_FILENAME);
             writeDifferences(dtSheet, db, scan, outPath);
         }
-    }
-
-    // ---------- file discovery ----------
-    private static Path latestXlsxByKeyword(Path dir, String keyword) throws IOException {
-        final String kw = keyword == null ? "" : keyword.toLowerCase(Locale.ROOT);
-        Path best = null;
-        FileTime bestTime = null;
-
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir, "*.xlsx")) {
-            for (Path p : stream) {
-                String name = p.getFileName().toString().toLowerCase(Locale.ROOT);
-                if (!kw.isBlank() && !name.contains(kw)) continue;
-
-                BasicFileAttributes attrs = Files.readAttributes(p, BasicFileAttributes.class);
-                if (best == null || attrs.lastModifiedTime().compareTo(bestTime) > 0) {
-                    best = p;
-                    bestTime = attrs.lastModifiedTime();
-                }
-            }
-        }
-        return best;
     }
 
     // ---------- data structures ----------
@@ -186,7 +144,7 @@ public class CompareDTvsDB_Complete {
             LocalDate end = parseDate(fmt.formatCellValue(row.getCell(scan.cED,   Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
 
             TripleKey k = new TripleKey(proc, mod, mod2);
-            if (OPEN_END.equals(end)) scan.hasOpenEnded.put(k, true);
+            if (LocalDate.of(9999,12,31).equals(end)) scan.hasOpenEnded.put(k, true);
         }
         return scan;
     }
@@ -194,8 +152,6 @@ public class CompareDTvsDB_Complete {
     // ---------- write differences ----------
     private static void writeDifferences(Sheet dtSheet, DbIndex db, DtScan scan, Path outPath) throws IOException {
         DataFormatter fmt = new DataFormatter();
-
-        // Suppress Terminate if we already wrote a Rate change for that triplet
         Set<TripleKey> rateChangeWritten = new HashSet<>();
 
         try (SXSSFWorkbook outWb = new SXSSFWorkbook(1000)) {
@@ -241,74 +197,6 @@ public class CompareDTvsDB_Complete {
                 List<DbRow> candidates = db.byTriplet.get(trip);
 
                 if (candidates == null || candidates.isEmpty()) {
-                    // ---- NEW CODE ----
-                    Row out = outSh.createRow(wr++);
-                    int c = 0;
-                    write(out, c++, proc);
-                    write(out, c++, mod);
-                    write(out, c++, mod2);           // Mod 1 from DT.MOD2
-                    write(out, c++, "");             // Mod2
-                    write(out, c++, "");             // Mod3
-                    write(out, c++, "");             // Mod 4
-                    write(out, c++, fmtDate(start)); // Effective
-                    write(out, c++, fmtDate(end));   // Termination
-                    write(out, c++, "Allowed");      // Pricing Method
-                    write(out, c++, rate4);          // New Rate
-                    write(out, c++, "N/A");          // Old Rate
-                    write(out, c++, "New Code");     // Comments
-                    continue;
-                }
-
-                // ---- EXISTING TRIPLET: Rate change / Terminate / (else -> Review manually) ----
-                DbRow best = pickBest(candidates, start, end);
-                if (best != null) {
-                    boolean rateDiff = !rate4.equals(best.allowed4);
-                    boolean canCompareDates = (end != null && best.term != null);
-
-                    if (rateDiff) {
-                        // ---- RATE CHANGE ----
-                        Row out = outSh.createRow(wr++);
-                        int c = 0;
-                        write(out, c++, proc);
-                        write(out, c++, mod);
-                        write(out, c++, mod2);
-                        write(out, c++, "");
-                        write(out, c++, "");
-                        write(out, c++, "");
-                        write(out, c++, fmtDate(start));
-                        write(out, c++, fmtDate(end));
-                        write(out, c++, "Allowed");
-                        write(out, c++, rate4);          // New Rate (DT)
-                        write(out, c++, best.allowed4);  // Old Rate (DB)
-                        write(out, c++, "Rate change");
-                        rateChangeWritten.add(trip);
-                        continue;
-                    }
-
-                    boolean hasActiveDt = scan.hasOpenEnded.getOrDefault(trip, false);
-                    if (canCompareDates
-                            && end.isBefore(best.term)
-                            && !hasActiveDt
-                            && !rateChangeWritten.contains(trip)) {
-                        // ---- TERMINATE ----
-                        Row out = outSh.createRow(wr++);
-                        int c = 0;
-                        write(out, c++, proc);
-                        write(out, c++, mod);
-                        write(out, c++, mod2);
-                        write(out, c++, "");
-                        write(out, c++, "");
-                        write(out, c++, "");
-                        write(out, c++, fmtDate(start));  // Effective (DT)
-                        write(out, c++, fmtDate(end));    // Termination (DT)
-                        write(out, c++, "Allowed");
-                        write(out, c++, rate4);           // New Rate (DT)
-                        write(out, c++, best.allowed4);   // Old Rate (DB)
-                        write(out, c++, "Terminate");
-                        continue;
-                    }
-
-                    // ---- FALLBACK: REVIEW MANUALLY ----
                     Row out = outSh.createRow(wr++);
                     int c = 0;
                     write(out, c++, proc);
@@ -320,13 +208,74 @@ public class CompareDTvsDB_Complete {
                     write(out, c++, fmtDate(start));
                     write(out, c++, fmtDate(end));
                     write(out, c++, "Allowed");
-                    write(out, c++, rate4);                 // New Rate (DT)
-                    write(out, c++, best.allowed4);         // Old Rate (DB; if none, leave "N/A")
+                    write(out, c++, rate4);
+                    write(out, c++, "N/A");
+                    write(out, c++, "New Code");
+                    continue;
+                }
+
+                DbRow best = pickBest(candidates, start, end);
+                if (best != null) {
+                    boolean rateDiff = !rate4.equals(best.allowed4);
+                    boolean canCompareDates = (end != null && best.term != null);
+
+                    if (rateDiff) {
+                        Row out = outSh.createRow(wr++);
+                        int c = 0;
+                        write(out, c++, proc);
+                        write(out, c++, mod);
+                        write(out, c++, mod2);
+                        write(out, c++, "");
+                        write(out, c++, "");
+                        write(out, c++, "");
+                        write(out, c++, fmtDate(start));
+                        write(out, c++, fmtDate(end));
+                        write(out, c++, "Allowed");
+                        write(out, c++, rate4);
+                        write(out, c++, best.allowed4);
+                        write(out, c++, "Rate change");
+                        rateChangeWritten.add(trip);
+                        continue;
+                    }
+
+                    boolean hasActiveDt = scan.hasOpenEnded.getOrDefault(trip, false);
+                    if (canCompareDates && end.isBefore(best.term) && !hasActiveDt && !rateChangeWritten.contains(trip)) {
+                        Row out = outSh.createRow(wr++);
+                        int c = 0;
+                        write(out, c++, proc);
+                        write(out, c++, mod);
+                        write(out, c++, mod2);
+                        write(out, c++, "");
+                        write(out, c++, "");
+                        write(out, c++, "");
+                        write(out, c++, fmtDate(start));
+                        write(out, c++, fmtDate(end));
+                        write(out, c++, "Allowed");
+                        write(out, c++, rate4);
+                        write(out, c++, best.allowed4);
+                        write(out, c++, "Terminate");
+                        continue;
+                    }
+
+                    // Fallback: review manually
+                    Row out = outSh.createRow(wr++);
+                    int c = 0;
+                    write(out, c++, proc);
+                    write(out, c++, mod);
+                    write(out, c++, mod2);
+                    write(out, c++, "");
+                    write(out, c++, "");
+                    write(out, c++, "");
+                    write(out, c++, fmtDate(start));
+                    write(out, c++, fmtDate(end));
+                    write(out, c++, "Allowed");
+                    write(out, c++, rate4);
+                    write(out, c++, best.allowed4);
                     write(out, c++, "Review these changes manually - Not fit into A/D/C scenarios");
                     continue;
                 }
 
-                // If best == null (shouldn't happen), also write a review row
+                // No best match (rare) -> review
                 Row out = outSh.createRow(wr++);
                 int c = 0;
                 write(out, c++, proc);
@@ -346,6 +295,7 @@ public class CompareDTvsDB_Complete {
             for (int c = 0; c <= 11; c++) outSh.trackColumnForAutoSizing(c);
             for (int c = 0; c <= 11; c++) outSh.autoSizeColumn(c);
 
+            if (outPath.getParent() != null) Files.createDirectories(outPath.getParent());
             try (OutputStream os = Files.newOutputStream(outPath)) {
                 outWb.write(os);
             }
@@ -358,21 +308,15 @@ public class CompareDTvsDB_Complete {
         if (aStart == null || aEnd == null || bStart == null || bEnd == null) return false;
         return !aStart.isAfter(bEnd) && !bStart.isAfter(aEnd);
     }
-
     private static DbRow pickBest(List<DbRow> rows, LocalDate dStart, LocalDate dEnd) {
         if (rows == null || rows.isEmpty()) return null;
-
         List<DbRow> overlapping = new ArrayList<>();
         for (DbRow r : rows) if (overlaps(dStart, dEnd, r.eff, r.term)) overlapping.add(r);
-
         if (!overlapping.isEmpty()) {
-            overlapping.sort(Comparator
-                    .comparing((DbRow r) -> r.eff == null ? LocalDate.MIN : r.eff)
-                    .reversed());
+            overlapping.sort(Comparator.comparing((DbRow r) -> r.eff == null ? LocalDate.MIN : r.eff).reversed());
             for (DbRow r : overlapping) if (r.eff == null || !r.eff.isAfter(dStart)) return r;
             return overlapping.get(0);
         }
-
         DbRow prior = null;
         for (DbRow r : rows) {
             if (r.eff != null && !r.eff.isAfter(dStart)) {
@@ -380,15 +324,15 @@ public class CompareDTvsDB_Complete {
             }
         }
         if (prior != null) return prior;
-
         rows.sort(Comparator.comparing(r -> r.eff == null ? LocalDate.MAX : r.eff));
         return rows.get(0);
     }
 
-    // ---------- common helpers ----------
+    // ---------- helpers ----------
     private static Map<String,Integer> headerMap(Row header, DataFormatter fmt) {
         if (header == null) throw new IllegalArgumentException("Missing header row.");
         Map<String,Integer> map = new HashMap<>();
+        for (int c = header.getFirstCellNum(); c < header.getLastRowNum(); c++) { /* fallback if needed */ }
         for (int c = header.getFirstCellNum(); c < header.getLastCellNum(); c++) {
             Cell cell = header.getCell(c);
             String key = cell == null ? "" : fmt.formatCellValue(cell).trim();
@@ -396,7 +340,6 @@ public class CompareDTvsDB_Complete {
         }
         return map;
     }
-
     private static int key(Map<String,Integer> col, String... aliases) {
         for (String a : aliases) {
             Integer idx = col.get(a.toUpperCase(Locale.ROOT));
@@ -404,14 +347,12 @@ public class CompareDTvsDB_Complete {
         }
         throw new IllegalArgumentException("Expected one of columns: " + Arrays.toString(aliases));
     }
-
     private static String norm(String s) {
         if (s == null) return "";
         s = s.trim();
         if (s.equalsIgnoreCase("null")) return "";
         return s.toUpperCase(Locale.ROOT);
     }
-
     private static LocalDate parseDate(String s) {
         s = s == null ? "" : s.trim();
         if (s.isEmpty()) return null;
@@ -424,23 +365,14 @@ public class CompareDTvsDB_Complete {
         } catch (Exception ignored) {}
         return null;
     }
-
-    private static String fmtDate(LocalDate d) {
-        return d == null ? "" : OUT_DTF.format(d);
-    }
-
+    private static String fmtDate(LocalDate d) { return d == null ? "" : OUT_DTF.format(d); }
     private static String rateTo4(String raw) {
         String s = raw == null ? "" : raw.trim();
         if (s.isEmpty()) return "0.0000";
         s = s.replace("$","").replace(",","");
-        try {
-            BigDecimal bd = new BigDecimal(s);
-            return bd.setScale(4, BigDecimal.ROUND_HALF_UP).toPlainString();
-        } catch (NumberFormatException e) {
-            return "0.0000";
-        }
+        try { return new BigDecimal(s).setScale(4, BigDecimal.ROUND_HALF_UP).toPlainString(); }
+        catch (NumberFormatException e) { return "0.0000"; }
     }
-
     private static void write(Row r, int c, String v) {
         Cell cell = r.createCell(c, CellType.STRING);
         cell.setCellValue(v == null ? "" : v);
