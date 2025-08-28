@@ -39,7 +39,6 @@ public class CompareDTvsDB_Complete {
             DateTimeFormatter.ofPattern("MM/dd/yy")
     );
 
-    // Open-ended date used by DB/DT to indicate “active” records
     private static final LocalDate OPEN_END = LocalDate.of(9999, 12, 31);
 
     public static void main(String[] args) throws Exception {
@@ -63,10 +62,7 @@ public class CompareDTvsDB_Complete {
             Sheet dtSheet = dtWb.getSheetAt(0);
             Sheet dbSheet = dbWb.getSheetAt(0);
 
-            // Build DB index first
             DbIndex db = buildDbIndex(dbSheet);
-
-            // Pre-scan DT once to know which triplets have an active (open-ended) row
             DtScan scan = scanDtForOpenEnded(dtSheet);
 
             Path outPath = OUTPUT_DIR.resolve(OUTPUT_FILENAME);
@@ -113,9 +109,7 @@ public class CompareDTvsDB_Complete {
     }
 
     private static class DtScan {
-        // does DT contain any active (end=9999-12-31) row for this triplet?
         final Map<TripleKey, Boolean> hasOpenEnded = new HashMap<>();
-        // header column indexes (for reuse)
         int cPROC, cMOD, cMOD2, cSD, cED, cRATE;
     }
 
@@ -201,7 +195,7 @@ public class CompareDTvsDB_Complete {
     private static void writeDifferences(Sheet dtSheet, DbIndex db, DtScan scan, Path outPath) throws IOException {
         DataFormatter fmt = new DataFormatter();
 
-        // track triplets where we already wrote a Rate change (to suppress Terminate)
+        // Suppress Terminate if we already wrote a Rate change for that triplet
         Set<TripleKey> rateChangeWritten = new HashSet<>();
 
         try (SXSSFWorkbook outWb = new SXSSFWorkbook(1000)) {
@@ -265,7 +259,7 @@ public class CompareDTvsDB_Complete {
                     continue;
                 }
 
-                // ---- For existing triplet: Rate change / Terminate ----
+                // ---- EXISTING TRIPLET: Rate change / Terminate / (else -> Review manually) ----
                 DbRow best = pickBest(candidates, start, end);
                 if (best != null) {
                     boolean rateDiff = !rate4.equals(best.allowed4);
@@ -287,19 +281,16 @@ public class CompareDTvsDB_Complete {
                         write(out, c++, rate4);          // New Rate (DT)
                         write(out, c++, best.allowed4);  // Old Rate (DB)
                         write(out, c++, "Rate change");
-                        rateChangeWritten.add(trip);      // suppress Terminate later
+                        rateChangeWritten.add(trip);
                         continue;
                     }
 
-                    // ---- TERMINATE only if:
-                    // 1) dates comparable AND DT ends before DB active/covering term, AND
-                    // 2) there is NO active DT row for this triplet, AND
-                    // 3) we didn't already write a Rate change for this triplet
                     boolean hasActiveDt = scan.hasOpenEnded.getOrDefault(trip, false);
                     if (canCompareDates
                             && end.isBefore(best.term)
                             && !hasActiveDt
                             && !rateChangeWritten.contains(trip)) {
+                        // ---- TERMINATE ----
                         Row out = outSh.createRow(wr++);
                         int c = 0;
                         write(out, c++, proc);
@@ -316,8 +307,40 @@ public class CompareDTvsDB_Complete {
                         write(out, c++, "Terminate");
                         continue;
                     }
+
+                    // ---- FALLBACK: REVIEW MANUALLY ----
+                    Row out = outSh.createRow(wr++);
+                    int c = 0;
+                    write(out, c++, proc);
+                    write(out, c++, mod);
+                    write(out, c++, mod2);
+                    write(out, c++, "");
+                    write(out, c++, "");
+                    write(out, c++, "");
+                    write(out, c++, fmtDate(start));
+                    write(out, c++, fmtDate(end));
+                    write(out, c++, "Allowed");
+                    write(out, c++, rate4);                 // New Rate (DT)
+                    write(out, c++, best.allowed4);         // Old Rate (DB; if none, leave "N/A")
+                    write(out, c++, "Review these changes manually - Not fit into A/D/C scenarios");
+                    continue;
                 }
-                // else: nothing to write
+
+                // If best == null (shouldn't happen), also write a review row
+                Row out = outSh.createRow(wr++);
+                int c = 0;
+                write(out, c++, proc);
+                write(out, c++, mod);
+                write(out, c++, mod2);
+                write(out, c++, "");
+                write(out, c++, "");
+                write(out, c++, "");
+                write(out, c++, fmtDate(start));
+                write(out, c++, fmtDate(end));
+                write(out, c++, "Allowed");
+                write(out, c++, rate4);
+                write(out, c++, "N/A");
+                write(out, c++, "Review these changes manually - Not fit into A/D/C scenarios");
             }
 
             for (int c = 0; c <= 11; c++) outSh.trackColumnForAutoSizing(c);
