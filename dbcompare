@@ -12,49 +12,24 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.*;
 
-/**
- * Compares a DT file vs a DB dump and writes differences to:
- *   <OUTPUT_DIR>/Differences Record.xlsx   (sheet: Differences)
- *
- * Decision order per row in DT:
- *   1) Ignore if EXACT matches DB on (PROC, MOD, MOD2, Start, End, Rate) == (Procedure Code, Modifier, Modifier 2, Effective, Termination, Allowed)
- *   2) Ignore if PARTIAL matches DB on (PROC, MOD, MOD2, End, Rate) == (Procedure Code, Modifier, Modifier 2, Termination, Allowed)
- *   3) Else if the (PROC, MOD, MOD2) triplet does not exist in DB -> write "New Code"
- *   4) Else (triplet exists):
- *        - pick the most relevant DB row for that period (overlap preferred)
- *        - if DT Rate != DB Allowed -> write "Rate change"
- *        - else if DT End < DB Termination -> write "Terminate"
- *        - else ignore
- *
- * USAGE:
- *   - Set INPUT_DIR and OUTPUT_DIR.
- *   - Option A: use DT_KEYWORD/DB_KEYWORD and it will pick the latest .xlsx containing those keywords.
- *   - Option B: set DT_EXACT_FILENAME/DB_EXACT_FILENAME to use exact files.
- */
 public class CompareDTvsDB_Complete {
 
-    // ====== FOLDERS (change for your env) ======
-    private static final Path INPUT_DIR  = Paths.get("C:/data/in");
-    private static final Path OUTPUT_DIR = Paths.get("C:/data/out");
+    // ====== FOLDERS ======
+    private static final Path INPUT_DIR  = Paths.get("C:/data/in");   // <-- change
+    private static final Path OUTPUT_DIR = Paths.get("C:/data/out");  // <-- change
 
     // ====== FILE DISCOVERY ======
-    // Option A: pick latest *.xlsx containing the keyword (case-insensitive)
-    private static final String DT_KEYWORD = "DT";     // e.g., "DT", "DT_Span"
-    private static final String DB_KEYWORD = "DUMP";   // e.g., "DB", "Dump", "Database"
+    private static final String DT_KEYWORD = "DT";     // keyword to find latest .xlsx
+    private static final String DB_KEYWORD = "DUMP";   // keyword to find latest .xlsx
+    private static final String DT_EXACT_FILENAME = ""; // or set exact filename
+    private static final String DB_EXACT_FILENAME = ""; // or set exact filename
 
-    // Option B: exact filenames (leave "" to disable)
-    private static final String DT_EXACT_FILENAME = "";
-    private static final String DB_EXACT_FILENAME = "";
-
-    // ====== BEHAVIOR SWITCHES ======
-    // Treat DB triplet as "exists" only if Mod3 & Mod4 are blank
+    // ====== BEHAVIOR ======
     private static final boolean REQUIRE_DB_MOD3_MOD4_BLANK = false;
 
-    // ====== OUTPUT ======
     private static final String OUTPUT_FILENAME = "Differences Record.xlsx";
     private static final String OUTPUT_SHEET    = "Differences";
 
-    // ====== DATE FORMATS ======
     private static final DateTimeFormatter OUT_DTF = DateTimeFormatter.ofPattern("MM/dd/yyyy");
     private static final List<DateTimeFormatter> IN_DTFS = List.of(
             DateTimeFormatter.ofPattern("M/d/yyyy"),
@@ -143,15 +118,15 @@ public class CompareDTvsDB_Complete {
         DataFormatter fmt = new DataFormatter();
         Map<String,Integer> col = headerMap(dbSheet.getRow(dbSheet.getFirstRowNum()), fmt);
 
-        // Accept common synonyms
-        String pcode = key(col, "Procedure Code", "Procedure", "ProcedureCode");
-        String mod   = key(col, "Modifier", "Mod");
-        String mod2  = key(col, "Modifier 2", "Modifier2", "Mod2");
-        String mod3  = key(col, "Modifier 3", "Modifier3", "Mod3");
-        String mod4  = key(col, "Modifier 4", "Modifier4", "Mod4");
-        String eff   = key(col, "Effective", "Start Date", "Eff");
-        String term  = key(col, "Termination", "End Date", "Term");
-        String allow = key(col, "Allowed", "Rate");
+        // Accept common synonyms  (ALL THESE ARE INT COLUMN INDEXES)
+        int pcode = key(col, "Procedure Code", "Procedure", "ProcedureCode");
+        int mod   = key(col, "Modifier", "Mod");
+        int mod2  = key(col, "Modifier 2", "Modifier2", "Mod2");
+        int mod3  = key(col, "Modifier 3", "Modifier3", "Mod3");
+        int mod4  = key(col, "Modifier 4", "Modifier4", "Mod4");
+        int eff   = key(col, "Effective", "Start Date", "Eff");
+        int term  = key(col, "Termination", "End Date", "Term");
+        int allow = key(col, "Allowed", "Rate");
 
         DbIndex idx = new DbIndex();
 
@@ -193,13 +168,13 @@ public class CompareDTvsDB_Complete {
         DataFormatter fmt = new DataFormatter();
         Map<String,Integer> col = headerMap(dtSheet.getRow(dtSheet.getFirstRowNum()), fmt);
 
-        // DT columns with synonyms
-        String cPROC = key(col, "PROC", "PROCEDURE CODE", "Procedure", "ProcedureCode");
-        String cMOD  = key(col, "MOD", "Modifier", "Mod");
-        String cMOD2 = key(col, "MOD2", "Modifier 2", "Modifier2", "Mod2");
-        String cSD   = key(col, "Start Date", "Effective", "Eff");
-        String cED   = key(col, "End Date", "Termination", "Term");
-        String cRATE = key(col, "Rate", "Allowed");
+        // DT columns with synonyms (INTS)
+        int cPROC = key(col, "PROC", "PROCEDURE CODE", "Procedure", "ProcedureCode");
+        int cMOD  = key(col, "MOD", "Modifier", "Mod");
+        int cMOD2 = key(col, "MOD2", "Modifier 2", "Modifier2", "Mod2");
+        int cSD   = key(col, "Start Date", "Effective", "Eff");
+        int cED   = key(col, "End Date", "Termination", "Term");
+        int cRATE = key(col, "Rate", "Allowed");
 
         try (SXSSFWorkbook outWb = new SXSSFWorkbook(1000)) {
             outWb.setCompressTempFiles(true);
@@ -325,12 +300,6 @@ public class CompareDTvsDB_Complete {
         return !aStart.isAfter(bEnd) && !bStart.isAfter(aEnd);
     }
 
-    /**
-     * Most relevant DB row for a given DT period:
-     *  1) Prefer overlapping rows; among them, prefer latest eff <= DT.start.
-     *  2) Else the nearest prior eff.
-     *  3) Else the earliest future eff.
-     */
     private static DbRow pickBest(List<DbRow> rows, LocalDate dStart, LocalDate dEnd) {
         if (rows == null || rows.isEmpty()) return null;
 
@@ -369,7 +338,7 @@ public class CompareDTvsDB_Complete {
         return map;
     }
 
-    /** get index for first alias that exists; throws if none found */
+    /** return index of the first matching alias in the header map */
     private static int key(Map<String,Integer> col, String... aliases) {
         for (String a : aliases) {
             Integer idx = col.get(a.toUpperCase(Locale.ROOT));
