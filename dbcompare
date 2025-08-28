@@ -19,10 +19,10 @@ public class CompareDTvsDB_Complete {
     private static final Path OUTPUT_DIR = Paths.get("C:/data/out");  // <-- change
 
     // ====== FILE DISCOVERY ======
-    private static final String DT_KEYWORD = "DT";     // keyword to find latest .xlsx
-    private static final String DB_KEYWORD = "DUMP";   // keyword to find latest .xlsx
-    private static final String DT_EXACT_FILENAME = ""; // or set exact filename
-    private static final String DB_EXACT_FILENAME = ""; // or set exact filename
+    private static final String DT_KEYWORD = "DT";
+    private static final String DB_KEYWORD = "DUMP";
+    private static final String DT_EXACT_FILENAME = "";
+    private static final String DB_EXACT_FILENAME = "";
 
     // ====== BEHAVIOR ======
     private static final boolean REQUIRE_DB_MOD3_MOD4_BLANK = false;
@@ -39,6 +39,9 @@ public class CompareDTvsDB_Complete {
             DateTimeFormatter.ofPattern("MM/dd/yy")
     );
 
+    // Open-ended date used by DB/DT to indicate “active” records
+    private static final LocalDate OPEN_END = LocalDate.of(9999, 12, 31);
+
     public static void main(String[] args) throws Exception {
         Files.createDirectories(INPUT_DIR);
         Files.createDirectories(OUTPUT_DIR);
@@ -54,24 +57,20 @@ public class CompareDTvsDB_Complete {
         if (dtPath == null) throw new IllegalStateException("DT file not found in " + INPUT_DIR + " (keyword=" + DT_KEYWORD + ").");
         if (dbPath == null) throw new IllegalStateException("DB dump file not found in " + INPUT_DIR + " (keyword=" + DB_KEYWORD + ").");
 
-        System.out.println("DT file: " + dtPath);
-        System.out.println("DB file: " + dbPath);
-
         try (Workbook dtWb = new XSSFWorkbook(Files.newInputStream(dtPath));
              Workbook dbWb = new XSSFWorkbook(Files.newInputStream(dbPath))) {
 
             Sheet dtSheet = dtWb.getSheetAt(0);
             Sheet dbSheet = dbWb.getSheetAt(0);
 
-            System.out.println("Indexing DB dump ...");
+            // Build DB index first
             DbIndex db = buildDbIndex(dbSheet);
 
+            // Pre-scan DT once to know which triplets have an active (open-ended) row
+            DtScan scan = scanDtForOpenEnded(dtSheet);
+
             Path outPath = OUTPUT_DIR.resolve(OUTPUT_FILENAME);
-            System.out.println("Comparing DT vs DB and writing: " + outPath);
-
-            writeDifferences(dtSheet, db, outPath);
-
-            System.out.println("Done.");
+            writeDifferences(dtSheet, db, scan, outPath);
         }
     }
 
@@ -113,12 +112,18 @@ public class CompareDTvsDB_Complete {
         final Map<TripleKey, List<DbRow>> byTriplet = new HashMap<>();
     }
 
+    private static class DtScan {
+        // does DT contain any active (end=9999-12-31) row for this triplet?
+        final Map<TripleKey, Boolean> hasOpenEnded = new HashMap<>();
+        // header column indexes (for reuse)
+        int cPROC, cMOD, cMOD2, cSD, cED, cRATE;
+    }
+
     // ---------- DB indexing ----------
     private static DbIndex buildDbIndex(Sheet dbSheet) {
         DataFormatter fmt = new DataFormatter();
         Map<String,Integer> col = headerMap(dbSheet.getRow(dbSheet.getFirstRowNum()), fmt);
 
-        // Accept common synonyms  (ALL THESE ARE INT COLUMN INDEXES)
         int pcode = key(col, "Procedure Code", "Procedure", "ProcedureCode");
         int mod   = key(col, "Modifier", "Mod");
         int mod2  = key(col, "Modifier 2", "Modifier2", "Mod2");
@@ -163,18 +168,41 @@ public class CompareDTvsDB_Complete {
         return idx;
     }
 
-    // ---------- write differences ----------
-    private static void writeDifferences(Sheet dtSheet, DbIndex db, Path outPath) throws IOException {
+    // ---------- DT pre-scan for open-ended presence ----------
+    private static DtScan scanDtForOpenEnded(Sheet dtSheet) {
         DataFormatter fmt = new DataFormatter();
         Map<String,Integer> col = headerMap(dtSheet.getRow(dtSheet.getFirstRowNum()), fmt);
 
-        // DT columns with synonyms (INTS)
-        int cPROC = key(col, "PROC", "PROCEDURE CODE", "Procedure", "ProcedureCode");
-        int cMOD  = key(col, "MOD", "Modifier", "Mod");
-        int cMOD2 = key(col, "MOD2", "Modifier 2", "Modifier2", "Mod2");
-        int cSD   = key(col, "Start Date", "Effective", "Eff");
-        int cED   = key(col, "End Date", "Termination", "Term");
-        int cRATE = key(col, "Rate", "Allowed");
+        DtScan scan = new DtScan();
+        scan.cPROC = key(col, "PROC", "PROCEDURE CODE", "Procedure", "ProcedureCode");
+        scan.cMOD  = key(col, "MOD", "Modifier", "Mod");
+        scan.cMOD2 = key(col, "MOD2", "Modifier 2", "Modifier2", "Mod2");
+        scan.cSD   = key(col, "Start Date", "Effective", "Eff");
+        scan.cED   = key(col, "End Date", "Termination", "Term");
+        scan.cRATE = key(col, "Rate", "Allowed");
+
+        for (int r = dtSheet.getFirstRowNum()+1; r <= dtSheet.getLastRowNum(); r++) {
+            Row row = dtSheet.getRow(r);
+            if (row == null) continue;
+
+            String proc = norm(fmt.formatCellValue(row.getCell(scan.cPROC, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
+            if (proc.isEmpty()) continue;
+            String mod  = norm(fmt.formatCellValue(row.getCell(scan.cMOD,  Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
+            String mod2 = norm(fmt.formatCellValue(row.getCell(scan.cMOD2, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
+            LocalDate end = parseDate(fmt.formatCellValue(row.getCell(scan.cED,   Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
+
+            TripleKey k = new TripleKey(proc, mod, mod2);
+            if (OPEN_END.equals(end)) scan.hasOpenEnded.put(k, true);
+        }
+        return scan;
+    }
+
+    // ---------- write differences ----------
+    private static void writeDifferences(Sheet dtSheet, DbIndex db, DtScan scan, Path outPath) throws IOException {
+        DataFormatter fmt = new DataFormatter();
+
+        // track triplets where we already wrote a Rate change (to suppress Terminate)
+        Set<TripleKey> rateChangeWritten = new HashSet<>();
 
         try (SXSSFWorkbook outWb = new SXSSFWorkbook(1000)) {
             outWb.setCompressTempFiles(true);
@@ -199,14 +227,14 @@ public class CompareDTvsDB_Complete {
                 Row row = dtSheet.getRow(r);
                 if (row == null) continue;
 
-                String proc = norm(fmt.formatCellValue(row.getCell(cPROC, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
+                String proc = norm(fmt.formatCellValue(row.getCell(scan.cPROC, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
                 if (proc.isEmpty()) continue;
 
-                String mod  = norm(fmt.formatCellValue(row.getCell(cMOD,  Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
-                String mod2 = norm(fmt.formatCellValue(row.getCell(cMOD2, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
-                LocalDate start = parseDate(fmt.formatCellValue(row.getCell(cSD,   Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
-                LocalDate end   = parseDate(fmt.formatCellValue(row.getCell(cED,   Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
-                String rate4    = rateTo4(fmt.formatCellValue(row.getCell(cRATE, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
+                String mod  = norm(fmt.formatCellValue(row.getCell(scan.cMOD,  Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
+                String mod2 = norm(fmt.formatCellValue(row.getCell(scan.cMOD2, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
+                LocalDate start = parseDate(fmt.formatCellValue(row.getCell(scan.cSD,   Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
+                LocalDate end   = parseDate(fmt.formatCellValue(row.getCell(scan.cED,   Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
+                String rate4    = rateTo4(fmt.formatCellValue(row.getCell(scan.cRATE, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL)));
 
                 // 1) Exact ignore
                 if (db.exact.contains(new ExactKey(proc, mod, mod2, start, end, rate4))) continue;
@@ -259,11 +287,19 @@ public class CompareDTvsDB_Complete {
                         write(out, c++, rate4);          // New Rate (DT)
                         write(out, c++, best.allowed4);  // Old Rate (DB)
                         write(out, c++, "Rate change");
+                        rateChangeWritten.add(trip);      // suppress Terminate later
                         continue;
                     }
 
-                    if (canCompareDates && end.isBefore(best.term)) {
-                        // ---- TERMINATE ----
+                    // ---- TERMINATE only if:
+                    // 1) dates comparable AND DT ends before DB active/covering term, AND
+                    // 2) there is NO active DT row for this triplet, AND
+                    // 3) we didn't already write a Rate change for this triplet
+                    boolean hasActiveDt = scan.hasOpenEnded.getOrDefault(trip, false);
+                    if (canCompareDates
+                            && end.isBefore(best.term)
+                            && !hasActiveDt
+                            && !rateChangeWritten.contains(trip)) {
                         Row out = outSh.createRow(wr++);
                         int c = 0;
                         write(out, c++, proc);
@@ -281,7 +317,7 @@ public class CompareDTvsDB_Complete {
                         continue;
                     }
                 }
-                // else: same rate and not terminating earlier -> nothing to write
+                // else: nothing to write
             }
 
             for (int c = 0; c <= 11; c++) outSh.trackColumnForAutoSizing(c);
@@ -338,7 +374,6 @@ public class CompareDTvsDB_Complete {
         return map;
     }
 
-    /** return index of the first matching alias in the header map */
     private static int key(Map<String,Integer> col, String... aliases) {
         for (String a : aliases) {
             Integer idx = col.get(a.toUpperCase(Locale.ROOT));
