@@ -13,29 +13,32 @@ import java.time.format.DateTimeParseException;
 import java.util.*;
 
 /**
- * Compare a DT worksheet (left) vs a Database dump (right) and write "New Code" rows to:
- *   <OUTPUT_DIR>/Differences Record.xlsx
+ * Compares DT file vs DB dump and writes differences to:
+ *   <OUTPUT_DIR>/Differences Record.xlsx   (sheet: Differences)
+ *
+ * Rules (in order):
+ *   A) Ignore "Exact":  PROC+MOD+MOD2+Start+End+Rate == Procedure+Modifier+Modifier2+Effective+Termination+Allowed
+ *   B) Ignore "Partial": PROC+MOD+MOD2+End+Rate == Procedure+Modifier+Modifier2+Termination+Allowed
+ *   C) If triplet (PROC,MOD,MOD2) exists in DB:
+ *        - Pick best DB period for that triplet.
+ *        - If Rate != Allowed (4dp-normalized) -> write "Rate change".
+ *      Else:
+ *        - Write "New Code".
  *
  * HOW TO USE:
- *  1) Set INPUT_DIR to the folder that contains both workbooks.
- *  2) Set OUTPUT_DIR to where you want the result workbook written.
- *  3) Option A (recommended): keep DT_KEYWORD / DB_KEYWORD to let the program pick the most-recent .xlsx
- *     whose filename contains the keyword (case-insensitive).
- *     Example file names that would match:
- *       ...\DT_Span_20250827.xlsx      (contains "DT")
- *       ...\Database_Dump_20250827.xlsx (contains "DUMP" or "DB")
- *     Adjust the keywords below to match your naming.
- *  4) Option B: set DT_EXACT_FILENAME / DB_EXACT_FILENAME (non-empty) to use exact file names instead.
+ *  1) Set INPUT_DIR and OUTPUT_DIR below.
+ *  2) EITHER set keywords (DT_KEYWORD/DB_KEYWORD) -> program picks latest matching .xlsx,
+ *     OR set exact filenames (DT_EXACT_FILENAME/DB_EXACT_FILENAME).
  *
  * Maven deps:
  *   org.apache.poi:poi-ooxml:5.2.5
  *   org.apache.poi:poi:5.2.5
  */
-public class CompareDTvsDBFromFolder {
+public class CompareDTvsDB_Complete {
 
     // ====== FOLDERS ======
-    private static final Path INPUT_DIR  = Paths.get("C:/data/in");   // <--- change
-    private static final Path OUTPUT_DIR = Paths.get("C:/data/out");  // <--- change
+    private static final Path INPUT_DIR  = Paths.get("C:/data/in");   // <--- change for your environment
+    private static final Path OUTPUT_DIR = Paths.get("C:/data/out");  // <--- change for your environment
 
     // ====== FILE DISCOVERY ======
     // Option A: choose the latest *.xlsx containing this keyword (case-insensitive)
@@ -46,8 +49,9 @@ public class CompareDTvsDBFromFolder {
     private static final String DT_EXACT_FILENAME = ""; // e.g., "DT_Span_20250827.xlsx"
     private static final String DB_EXACT_FILENAME = ""; // e.g., "Database_Dump_20250827.xlsx"
 
-    // ====== BEHAVIOR ======
-    private static final boolean REQUIRE_DB_MOD3_MOD4_BLANK = false; // Stage-3: only match DB rows whose Mod3/Mod4 are blank
+    // ====== BEHAVIOR SWITCHES ======
+    // Stage-3 triplet existence: if true, only consider DB rows with blank Mod3 & Mod4 as "existing"
+    private static final boolean REQUIRE_DB_MOD3_MOD4_BLANK = false;
 
     private static final String OUTPUT_FILENAME = "Differences Record.xlsx";
     private static final String OUTPUT_SHEET    = "Differences";
@@ -82,7 +86,7 @@ public class CompareDTvsDBFromFolder {
         try (Workbook dtWb = new XSSFWorkbook(Files.newInputStream(dtPath));
              Workbook dbWb = new XSSFWorkbook(Files.newInputStream(dbPath))) {
 
-            Sheet dtSheet = dtWb.getSheetAt(0);
+            Sheet dtSheet = dtWb.getSheetAt(0); // use first sheet; change to getSheet("...") if needed
             Sheet dbSheet = dbWb.getSheetAt(0);
 
             System.out.println("Indexing DB dump ...");
@@ -100,8 +104,8 @@ public class CompareDTvsDBFromFolder {
     // ---------- file discovery ----------
     private static Path latestXlsxByKeyword(Path dir, String keyword) throws IOException {
         final String kw = keyword == null ? "" : keyword.toLowerCase(Locale.ROOT);
-        Path[] best = new Path[1];
-        FileTime[] bestTime = new FileTime[1];
+        Path best = null;
+        FileTime bestTime = null;
 
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir, "*.xlsx")) {
             for (Path p : stream) {
@@ -109,13 +113,13 @@ public class CompareDTvsDBFromFolder {
                 if (!kw.isBlank() && !name.contains(kw)) continue;
 
                 BasicFileAttributes attrs = Files.readAttributes(p, BasicFileAttributes.class);
-                if (best[0] == null || attrs.lastModifiedTime().compareTo(bestTime[0]) > 0) {
-                    best[0] = p;
-                    bestTime[0] = attrs.lastModifiedTime();
+                if (best == null || attrs.lastModifiedTime().compareTo(bestTime) > 0) {
+                    best = p;
+                    bestTime = attrs.lastModifiedTime();
                 }
             }
         }
-        return best[0];
+        return best;
     }
 
     // ---------- data structures ----------
@@ -123,12 +127,19 @@ public class CompareDTvsDBFromFolder {
     private record PartialKey(String proc, String mod, String mod2, LocalDate term, String rate4dp) { }
     private record TripleKey(String proc, String mod, String mod2) { }
 
+    private static class DbRow {
+        String proc, mod, mod2, mod3, mod4, allowed4;
+        LocalDate eff, term;
+    }
+
     private static class DbIndex {
         final Set<ExactKey> exact = new HashSet<>();
         final Set<PartialKey> partial = new HashSet<>();
         final Set<TripleKey> triplets = new HashSet<>();
+        final Map<TripleKey, List<DbRow>> byTriplet = new HashMap<>();
     }
 
+    // ---------- DB indexing ----------
     private static DbIndex buildDbIndex(Sheet dbSheet) {
         DataFormatter fmt = new DataFormatter();
         Map<String,Integer> col = headerMap(dbSheet.getRow(dbSheet.getFirstRowNum()), fmt);
@@ -153,19 +164,29 @@ public class CompareDTvsDBFromFolder {
             LocalDate term = parseDate(fmt.formatCellValue(getCell(row, col,"Termination")));
             String rate4  = rateTo4(fmt.formatCellValue(getCell(row, col,"Allowed")));
 
+            // sets for fast ignore checks
             idx.exact.add(new ExactKey(proc, mod, mod2, eff, term, rate4));
             idx.partial.add(new PartialKey(proc, mod, mod2, term, rate4));
 
+            // triplet existence
             if (REQUIRE_DB_MOD3_MOD4_BLANK) {
                 if (mod3.isEmpty() && mod4.isEmpty())
                     idx.triplets.add(new TripleKey(proc, mod, mod2));
             } else {
                 idx.triplets.add(new TripleKey(proc, mod, mod2));
             }
+
+            // store full row for best-match / rate comparison
+            DbRow dr = new DbRow();
+            dr.proc = proc; dr.mod = mod; dr.mod2 = mod2; dr.mod3 = mod3; dr.mod4 = mod4;
+            dr.eff = eff; dr.term = term; dr.allowed4 = rate4;
+
+            idx.byTriplet.computeIfAbsent(new TripleKey(proc, mod, mod2), k -> new ArrayList<>()).add(dr);
         }
         return idx;
     }
 
+    // ---------- write differences ----------
     private static void writeDifferences(Sheet dtSheet, DbIndex db, Path outPath) throws IOException {
         DataFormatter fmt = new DataFormatter();
         Map<String,Integer> col = headerMap(dtSheet.getRow(dtSheet.getFirstRowNum()), fmt);
@@ -197,7 +218,7 @@ public class CompareDTvsDBFromFolder {
                 if (row == null) continue;
 
                 String proc = norm(fmt.formatCellValue(getCell(row, col,"PROC")));
-                if (proc.isEmpty()) continue;
+                if (proc.isEmpty()) continue; // skip blank rows
 
                 String mod  = norm(fmt.formatCellValue(getCell(row, col,"MOD")));
                 String mod2 = norm(fmt.formatCellValue(getCell(row, col,"MOD2")));
@@ -205,29 +226,57 @@ public class CompareDTvsDBFromFolder {
                 LocalDate end   = parseDate(fmt.formatCellValue(getCell(row, col,"End Date")));
                 String rate4    = rateTo4(fmt.formatCellValue(getCell(row, col,"Rate")));
 
-                // Stage 1: exact match -> ignore
+                // A) Exact ignore
                 if (db.exact.contains(new ExactKey(proc, mod, mod2, start, end, rate4))) continue;
-                // Stage 2: partial match -> ignore
+
+                // B) Partial ignore
                 if (db.partial.contains(new PartialKey(proc, mod, mod2, end, rate4))) continue;
-                // Stage 3: triplet missing -> New Code
-                if (!db.triplets.contains(new TripleKey(proc, mod, mod2))) {
+
+                // C) Triplet present?
+                TripleKey trip = new TripleKey(proc, mod, mod2);
+                List<DbRow> candidates = db.byTriplet.get(trip);
+
+                if (candidates == null || candidates.isEmpty()) {
+                    // ---- NEW CODE ----
                     Row out = outSh.createRow(wr++);
                     int c = 0;
                     write(out, c++, proc);
                     write(out, c++, mod);
-                    write(out, c++, mod2);          // Mod 1 from DT.MOD2
-                    write(out, c++, "");            // Mod2 (blank)
-                    write(out, c++, "");            // Mod3 (blank)
-                    write(out, c++, "");            // Mod 4 (blank)
-                    write(out, c++, fmtDate(start));// Effective
-                    write(out, c++, fmtDate(end));  // Termination
-                    write(out, c++, "Allowed");     // Pricing Method (as requested mapping)
-                    write(out, c++, rate4);         // New Rate (DT Rate)
-                    write(out, c++, "N/A");         // Old Rate
-                    write(out, c++, "New Code");    // Comments
+                    write(out, c++, mod2);           // Mod 1 from DT.MOD2
+                    write(out, c++, "");             // Mod2
+                    write(out, c++, "");             // Mod3
+                    write(out, c++, "");             // Mod 4
+                    write(out, c++, fmtDate(start)); // Effective
+                    write(out, c++, fmtDate(end));   // Termination
+                    write(out, c++, "Allowed");      // Pricing Method
+                    write(out, c++, rate4);          // New Rate
+                    write(out, c++, "N/A");          // Old Rate
+                    write(out, c++, "New Code");     // Comments
+                    continue;
                 }
+
+                // ---- RATE CHANGE detection for existing triplet ----
+                DbRow best = pickBest(candidates, start, end);
+                if (best != null && !rate4.equals(best.allowed4)) {
+                    Row out = outSh.createRow(wr++);
+                    int c = 0;
+                    write(out, c++, proc);
+                    write(out, c++, mod);
+                    write(out, c++, mod2);            // Mod 1
+                    write(out, c++, "");              // Mod2
+                    write(out, c++, "");              // Mod3
+                    write(out, c++, "");              // Mod 4
+                    write(out, c++, fmtDate(start));  // Effective Date (DT)
+                    write(out, c++, fmtDate(end));    // Termination Date (DT)
+                    write(out, c++, "Allowed");       // Pricing Method
+                    write(out, c++, rate4);           // New Rate (DT)
+                    write(out, c++, best.allowed4);   // Old Rate (DB)
+                    write(out, c++, "Rate change");   // Comments
+                }
+                // else: same rate as best DB row → nothing to write
             }
 
+            // Tidy columns (cheap autosize)
             for (int c = 0; c <= 11; c++) outSh.trackColumnForAutoSizing(c);
             for (int c = 0; c <= 11; c++) outSh.autoSizeColumn(c);
 
@@ -238,7 +287,48 @@ public class CompareDTvsDBFromFolder {
         }
     }
 
-    // ---------- helpers ----------
+    // ---------- best-match picking ----------
+    private static boolean overlaps(LocalDate aStart, LocalDate aEnd, LocalDate bStart, LocalDate bEnd) {
+        if (aStart == null || aEnd == null || bStart == null || bEnd == null) return false;
+        return !aStart.isAfter(bEnd) && !bStart.isAfter(aEnd);
+    }
+
+    /**
+     * Choose the most relevant DB row for a given DT period:
+     *  1) Prefer rows whose period overlaps DT period; among them, prefer latest eff <= DT.start.
+     *  2) If none overlap: choose the row with the nearest eff prior to DT.start.
+     *  3) Else: choose earliest future eff.
+     */
+    private static DbRow pickBest(List<DbRow> rows, LocalDate dStart, LocalDate dEnd) {
+        if (rows == null || rows.isEmpty()) return null;
+
+        List<DbRow> overlapping = new ArrayList<>();
+        for (DbRow r : rows) {
+            if (overlaps(dStart, dEnd, r.eff, r.term)) overlapping.add(r);
+        }
+        if (!overlapping.isEmpty()) {
+            overlapping.sort(Comparator
+                    .comparing((DbRow r) -> r.eff == null ? LocalDate.MIN : r.eff)
+                    .reversed());
+            for (DbRow r : overlapping) {
+                if (r.eff == null || !r.eff.isAfter(dStart)) return r;
+            }
+            return overlapping.get(0);
+        }
+
+        DbRow prior = null;
+        for (DbRow r : rows) {
+            if (r.eff != null && !r.eff.isAfter(dStart)) {
+                if (prior == null || r.eff.isAfter(prior.eff)) prior = r;
+            }
+        }
+        if (prior != null) return prior;
+
+        rows.sort(Comparator.comparing(r -> r.eff == null ? LocalDate.MAX : r.eff));
+        return rows.get(0);
+    }
+
+    // ---------- common helpers ----------
     private static Map<String,Integer> headerMap(Row header, DataFormatter fmt) {
         if (header == null) throw new IllegalArgumentException("Missing header row.");
         Map<String,Integer> map = new HashMap<>();
