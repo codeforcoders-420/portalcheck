@@ -1,3 +1,32 @@
+python -m venv venv
+# Windows: venv\Scripts\activate
+source venv/bin/activate
+
+pip install pdfplumber pandas openpyxl pdf2image pytesseract pillow
+
+******************************
+
+# Simple, assume rates can appear with or without $ (auto), OCR fallback on if needed
+python extract_pdf_to_excel.py --pdf "Provider-Manual-BH (1).pdf" --pages "21, 22, 24; 25 CONT" --out output.xlsx
+
+# Pages where you know rate has no $ (numeric) and a CONT page
+python extract_pdf_to_excel.py --pdf "Provider-Manual-BH (1).pdf" \
+  --pages "158 NUMERIC, 159 CONT NUMERIC" \
+  --ocr auto --out pages_158_159.xlsx
+
+# Force OCR for tricky pages
+python extract_pdf_to_excel.py --pdf "Provider-Manual-BH (1).pdf" \
+  --pages "25 CONT" --ocr always --out page25.xlsx
+
+# Rate must have $ on these pages
+python extract_pdf_to_excel.py --pdf "Provider-Manual-BH (1).pdf" \
+  --pages "161 DOLLAR, 163 DOLLAR, 165 DOLLAR" \
+  --out pages_161_165.xlsx
+
+*******************************************
+
+
+
 import re
 import argparse
 from dataclasses import dataclass
