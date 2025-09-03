@@ -1,0 +1,105 @@
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.text.PDFTextStripper;
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.*;
+import java.util.*;
+import java.util.regex.*;
+
+public class PdfTableExtractor {
+
+    public static void main(String[] args) throws Exception {
+        String inputPdf = "input/Provider-Manual-BH.pdf";
+        String outputExcel = "output/ExtractedOutput.xlsx";
+
+        // Pages to process
+        List<Integer> pagesToExtract = Arrays.asList(
+                134, 135, 136, 137, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148,
+                149, 150, 152, 153, 155, 156, 158, 159, 161, 163, 165, 167, 170, 174,
+                176, 177, 178, 195, 198, 214, 217, 222, 225, 229, 236, 238, 249, 259,
+                273, 278, 285, 286, 287, 288, 289, 292, 293, 296, 301, 307, 313, 318,
+                321, 323, 325, 327, 329, 331, 336, 340, 343, 358
+        );
+
+        PDDocument document = PDDocument.load(new File(inputPdf));
+        Workbook workbook = new XSSFWorkbook();
+        Sheet sheet = workbook.createSheet("Extracted Data");
+
+        // Header
+        Row header = sheet.createRow(0);
+        String[] headers = {"Code", "Mod1", "Mod2", "Mod3", "Mod4", "Rate"};
+        for (int i = 0; i < headers.length; i++) {
+            header.createCell(i).setCellValue(headers[i]);
+        }
+
+        int rowIndex = 1;
+
+        for (int pageNum : pagesToExtract) {
+            PDFTextStripper stripper = new PDFTextStripper();
+            stripper.setStartPage(pageNum);
+            stripper.setEndPage(pageNum);
+            String text = stripper.getText(document);
+
+            // Extract all lines
+            String[] lines = text.split("\n");
+            for (int i = 0; i < lines.length; i++) {
+                String line = lines[i].trim();
+
+                // Find 5-digit codes
+                Matcher codeMatcher = Pattern.compile("^(\\d{5})\\b").matcher(line);
+                if (codeMatcher.find()) {
+                    String code = codeMatcher.group(1);
+                    List<String> collected = new ArrayList<>();
+                    collected.add(code);
+
+                    // Collect following values until next 5-digit code or next label like "Code Detail"
+                    int j = i + 1;
+                    while (j < lines.length && !lines[j].matches("^\\d{5}\\b.*") && !lines[j].toLowerCase().contains("code detail")) {
+                        collected.addAll(Arrays.asList(lines[j].trim().split("\\s+")));
+                        j++;
+                    }
+
+                    // Extract modifier digits
+                    List<String> modDigits = new ArrayList<>();
+                    for (String val : collected) {
+                        if (val.matches("^[A-Za-z0-9]{2}$")) modDigits.add(val);
+                    }
+
+                    String mod1 = modDigits.size() > 0 ? modDigits.get(0) : "";
+                    String mod2 = modDigits.size() > 1 ? modDigits.get(1) : "";
+                    String mod3 = modDigits.size() > 2 ? modDigits.get(2) : "";
+                    String mod4 = modDigits.size() > 3 ? modDigits.get(3) : "";
+
+                    // Find Rate (with or without $)
+                    String rate = "";
+                    for (String val : collected) {
+                        if (val.matches("^(\\$)?\\d+(\\.\\d{2,4})?$")) {
+                            rate = val;
+                            break;
+                        }
+                    }
+
+                    // Write to Excel
+                    Row row = sheet.createRow(rowIndex++);
+                    row.createCell(0).setCellValue(code);
+                    row.createCell(1).setCellValue(mod1);
+                    row.createCell(2).setCellValue(mod2);
+                    row.createCell(3).setCellValue(mod3);
+                    row.createCell(4).setCellValue(mod4);
+                    row.createCell(5).setCellValue(rate);
+                }
+            }
+        }
+
+        document.close();
+
+        // Save Excel
+        FileOutputStream out = new FileOutputStream(outputExcel);
+        workbook.write(out);
+        out.close();
+        workbook.close();
+
+        System.out.println("✅ Extraction complete. Output saved to: " + outputExcel);
+    }
+}
