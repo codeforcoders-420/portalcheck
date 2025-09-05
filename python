@@ -7,21 +7,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple
 
-# --- Optional OCR fallback (ok if not present) ---
-try:
-    import pytesseract
-    from pdf2image import convert_from_path
-    OCR_AVAILABLE = True
-except Exception:
-    OCR_AVAILABLE = False
-
 # ----------------------------
-# Core extraction logic
+# Core patterns (no OCR)
 # ----------------------------
 CODE_RE = re.compile(r"^(?:\d{5}|[A-Z]\d{4})$")      # CPT (5 digits) or HCPCS (1 letter + 4 digits)
 MONEY_RE = re.compile(r"^\$?\d+(?:\.\d{1,4})?$")     # $12.34 or 12.34
 ONLY_MONEY_RE = re.compile(r"^\$\d+(?:\.\d{1,4})?$") # strictly requires $
 ONLY_NUMERIC_RE = re.compile(r"^\d+(?:\.\d{1,4})?$") # strictly no $
+
+# Char-level line clustering tolerances (points)
+Y_TOL = 1.8
+X_GAP = 1.2
 
 @dataclass
 class PageSpec:
@@ -30,12 +26,17 @@ class PageSpec:
     rate_mode: str = "auto"  # 'auto' | 'dollar' | 'numeric'
 
 def parse_pages_arg(pages_str: str) -> List[PageSpec]:
+    """
+    Parse input like:
+      21, 22, 24; 25 CONT; 158 NUMERIC; 159 CONT DOLLAR
+    Tokens (case-insensitive): CONT, AUTO (default), DOLLAR, NUMERIC (or NODOLLAR)
+    """
     out: List[PageSpec] = []
     if not pages_str:
         return out
     chunks = re.split(r"[;,]\s*", pages_str.strip())
     for ch in chunks:
-        if not ch: 
+        if not ch:
             continue
         tokens = ch.split()
         try:
@@ -46,21 +47,17 @@ def parse_pages_arg(pages_str: str) -> List[PageSpec]:
         rate_mode = "auto"
         for t in tokens[1:]:
             t = t.upper()
-            if t == "CONT":
-                is_cont = True
-            elif t in ("DOLLAR","WITH$"):
-                rate_mode = "dollar"
-            elif t in ("NUMERIC","NODOLLAR"):
-                rate_mode = "numeric"
-            elif t == "AUTO":
-                rate_mode = "auto"
+            if t == "CONT": is_cont = True
+            elif t in ("DOLLAR", "WITH$"): rate_mode = "dollar"
+            elif t in ("NUMERIC", "NODOLLAR"): rate_mode = "numeric"
+            elif t == "AUTO": rate_mode = "auto"
         out.append(PageSpec(page=pg, is_cont=is_cont, rate_mode=rate_mode))
     return out
 
+# --------- low-level reconstruction (tables -> words -> chars) ----------
 def extract_tables(page) -> List[List[str]]:
     rows = []
-    tables = page.extract_tables() or []
-    for tbl in tables:
+    for tbl in (page.extract_tables() or []):
         for row in tbl:
             cells = [(c or "").strip() for c in row]
             if any(cells):
@@ -83,22 +80,45 @@ def extract_words(page) -> List[List[str]]:
             rows.append(cleaned)
     return rows
 
-def extract_ocr(pdf_path: str, page_index_0: int) -> List[List[str]]:
-    if not OCR_AVAILABLE:
-        return []
-    images = convert_from_path(pdf_path, first_page=page_index_0+1, last_page=page_index_0+1, dpi=300)
-    if not images:
-        return []
-    txt = pytesseract.image_to_string(images[0])
+def chars_to_lines(chars) -> List[List[str]]:
+    if not chars: return []
+    # cluster by y with tolerance
+    lines_map = defaultdict(list)
+    for ch in chars:
+        text = ch.get("text", "")
+        if not text: continue
+        top = ch.get("top"); x0 = ch.get("x0")
+        ykey = None
+        for y in lines_map.keys():
+            if abs(y - top) <= Y_TOL:
+                ykey = y; break
+        if ykey is None: ykey = top
+        lines_map[ykey].append((x0, text))
+    # sort + stitch contiguous chars
     rows = []
-    for line in txt.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        rows.append([t for t in re.split(r"\s+", line) if t])
+    for y in sorted(lines_map.keys()):
+        items = sorted(lines_map[y], key=lambda z: z[0])
+        stitched, last_x, buf = [], None, []
+        for x, t in items:
+            if last_x is None or (x - last_x) <= X_GAP:
+                buf.append((x, t))
+            else:
+                stitched.append("".join(s for _, s in buf))
+                buf = [(x, t)]
+            last_x = x
+        if buf: stitched.append("".join(s for _, s in buf))
+        tokens = []
+        for seg in stitched:
+            seg = seg.strip()
+            if seg:
+                tokens.extend([s for s in re.split(r"\s+", seg) if s])
+        if tokens:
+            rows.append(tokens)
     return rows
 
-def slice_mods(tokens: List[str]) -> Tuple[str,str,str,str]:
+# ---------------- parsing helpers ----------------
+def slice_mods(tokens: List[str]) -> Tuple[str, str, str, str]:
+    # Short non-price tokens (<=2 chars, not '$') → join → slice into pairs
     mod_chars = [t for t in tokens if len(t.strip()) <= 2 and t.strip() != "$" and not MONEY_RE.match(t.strip())]
     mod_concat = "".join(mod_chars)
     mods = [mod_concat[i:i+2] for i in range(0, min(8, len(mod_concat)), 2)]
@@ -117,118 +137,93 @@ def detect_rate(tokens: List[str], rate_mode: str) -> str:
             if MONEY_RE.match(s): return s.lstrip("$")
     return ""
 
-def parse_rows(rows: List[List[str]], page_num: int, rate_mode: str) -> List[dict]:
+def parse_rows(token_lines: List[List[str]], page_num: int, rate_mode: str) -> List[dict]:
     out = []
-    for row in rows:
-        N = len(row); i = 0
+    for row in token_lines:
+        i, N = 0, len(row)
         while i < N:
             tok = row[i].strip()
             if CODE_RE.match(tok):
-                code = tok
-                after = []
-                j = i + 1
+                code, after, j = tok, [], i + 1
                 while j < N:
                     t = row[j].strip()
                     if CODE_RE.match(t) or "Code" in t or "Rate" in t:
                         break
                     after.append(t); j += 1
-                m1,m2,m3,m4 = slice_mods(after)
+                m1, m2, m3, m4 = slice_mods(after)
                 rate = detect_rate(after, rate_mode)
-                if rate or any([m1,m2,m3,m4]):  # ignore stray labels like CBHRS
-                    out.append({"Code":code, "Mod1":m1, "Mod2":m2, "Mod3":m3, "Mod4":m4,
-                                "Rate":rate, "Page":page_num})
+                if rate or any([m1, m2, m3, m4]):  # ignore stray labels
+                    out.append({"Code": code, "Mod1": m1, "Mod2": m2, "Mod3": m3, "Mod4": m4,
+                                "Rate": rate, "Page": page_num})
                 i = j
             else:
                 i += 1
     return out
 
-def extract_page(pdf_path: str, page_num_1based: int, rate_mode: str, ocr_policy: str) -> List[dict]:
+def extract_page(pdf_path: str, page_num_1based: int, rate_mode: str) -> List[dict]:
     page_index_0 = page_num_1based - 1
     with pdfplumber.open(pdf_path) as pdf:
         page = pdf.pages[page_index_0]
         rows = extract_tables(page)
         if not rows or all(len(r) <= 1 for r in rows):
             rows = extract_words(page)
-    recs = parse_rows(rows, page_num_1based, rate_mode)
+        if not rows or all(len(r) <= 1 for r in rows):
+            rows = chars_to_lines(page.chars)
+    return parse_rows(rows, page_num_1based, rate_mode)
 
-    need_ocr = (ocr_policy in ("auto","always")) and (not recs or any(r["Rate"]=="" for r in recs))
-    if ocr_policy == "always" or (ocr_policy == "auto" and need_ocr):
-        ocr_rows = extract_ocr(pdf_path, page_index_0)
-        if ocr_rows:
-            ocr_recs = parse_rows(ocr_rows, page_num_1based, rate_mode)
-            if recs:
-                k = min(len(recs), len(ocr_recs))
-                for i in range(k):
-                    if not recs[i]["Rate"] and ocr_recs[i]["Rate"]:
-                        recs[i]["Rate"] = ocr_recs[i]["Rate"]
-            else:
-                recs = ocr_recs
-    return recs
-
-# ----------------------------
-# Tiny Tkinter GUI
-# ----------------------------
+# ---------------- Tkinter GUI ----------------
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 class ExtractGUI(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("PDF → Excel Extractor")
-        self.geometry("640x420")
+        self.title("PDF → Excel Extractor (No OCR)")
+        self.geometry("680x460")
         self.resizable(False, False)
 
-        # PDF picker
+        # PDF chooser
         frm_pdf = ttk.Frame(self, padding=10); frm_pdf.pack(fill="x")
         ttk.Label(frm_pdf, text="PDF file:").pack(side="left")
         self.pdf_var = tk.StringVar()
-        ttk.Entry(frm_pdf, textvariable=self.pdf_var, width=60).pack(side="left", padx=6)
+        ttk.Entry(frm_pdf, textvariable=self.pdf_var, width=62).pack(side="left", padx=6)
         ttk.Button(frm_pdf, text="Browse…", command=self.browse_pdf).pack(side="left")
 
-        # Pages entry
+        # Pages input
         frm_pages = ttk.Frame(self, padding=10); frm_pages.pack(fill="x")
-        ttk.Label(frm_pages, text="Pages:").pack(anchor="w")
-        self.pages_txt = tk.Text(frm_pages, height=4, width=75)
-        self.pages_txt.insert("1.0", "21, 22, 24; 25 CONT")  # example
+        ttk.Label(frm_pages, text="Pages (e.g. 21, 22; 25 CONT; 158 NUMERIC):").pack(anchor="w")
+        self.pages_txt = tk.Text(frm_pages, height=4, width=80)
+        self.pages_txt.insert("1.0", "21, 22, 24; 25 CONT")
         self.pages_txt.pack(fill="x")
 
-        # OCR policy + output
-        frm_opts = ttk.Frame(self, padding=10); frm_opts.pack(fill="x")
-        ttk.Label(frm_opts, text="OCR policy:").grid(row=0, column=0, sticky="w")
-        self.ocr_var = tk.StringVar(value="auto")
-        ttk.Combobox(frm_opts, textvariable=self.ocr_var,
-                     values=["never","auto","always"], width=10, state="readonly").grid(row=0, column=1, sticky="w", padx=6)
+        # Rate mode hint
+        frm_hint = ttk.Frame(self, padding=(10,0)); frm_hint.pack(fill="x")
+        ttk.Label(frm_hint, text="Tokens: CONT | DOLLAR (requires $) | NUMERIC (no $) | AUTO (default)").pack(anchor="w")
 
-        ttk.Label(frm_opts, text="Output Excel:").grid(row=1, column=0, sticky="w", pady=(8,0))
+        # Output path
+        frm_out = ttk.Frame(self, padding=10); frm_out.pack(fill="x")
+        ttk.Label(frm_out, text="Output Excel:").pack(side="left")
         self.out_var = tk.StringVar(value="extracted_output.xlsx")
-        ttk.Entry(frm_opts, textvariable=self.out_var, width=50).grid(row=1, column=1, sticky="w", padx=6, pady=(8,0))
-        ttk.Button(frm_opts, text="Save as…", command=self.save_as).grid(row=1, column=2, padx=6, pady=(8,0))
+        ttk.Entry(frm_out, textvariable=self.out_var, width=50).pack(side="left", padx=6)
+        ttk.Button(frm_out, text="Save as…", command=self.save_as).pack(side="left")
 
         # Extract button
         frm_run = ttk.Frame(self, padding=10); frm_run.pack(fill="x")
         ttk.Button(frm_run, text="Extract", command=self.run_extract).pack(side="left")
 
-        # Log box
+        # Log
         frm_log = ttk.Frame(self, padding=10); frm_log.pack(fill="both", expand=True)
         ttk.Label(frm_log, text="Log:").pack(anchor="w")
-        self.log = tk.Text(frm_log, height=10, width=80, state="disabled")
+        self.log = tk.Text(frm_log, height=12, width=84, state="disabled")
         self.log.pack(fill="both", expand=True)
 
     def browse_pdf(self):
-        path = filedialog.askopenfilename(
-            title="Choose PDF",
-            filetypes=[("PDF files","*.pdf"), ("All files","*.*")]
-        )
-        if path:
-            self.pdf_var.set(path)
+        path = filedialog.askopenfilename(title="Choose PDF", filetypes=[("PDF files","*.pdf"), ("All files","*.*")])
+        if path: self.pdf_var.set(path)
 
     def save_as(self):
-        path = filedialog.asksaveasfilename(
-            defaultextension=".xlsx",
-            filetypes=[("Excel files","*.xlsx")]
-        )
-        if path:
-            self.out_var.set(path)
+        path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel files","*.xlsx")])
+        if path: self.out_var.set(path)
 
     def log_print(self, msg: str):
         self.log.configure(state="normal")
@@ -241,7 +236,6 @@ class ExtractGUI(tk.Tk):
         pdf_path = self.pdf_var.get().strip()
         pages_str = self.pages_txt.get("1.0","end").strip()
         out_path = self.out_var.get().strip()
-        ocr_policy = self.ocr_var.get()
 
         if not pdf_path:
             messagebox.showerror("Missing PDF", "Please choose a PDF file.")
@@ -249,7 +243,6 @@ class ExtractGUI(tk.Tk):
         if not pages_str:
             messagebox.showerror("Missing Pages", "Please enter page numbers.")
             return
-
         try:
             specs = parse_pages_arg(pages_str)
         except Exception as e:
@@ -263,12 +256,12 @@ class ExtractGUI(tk.Tk):
         try:
             for spec in specs:
                 self.log_print(f"Processing page {spec.page} (CONT={spec.is_cont}, rate={spec.rate_mode}) …")
-                recs = extract_page(pdf_path, spec.page, spec.rate_mode, ocr_policy)
+                recs = extract_page(pdf_path, spec.page, spec.rate_mode)
                 self.log_print(f"  -> {len(recs)} rows")
                 all_rows.extend(recs)
 
             if not all_rows:
-                self.log_print("No rows extracted. Try OCR=always or adjust rate modes.")
+                self.log_print("No rows extracted. Adjust pages or rate modes (DOLLAR/NUMERIC/AUTO).")
                 messagebox.showwarning("No Data", "No rows extracted.")
                 return
 
@@ -282,11 +275,10 @@ class ExtractGUI(tk.Tk):
             messagebox.showerror("Error", str(e))
 
 if __name__ == "__main__":
-    # On Windows, ensure UTF-8 console (optional)
+    # (Optional) make Windows console UTF-8
     try:
         import os
-        if sys.platform.startswith("win"):
-            os.system("chcp 65001 >NUL")
+        if sys.platform.startswith("win"): os.system("chcp 65001 >NUL")
     except Exception:
         pass
     ExtractGUI().mainloop()
