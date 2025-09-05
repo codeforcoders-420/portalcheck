@@ -11,13 +11,13 @@ from typing import List, Tuple
 # Core patterns (no OCR)
 # ----------------------------
 CODE_RE = re.compile(r"^(?:\d{5}|[A-Z]\d{4})$")      # CPT (5 digits) or HCPCS (1 letter + 4 digits)
-MONEY_RE = re.compile(r"^\$?\d+(?:\.\d{1,4})?$")     # $12.34 or 12.34
-ONLY_MONEY_RE = re.compile(r"^\$\d+(?:\.\d{1,4})?$") # strictly requires $
-ONLY_NUMERIC_RE = re.compile(r"^\d+(?:\.\d{1,4})?$") # strictly no $
+MONEY_RE = re.compile(r"^\$?\d{1,3}(?:,\d{3})*(?:\.\d{1,4})?$")  # $12.34 / 12.34 / 1,234.56
+ONLY_MONEY_RE = re.compile(r"^\$\d{1,3}(?:,\d{3})*(?:\.\d{1,4})?$")
+ONLY_NUMERIC_RE = re.compile(r"^\d{1,3}(?:,\d{3})*(?:\.\d{1,4})?$")
 
 # Char-level line clustering tolerances (points)
-Y_TOL = 1.8
-X_GAP = 1.2
+Y_TOL = 2.2   # slightly looser than before to keep numbers on one line
+X_GAP = 2.5   # wider gap to stitch split digits / decimals
 
 @dataclass
 class PageSpec:
@@ -88,6 +88,7 @@ def chars_to_lines(chars) -> List[List[str]]:
         text = ch.get("text", "")
         if not text: continue
         top = ch.get("top"); x0 = ch.get("x0")
+        # find bucket within tolerance
         ykey = None
         for y in lines_map.keys():
             if abs(y - top) <= Y_TOL:
@@ -127,14 +128,55 @@ def slice_mods(tokens: List[str]) -> Tuple[str, str, str, str]:
     return mods[0], mods[1], mods[2], mods[3]
 
 def detect_rate(tokens: List[str], rate_mode: str) -> str:
-    for t in tokens:
-        s = t.strip()
-        if rate_mode == "dollar":
-            if ONLY_MONEY_RE.match(s): return s.lstrip("$")
-        elif rate_mode == "numeric":
-            if ONLY_NUMERIC_RE.match(s) or ONLY_MONEY_RE.match(s): return s.lstrip("$")
-        else:  # auto
-            if MONEY_RE.match(s): return s.lstrip("$")
+    """
+    Smart rate detector:
+    - Works if price is one token (e.g., '$25.61', '25.61', '1,234.56')
+    - Also merges split tokens from the right: ['$', '25', '.', '61'] → '$25.61'
+    - Honors rate_mode: 'dollar' requires a leading '$' token adjacent to the number.
+    Returns the rate WITHOUT the '$' prefix (e.g., '25.61') or '' if not found.
+    """
+    # 1) direct single-token match scanning right-to-left (usually the rightmost number is the rate)
+    for idx in range(len(tokens)-1, -1, -1):
+        t = tokens[idx].strip()
+        if ONLY_MONEY_RE.fullmatch(t):
+            # requires $; always valid for any mode
+            return t.lstrip("$")
+        if MONEY_RE.fullmatch(t):
+            # numeric with or without $; check mode
+            if rate_mode == "dollar":
+                # this branch means token didn't have '$' — try to see if a preceding '$' token exists
+                if idx-1 >= 0 and tokens[idx-1].strip() == "$":
+                    return t  # preceding $ exists; return numeric part
+                # else keep scanning
+            else:
+                return t.lstrip("$")
+
+    # 2) merge split price tokens like ['$', '25', '.', '61'] or ['25', '.', '61']
+    def is_num_token(s: str) -> bool:
+        return bool(ONLY_NUMERIC_RE.fullmatch(s))  # allows '1,234' or '25' etc.
+
+    i = len(tokens) - 1
+    while i >= 0:
+        cur = tokens[i].strip()
+        # Case B: [NUM] '.' [NUM]
+        if i-2 >= 0 and tokens[i-1].strip() == "." and is_num_token(tokens[i]) and is_num_token(tokens[i-2]):
+            num = tokens[i-2].strip() + "." + tokens[i].strip()
+            had_dollar = (i-3 >= 0 and tokens[i-3].strip() == "$")
+            if rate_mode == "dollar" and not had_dollar:
+                i -= 3
+                continue
+            return num
+
+        # Case C: simple NUM (no decimal), possibly with preceding '$'
+        if is_num_token(cur):
+            had_dollar = (i-1 >= 0 and tokens[i-1].strip() == "$")
+            if rate_mode == "dollar" and not had_dollar:
+                i -= 1
+                continue
+            return cur
+
+        i -= 1
+
     return ""
 
 def parse_rows(token_lines: List[List[str]], page_num: int, rate_mode: str) -> List[dict]:
@@ -179,7 +221,7 @@ class ExtractGUI(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("PDF → Excel Extractor (No OCR)")
-        self.geometry("680x460")
+        self.geometry("700x480")
         self.resizable(False, False)
 
         # PDF chooser
@@ -191,7 +233,7 @@ class ExtractGUI(tk.Tk):
 
         # Pages input
         frm_pages = ttk.Frame(self, padding=10); frm_pages.pack(fill="x")
-        ttk.Label(frm_pages, text="Pages (e.g. 21, 22; 25 CONT; 158 NUMERIC):").pack(anchor="w")
+        ttk.Label(frm_pages, text="Pages (e.g. 21, 22, 24; 25 CONT; 158 NUMERIC):").pack(anchor="w")
         self.pages_txt = tk.Text(frm_pages, height=4, width=80)
         self.pages_txt.insert("1.0", "21, 22, 24; 25 CONT")
         self.pages_txt.pack(fill="x")
