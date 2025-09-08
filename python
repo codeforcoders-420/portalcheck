@@ -1,11 +1,14 @@
 # dbhdd_pdf_extract_gui.py
 # ------------------------------------------------------------
-# DBHDD PDF → Excel extractor with GUI, robust token parsing.
-# - Works with/without table headers, continuation pages
-# - Handles left/right split tables and out-of-order tokens
+# DBHDD PDF → Excel extractor with GUI and robust parsing.
+# - Line-wise parser (safe: code & rate on same text line)
+# - Token parser with forward/backward rate scan
+# - Position-aware fallbacks (left/right halves + same-line grouping)
+# - NEW: Adjacent-line fallback (pairs code line with the rate line
+#        immediately above/below) — fixes Page 27 pattern
 # - Generic modifier capture (no hard-coded combos)
-# - Optional "Include Codes" filter (e.g., T2038)
-# - Raw Text viewer for each page
+# - Raw Text viewer + Include Codes filter
+# - Pages input supports lists, ranges, and -CONTD
 # ------------------------------------------------------------
 
 import re
@@ -15,37 +18,19 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
-# -----------------------------
-# Patterns & helpers
-# -----------------------------
-
-# Valid code tokens:
-#   H#### (e.g., H0031, H2015), T####, G####, or 5-digit CPT (e.g., 99446)
+# ---------- Patterns ----------
 CODE_PAT = re.compile(r"^(?:H\d{4}|T\d{4}|G\d{4}|\d{5})$")
-
-# Rates like "26.65" or "$26.65"
 RATE_PAT = re.compile(r"^\$?(\d+\.\d{2})$")
 
-# Some noisy words that can appear near tables; exclude as modifiers
 NOISE_BLACKLIST = {
-    "FY", "UNIT", "VALUE", "FUND", "SOURCE", "SOURCE(S)",
-    "RATE", "CODE", "MOD", "PAGE", "MINUTES", "DETAIL",
-    # add any other page-header or footer words here if they pop up
+    "FY","UNIT","VALUE","FUND","SOURCE","SOURCE(S)",
+    "RATE","CODE","MOD","PAGE","MINUTES","DETAIL"
 }
 
 def looks_like_modifier(token: str) -> bool:
-    """
-    Generic modifier detector:
-      - NOT a code, NOT a rate, NOT '$'
-      - NOT a single digit (1..9), NOT a pure number like '15'
-      - 1–3 chars, uppercase alnum, contains at least one letter
-      - not in header/footer noise
-    Captures combos like: GT, U4, UK, ZH, ZO, XE, XS, 59 (excluded since no letter) → we require a letter.
-    """
     if not token:
         return False
     up = token.upper()
-
     if up in NOISE_BLACKLIST:
         return False
     if token == "$":
@@ -55,191 +40,230 @@ def looks_like_modifier(token: str) -> bool:
     if RATE_PAT.match(token):
         return False
     if token.isdigit():
-        return False  # avoid "1", "15", etc.
-
+        return False
     return 1 <= len(token) <= 3 and token.isalnum() and up == token and any(c.isalpha() for c in token)
 
+# ---------- A) Line-wise parser (safe first) ----------
+def parse_line(line: str, page_number: int):
+    tokens = line.split()
+    rows, i = [], 0
+    while i < len(tokens):
+        t = tokens[i]
+        if CODE_PAT.fullmatch(t):
+            code = t; i += 1
+            mods, rate = [], None
+            while i < len(tokens):
+                tt = tokens[i]
+                if CODE_PAT.fullmatch(tt):
+                    break
+                if tt == "$" and i+1 < len(tokens) and re.fullmatch(r"\d+\.\d{2}", tokens[i+1]):
+                    rate = tokens[i+1]; i += 2; break
+                m = RATE_PAT.match(tt)
+                if m:
+                    rate = m.group(1); i += 1; break
+                if looks_like_modifier(tt):
+                    mods.append(tt)
+                i += 1
+            if rate:
+                mods = (mods + ["","","",""])[:4]
+                rows.append([code] + mods + [rate, page_number])
+                continue
+        i += 1
+    return rows
 
-# -----------------------------
-# Parsing core
-# -----------------------------
-
-def backscan_for_rate(tokens, start_idx, max_scan=40):
-    """
-    Scan backwards up to max_scan tokens before start_idx for a rate.
-    Useful when PDF reading order puts the rate *before* the code.
-    """
-    for k in range(start_idx - 1, max(-1, start_idx - max_scan) - 1, -1):
+# ---------- B) Token parser (order-robust fallback) ----------
+def backscan_for_rate(tokens, start_idx, max_scan=60):
+    for k in range(start_idx-1, max(-1, start_idx-max_scan)-1, -1):
         t = tokens[k]
         m = RATE_PAT.match(t)
-        if m:
-            return m.group(1)
-        if t == "$" and k + 1 < len(tokens):
-            m2 = RATE_PAT.match(tokens[k + 1] or "")
-            if m2:
-                return m2.group(1)
+        if m: return m.group(1)
+        if t == "$" and k+1 < len(tokens):
+            m2 = RATE_PAT.match(tokens[k+1] or "")
+            if m2: return m2.group(1)
     return None
 
-
 def forwardscan_for_rate(tokens, j, max_scan=40):
-    """
-    Scan forward from j for the first rate within a small window.
-    """
     n = len(tokens)
-    for k in range(j, min(n, j + max_scan)):
+    for k in range(j, min(n, j+max_scan)):
         t = tokens[k]
         m = RATE_PAT.match(t)
-        if m:
-            return m.group(1), k + 1
-        if t == "$" and k + 1 < n:
-            m2 = RATE_PAT.match(tokens[k + 1] or "")
-            if m2:
-                return m2.group(1), k + 2
+        if m: return m.group(1), k+1
+        if t == "$" and k+1 < n:
+            m2 = RATE_PAT.match(tokens[k+1] or "")
+            if m2: return m2.group(1), k+2
     return None, j
 
-
 def parse_tokens(tokens, page_number):
-    """
-    Token parser that:
-      - starts rows on CODE tokens
-      - collects modifiers until a RATE or the next CODE
-      - if next CODE appears first, looks ahead for a near rate
-      - if still none, back-scans behind the code for a rate
-    """
-    rows = []
-    n = len(tokens)
-    i = 0
-
+    rows, n, i = [], len(tokens), 0
     while i < n:
         tok = tokens[i]
         if CODE_PAT.fullmatch(tok):
-            code = tok
-            code_idx = i
-            i += 1
-
-            mods = []
-            rate = None
-            j = i
-
-            # collect mods until a rate or next code
+            code = tok; code_idx = i; i += 1
+            mods, rate, j = [], None, i
             while j < n:
                 tt = tokens[j]
-
-                # If a NEW code appears before we have a rate:
-                # try to find a nearby rate forward, else break to outer loop.
                 if CODE_PAT.fullmatch(tt) and rate is None:
-                    near_rate, consumed_to = forwardscan_for_rate(tokens, j, max_scan=8)
-                    if near_rate:
-                        rate = near_rate
-                        j = consumed_to
+                    near, to = forwardscan_for_rate(tokens, j, max_scan=10)
+                    if near: rate = near; j = to
                     break
-
                 m = RATE_PAT.match(tt)
-                if m:
-                    rate = m.group(1)
-                    j += 1
-                    break
-
-                if looks_like_modifier(tt):
-                    mods.append(tt)
-
+                if m: rate = m.group(1); j += 1; break
+                if looks_like_modifier(tt): mods.append(tt)
                 j += 1
-
-            # If still no rate, try a small forward window…
             if rate is None:
-                rate, j = forwardscan_for_rate(tokens, j, max_scan=30)
-
-            # …and finally, try a backward scan (rates printed before codes)
+                rate, j = forwardscan_for_rate(tokens, j, max_scan=40)
             if rate is None:
-                rate = backscan_for_rate(tokens, code_idx, max_scan=40)
-
-            # Normalize modifiers and record the row
-            mods = (mods + ["", "", "", ""])[:4]
+                rate = backscan_for_rate(tokens, code_idx, max_scan=60)
+            mods = (mods + ["","","",""])[:4]
             if rate:
-                rows.append([code] + mods + [rate, page_number])
-
-            # Make progress
-            i = max(j, code_idx + 1)
-            continue
-
-        # not a code → advance
+                rows.append([code]+mods+[rate,page_number])
+            i = max(j, code_idx+1); continue
         i += 1
-
     return rows
 
+# ---------- C) Position-aware fallbacks ----------
+def group_lines(words, y_tol=2.5):
+    lines = {}
+    for w in words:
+        key = round(w["top"]/y_tol)*y_tol
+        lines.setdefault(key, []).append(w)
+    return [sorted(v, key=lambda w: w["x0"]) for k,v in sorted(lines.items())]
 
+def parse_half_line_grouped(words, page_number):
+    rows = []
+    for line in group_lines(words, y_tol=2.5):
+        tokens = [w["text"] for w in line]
+        code_idx = next((idx for idx,t in enumerate(tokens) if CODE_PAT.fullmatch(t)), None)
+        if code_idx is None: continue
+        code = tokens[code_idx]
+        rate, stop_idx = None, None
+        for i,t in enumerate(tokens):
+            if t == "$" and i+1 < len(tokens) and RATE_PAT.match(tokens[i+1] or ""):
+                rate = RATE_PAT.match(tokens[i+1]).group(1); stop_idx = i; break
+            m = RATE_PAT.match(t)
+            if m and rate is None:
+                rate = m.group(1); stop_idx = i
+        if rate is None: continue
+        if stop_idx is None: stop_idx = len(tokens)
+        mods = [t for t in tokens[code_idx+1:stop_idx] if looks_like_modifier(t)]
+        mods = (mods+["","","",""])[:4]
+        rows.append([code]+mods+[rate,page_number])
+    return rows
+
+# ---------- D) NEW: Adjacent-line fallback (for pages like 27) ----------
+CODE_RE = re.compile(r"\b(H\d{4}|T\d{4}|G\d{4}|\d{5})\b")
+AMT_RE  = re.compile(r"\$?\s?(\d+\.\d{2})")
+
+def parse_adjacent_lines(raw_text: str, page_number: int):
+    """
+    Pair code lines with the immediately adjacent rate line (±1).
+    Handles layouts where the rate row is separated from the code row
+    in the extracted text (observed on Page 27).
+    """
+    lines = raw_text.splitlines()
+    # collect rate lines
+    rate_lines = {i: [m.group(1) for m in AMT_RE.finditer(line)]
+                  for i,line in enumerate(lines)}
+    rate_lines = {i: v for i,v in rate_lines.items() if v}
+
+    rows = []
+    for i, line in enumerate(lines):
+        # find all codes on this line
+        code_spans = [(m.group(1), m.end()) for m in CODE_RE.finditer(line)]
+        if not code_spans:
+            continue
+        # grab up to 4 short modifiers right after each code, until punctuation/words
+        for code, endpos in code_spans:
+            tail = line[endpos:]
+            mods = []
+            for tm in re.finditer(r"\s+([A-Z0-9]{1,3})", tail):
+                tok = tm.group(1)
+                if CODE_RE.match(tok): break
+                if tok.isdigit(): break
+                if len(mods) < 4 and re.fullmatch(r"[A-Z0-9]{1,3}", tok):
+                    mods.append(tok)
+                # bail when we hit a lowercase word or '(' after capturing at least one token
+                after = tail[tm.end():]
+                if len(mods) >= 1 and re.search(r"[a-z]{2,}", after):
+                    break
+
+            # choose adjacent rate line (prefer previous i-1, else next i+1)
+            rate_candidates = []
+            if i-1 in rate_lines: rate_candidates.append(i-1)
+            if i+1 in rate_lines: rate_candidates.append(i+1)
+            if not rate_candidates:
+                continue
+            rline = i-1 if i-1 in rate_lines else i+1
+            amounts = rate_lines.get(rline, [])
+            rate = amounts[0] if amounts else None  # pair left-to-right handled by repeated codes on same line
+            if rate:
+                rows.append([code] + (mods+["","","",""])[:4] + [rate, page_number])
+    return rows
+
+# ---------- Per-page extraction ----------
 def extract_page_rows(doc, page_index_zero_based: int):
-    """
-    Extract rows from a single page robustly:
-      1) Parse page.extract_text()
-      2) ALSO split by left/right halves using word coordinates and parse each half
-      3) Merge unique rows
-    Returns (rows, raw_text)
-    """
     page = doc.pages[page_index_zero_based]
 
-    # 1) Raw text
+    # A) Line-wise first (trusted)
     raw_text = page.extract_text() or ""
-    rows = parse_tokens(raw_text.split(), page_index_zero_based + 1)
+    rows = []
+    for line in raw_text.splitlines():
+        rows += parse_line(line, page_index_zero_based + 1)
 
-    # 2) Word-based split (left/right) to catch interleaved order cases
+    # If nothing found, try adjacent-line pairing (handles Page 27)
+    if not rows:
+        adj_rows = parse_adjacent_lines(raw_text, page_index_zero_based + 1)
+        rows += adj_rows
+
+    # B & C) Position-aware fallbacks
     try:
-        words = page.extract_words(use_text_flow=False, extra_attrs=["x0", "x1", "top", "bottom"])
+        words = page.extract_words(use_text_flow=False, extra_attrs=["x0","x1","top","bottom"])
         if words:
             mid_x = page.width / 2
-            left_tokens = [w["text"] for w in words if w["x1"] <= mid_x]
-            right_tokens = [w["text"] for w in words if w["x0"] >= mid_x]
-            rows += parse_tokens(left_tokens, page_index_zero_based + 1)
-            rows += parse_tokens(right_tokens, page_index_zero_based + 1)
+            left_words  = [w for w in words if w["x1"] <= mid_x]
+            right_words = [w for w in words if w["x0"] >= mid_x]
+
+            # token parse (whole + halves)
+            rows += parse_tokens(raw_text.split(), page_index_zero_based + 1)
+            rows += parse_tokens([w["text"] for w in left_words],  page_index_zero_based + 1)
+            rows += parse_tokens([w["text"] for w in right_words], page_index_zero_based + 1)
+
+            # line-grouped same-line fallback (coordinate-based)
+            rows += parse_half_line_grouped(left_words,  page_index_zero_based + 1)
+            rows += parse_half_line_grouped(right_words, page_index_zero_based + 1)
     except Exception:
         pass
 
-    # Deduplicate rows
-    uniq = []
-    seen = set()
+    # Deduplicate
+    uniq, seen = [], set()
     for r in rows:
         key = tuple(r)
         if key not in seen:
-            seen.add(key)
-            uniq.append(r)
+            seen.add(key); uniq.append(r)
 
     return uniq, raw_text
 
-
+# ---------- Pages input ----------
 def parse_page_spec(pages_str: str):
-    """
-    Parse inputs like: '21,22,24-26,25-CONTD' → [21, 22, 24, 25, 26]
-    '-CONTD' is accepted for readability and ignored computationally.
-    """
     pages = set()
     for raw in pages_str.split(","):
         part = raw.strip()
-        if not part:
-            continue
-
-        # support '25-CONTD' / '25-contd'
+        if not part: continue
         if "-CONTD" in part.upper():
             part = part.split("-", 1)[0].strip()
-
-        # range like '24-26'
         if "-" in part and "CONTD" not in part.upper():
             a, b = part.split("-", 1)
             a, b = a.strip(), b.strip()
             if a.isdigit() and b.isdigit():
-                start, end = int(a), int(b)
-                if start <= end:
-                    for p in range(start, end + 1):
-                        pages.add(p)
+                s, e = int(a), int(b)
+                for p in range(min(s,e), max(s,e)+1):
+                    pages.add(p)
         else:
             if part.isdigit():
                 pages.add(int(part))
     return sorted(pages)
 
-
-# -----------------------------
-# GUI
-# -----------------------------
-
+# ---------- GUI ----------
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -247,115 +271,85 @@ class App(tk.Tk):
         self.geometry("980x620")
         self.resizable(True, True)
 
-        self.pdf_path_var = tk.StringVar()
+        self.pdf_path_var  = tk.StringVar()
         self.page_spec_var = tk.StringVar(value="21")
-        self.out_path_var = tk.StringVar(value=str(Path.cwd() / "DBHDD_Extract.xlsx"))
-        self.codes_var = tk.StringVar(value="")  # optional include filter, e.g., "T2038"
+        self.out_path_var  = tk.StringVar(value=str(Path.cwd() / "DBHDD_Extract.xlsx"))
+        self.codes_var     = tk.StringVar(value="")  # optional include filter
 
         self._build_ui()
 
     def _build_ui(self):
         pad = {"padx": 10, "pady": 8}
-        top = ttk.Frame(self)
-        top.pack(fill="x")
+        top = ttk.Frame(self); top.pack(fill="x")
 
-        # PDF
         ttk.Label(top, text="PDF file:").grid(row=0, column=0, sticky="w", **pad)
         ttk.Entry(top, textvariable=self.pdf_path_var, width=90).grid(row=0, column=1, **pad)
         ttk.Button(top, text="Browse…", command=self._pick_pdf).grid(row=0, column=2, **pad)
 
-        # Pages
         ttk.Label(top, text="Pages (e.g., 21,22,24-26,25-CONTD):").grid(row=1, column=0, sticky="w", **pad)
         ttk.Entry(top, textvariable=self.page_spec_var, width=50).grid(row=1, column=1, sticky="w", **pad)
 
-        # Include Codes filter (optional)
         ttk.Label(top, text="Include Codes (comma-separated, optional):").grid(row=2, column=0, sticky="w", **pad)
         ttk.Entry(top, textvariable=self.codes_var, width=50).grid(row=2, column=1, sticky="w", **pad)
 
-        # Output
         ttk.Label(top, text="Output Excel:").grid(row=3, column=0, sticky="w", **pad)
         ttk.Entry(top, textvariable=self.out_path_var, width=90).grid(row=3, column=1, **pad)
         ttk.Button(top, text="Browse…", command=self._pick_out).grid(row=3, column=2, **pad)
 
-        # Run
         ttk.Button(top, text="Run Extraction", command=self._run).grid(row=4, column=1, sticky="e", **pad)
 
-        # Tabs (Log + Raw Text)
-        tabs = ttk.Notebook(self)
-        tabs.pack(fill="both", expand=True, padx=10, pady=10)
+        tabs = ttk.Notebook(self); tabs.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # Log tab
-        log_frame = ttk.Frame(tabs)
-        tabs.add(log_frame, text="Log")
+        log_frame = ttk.Frame(tabs); tabs.add(log_frame, text="Log")
         self.log = tk.Text(log_frame, width=130, height=22, wrap="word")
         self.log.pack(fill="both", expand=True)
         log_scroll = ttk.Scrollbar(log_frame, orient="vertical", command=self.log.yview)
-        self.log.configure(yscrollcommand=log_scroll.set)
-        log_scroll.pack(side="right", fill="y")
+        self.log.configure(yscrollcommand=log_scroll.set); log_scroll.pack(side="right", fill="y")
 
-        # Raw Text tab
-        raw_frame = ttk.Frame(tabs)
-        tabs.add(raw_frame, text="Raw Text")
+        raw_frame = ttk.Frame(tabs); tabs.add(raw_frame, text="Raw Text")
         self.raw = tk.Text(raw_frame, width=130, height=22, wrap="word")
         self.raw.pack(fill="both", expand=True)
         raw_scroll = ttk.Scrollbar(raw_frame, orient="vertical", command=self.raw.yview)
-        self.raw.configure(yscrollcommand=raw_scroll.set)
-        raw_scroll.pack(side="right", fill="y")
+        self.raw.configure(yscrollcommand=raw_scroll.set); raw_scroll.pack(side="right", fill="y")
 
     def _pick_pdf(self):
-        path = filedialog.askopenfilename(
-            title="Select PDF",
-            filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")]
-        )
-        if path:
-            self.pdf_path_var.set(path)
+        path = filedialog.askopenfilename(title="Select PDF",
+                    filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")])
+        if path: self.pdf_path_var.set(path)
 
     def _pick_out(self):
-        path = filedialog.asksaveasfilename(
-            title="Save Excel As",
-            defaultextension=".xlsx",
-            filetypes=[("Excel Workbook", "*.xlsx")]
-        )
-        if path:
-            self.out_path_var.set(path)
+        path = filedialog.asksaveasfilename(title="Save Excel As",
+                    defaultextension=".xlsx",
+                    filetypes=[("Excel Workbook", "*.xlsx")])
+        if path: self.out_path_var.set(path)
 
     def _log(self, msg: str):
-        self.log.insert("end", msg + "\n")
-        self.log.see("end")
-        self.update_idletasks()
+        self.log.insert("end", msg + "\n"); self.log.see("end"); self.update_idletasks()
 
     def _raw(self, msg: str):
-        self.raw.insert("end", msg + "\n")
-        self.raw.see("end")
-        self.update_idletasks()
+        self.raw.insert("end", msg + "\n"); self.raw.see("end"); self.update_idletasks()
 
     def _run(self):
-        pdf_path = self.pdf_path_var.get().strip()
-        out_path = self.out_path_var.get().strip()
+        pdf_path  = self.pdf_path_var.get().strip()
+        out_path  = self.out_path_var.get().strip()
         page_spec = self.page_spec_var.get().strip()
         codes_str = self.codes_var.get().strip()
 
         if not pdf_path:
-            messagebox.showerror("Missing PDF", "Please select a PDF file.")
-            return
+            messagebox.showerror("Missing PDF", "Please select a PDF file."); return
         if not page_spec:
-            messagebox.showerror("Missing Pages", "Please enter page numbers (e.g., 21,22,24-26).")
-            return
+            messagebox.showerror("Missing Pages", "Please enter page numbers (e.g., 21,22,24-26)."); return
 
         pages = parse_page_spec(page_spec)
         if not pages:
-            messagebox.showerror("Invalid Pages", "No valid page numbers found.")
-            return
+            messagebox.showerror("Invalid Pages", "No valid page numbers found."); return
 
-        # normalize include codes (optional)
         include_codes = None
         if codes_str:
             include_codes = {c.strip().upper() for c in codes_str.split(",") if c.strip()}
 
         try:
-            self.log.delete("1.0", "end")
-            self.raw.delete("1.0", "end")
-
+            self.log.delete("1.0", "end"); self.raw.delete("1.0", "end")
             self._log(f"Opening PDF: {pdf_path}")
             all_rows = []
 
@@ -365,23 +359,14 @@ class App(tk.Tk):
 
                 for p in pages:
                     if p < 1 or p > max_page:
-                        self._log(f"Skipping page {p} (out of range).")
-                        continue
-
+                        self._log(f"Skipping page {p} (out of range)."); continue
                     self._log(f"Extracting page {p} …")
                     rows, raw_text = extract_page_rows(pdf, p - 1)
                     self._log(f"  Found rows: {len(rows)}")
-
-                    # Dump raw text to viewer
-                    header = f"{'='*22} Page {p} (raw) {'='*22}\n"
-                    self._raw(header + (raw_text if raw_text else "[No text returned]") + "\n\n")
-
+                    self._raw(f"{'='*22} Page {p} (raw) {'='*22}\n{raw_text or '[No text returned]'}\n\n")
                     all_rows.extend(rows)
 
-            # Build DataFrame
-            df = pd.DataFrame(all_rows, columns=["Code", "Mod1", "Mod2", "Mod3", "Mod4", "Rate", "Page Number"])
-
-            # Optional include filter (e.g., only T2038)
+            df = pd.DataFrame(all_rows, columns=["Code","Mod1","Mod2","Mod3","Mod4","Rate","Page Number"])
             if include_codes and not df.empty:
                 df = df[df["Code"].str.upper().isin(include_codes)]
 
@@ -389,17 +374,14 @@ class App(tk.Tk):
                 self._log("No rows extracted. Check your page selection or the PDF layout.")
             else:
                 self._log(f"Total rows extracted: {len(df)}")
-                out_path_obj = Path(out_path)
-                out_path_obj.parent.mkdir(parents=True, exist_ok=True)
-                df.to_excel(out_path_obj, index=False)
-                self._log(f"Saved Excel: {out_path_obj}")
+                Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+                df.to_excel(out_path, index=False)
+                self._log(f"Saved Excel: {out_path}")
 
             messagebox.showinfo("Done", "Extraction complete.")
-
         except Exception as e:
             self._log(f"Error: {e}")
             messagebox.showerror("Error", f"Extraction failed:\n{e}")
-
 
 if __name__ == "__main__":
     app = App()
