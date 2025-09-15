@@ -1,275 +1,264 @@
-:root {
-  --bg: #f5f7fb;
-  --card: #ffffff;
-  --text: #0f172a;
-  --muted: #6b7280;
-  --accent: #2563eb;
-  --accent-pressed: #1d4ed8;
-  --overlay: rgba(15, 23, 42, 0.45);
-  --radius: 16px;
-  --shadow: 0 10px 30px rgba(2, 6, 23, 0.15);
-}
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.streaming.SXSSFSheet;
+import org.apache.poi.xssf.streaming.SXSSFWorkbook;
 
-/* Buttons */
-.btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  padding: 12px 18px; border-radius: 12px; border: 0; cursor: pointer;
-  background: var(--accent); color: #fff; font-weight: 700; letter-spacing: .3px;
-  transition: transform .04s ease, background .2s ease, box-shadow .2s ease;
-  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35);
-}
-.btn:hover { background: var(--accent-pressed); }
-.btn:active { transform: translateY(1px); box-shadow: 0 4px 12px rgba(37,99,235,.3); }
-.btn.secondary { background: #e5e7eb; color: #111827; box-shadow: none; }
-.btn.secondary:hover { background: #d1d5db; }
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.sql.*;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Properties;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-/* Modal */
-.modal-overlay {
-  position: fixed; inset: 0; background: var(--overlay);
-  display: none; align-items: center; justify-content: center; z-index: 1000;
-  padding: 24px;
-}
-.modal-overlay[aria-hidden="false"] { display: flex; }
+/**
+ * MultiQueryExcelExporter
+ * ------------------------------------------------------------
+ * Java 17+ utility that:
+ *  1) Reads 6 SQL queries from an Excel file (first sheet, cells A1..A6)
+ *  2) Runs the 1st query to fetch ~1500 distinct keys (any single column)
+ *  3) Loads those keys into a SQL Server temp table (#Keys)
+ *  4) Executes the remaining 5 queries, each containing a placeholder
+ *     token of the form {{IN_KEYS(<column_name>)}}
+ *     which will be replaced by `<column_name> IN (SELECT k FROM #Keys)`
+ *  5) Streams each query's results to a separate sheet in an output XLSX
+ *
+ * Why a temp table? It avoids extremely long IN-lists and is both fast and safe.
+ * Temp tables are scoped to the connection; we reuse one connection for everything.
+ *
+ * Requirements:
+ *  - SQL Server JDBC driver on the classpath (mssql-jdbc)
+ *  - Apache POI (poi-ooxml + poi-ooxml-lite) for Excel I/O
+ *
+ * Input queries.xlsx format (Sheet 0):
+ *  A1 -> Key producer query (must return exactly one column of distinct values)
+ *  A2..A6 -> Downstream queries; include a token like {{IN_KEYS(AccountId)}}
+ *
+ * Usage (adjust constants or pass args):
+ *  java -cp "app.jar;lib/*" MultiQueryExcelExporter \
+ *       ./queries.xlsx \
+ *       ./out/results-<timestamp>.xlsx
+ *
+ * JDBC URL examples for SQL Server:
+ *  - Using Windows auth via integratedSecurity:
+ *    jdbc:sqlserver://HOST:1433;databaseName=DB;encrypt=true;trustServerCertificate=true;
+ *    (Add: ;integratedSecurity=true ) if using the native auth DLL.
+ *  - Using SQL auth:
+ *    jdbc:sqlserver://HOST:1433;databaseName=DB;encrypt=true;trustServerCertificate=true;
+ *
+ * Downstream query example:
+ *  SELECT t.* FROM dbo.Transactions t WHERE {{IN_KEYS(AccountId)}};
+ * will become:
+ *  SELECT t.* FROM dbo.Transactions t WHERE AccountId IN (SELECT k FROM #Keys);
+ */
+public class MultiQueryExcelExporter {
 
-.modal {
-  width: 100%; max-width: 520px; background: var(--card); border-radius: 18px;
-  box-shadow: var(--shadow); position: relative; padding: 24px 24px 20px;
-}
-.modal header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-.modal h3 { margin: 0; font-size: 22px; }
-.close-x { background: transparent; border: 0; font-size: 22px; line-height: 1; cursor: pointer; color: var(--muted); }
+    // --- Configure defaults here or via args/env ---
+    private static final String DEFAULT_INPUT_XLSX = "./queries.xlsx"; // sheet0 A1..A6
+    private static final String DEFAULT_OUTPUT_XLSX = "./results-" + nowStamp() + ".xlsx";
 
-.field { display: grid; gap: 8px; margin: 14px 0 6px; }
-label { font-weight: 600; }
-select {
-  width: 100%; padding: 12px 14px; font-size: 16px; border-radius: 12px;
-  border: 1px solid #e5e7eb; background: #f9fafb;
-}
+    // Provide your JDBC settings here
+    private static final String JDBC_URL = System.getProperty("jdbc.url",
+            // Windows Integrated Authentication (SSPI). Ensure sqljdbc_auth.dll is on PATH or in -Djava.library.path
+            "jdbc:sqlserver://localhost:1433;databaseName=YourDB;encrypt=true;trustServerCertificate=true;integratedSecurity=true");
+    
+    // For integrated security we do not use username/password properties.
+    // If you ever need SQL auth, pass -Djdbc.user and -Djdbc.pass and change the connection code accordingly.
 
-.row { display: flex; gap: 12px; justify-content: flex-end; margin-top: 18px; }
+    private static final int BATCH_INSERT_SIZE = 500; // insert keys into #Keys in chunks
 
-.toast {
-  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
-  background: #10b981; color: white; padding: 10px 14px; border-radius: 999px;
-  display:none; box-shadow: var(--shadow); z-index: 1100;
-}
+    // Token like {{IN_KEYS(ColumnName)}} gets replaced in SQL text
+    private static final Pattern IN_KEYS_TOKEN = Pattern.compile("\\{\\{IN_KEYS\\(([^)]+)\\)\\}}", Pattern.CASE_INSENSITIVE);
 
+    public static void main(String[] args) throws Exception {
+        final Path inputPath = Paths.get(args.length > 0 ? args[0] : DEFAULT_INPUT_XLSX);
+        final Path outputPath = Paths.get(args.length > 1 ? args[1] : DEFAULT_OUTPUT_XLSX);
 
-*****************************************************************
+        System.out.println("→ Input queries:  " + inputPath.toAbsolutePath());
+        System.out.println("→ Output workbook: " + outputPath.toAbsolutePath());
 
-<button class="btn" id="openPeer">Open</button>
+        final List<String> queries = readSixQueries(inputPath);
+        if (queries.size() < 6) {
+            throw new IllegalStateException("Expected 6 queries in A1..A6 of the first sheet; got " + queries.size());
+        }
 
+        try (Connection conn = newConnection();
+             SXSSFWorkbook wb = new SXSSFWorkbook(1000)) { // keep 1000 rows in memory per sheet
 
-*********************************************************************
+            wb.setCompressTempFiles(true);
 
-<!-- Launch Modal -->
-<div class="modal-overlay" id="launchModal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-  <div class="modal" role="document">
-    <header>
-      <h3 id="modalTitle">Launch Validation</h3>
-      <button class="close-x" id="closeModal" aria-label="Close">×</button>
-    </header>
+            // 1) Run key query
+            final String keyQuery = queries.get(0);
+            final List<String> keys = fetchKeys(conn, keyQuery);
+            System.out.println("✔ Key count: " + keys.size());
 
-    <form id="launchForm">
-      <div class="field">
-        <label for="env">Select Environment</label>
-        <select id="env" name="environment" required>
-          <option value="" selected disabled>Choose…</option>
-          <option value="SIT">SIT</option>
-          <option value="UAT">UAT</option>
-          <option value="PROD">PROD</option>
-        </select>
-      </div>
+            // 2) Create + load temp table
+            createTempKeysTable(conn);
+            insertKeysIntoTemp(conn, keys);
 
-      <div class="row">
-        <button type="button" class="btn secondary" id="cancelBtn">Cancel</button>
-        <button type="submit" id="runBtn" class="btn" disabled>Run Validation</button>
-      </div>
-    </form>
-  </div>
-</div>
+            // 3) Execute the remaining 5 queries → write to 5 sheets
+            for (int i = 1; i <= 5; i++) {
+                final String rawQuery = queries.get(i);
+                final String materialized = materializeInKeys(rawQuery);
+                final String sheetName = "Q" + (i + 1);
 
-<div class="toast" id="toast">Validation started…</div>
+                System.out.println("→ Executing query " + (i + 1) + " into sheet '" + sheetName + "' …");
+                final SXSSFSheet sheet = wb.createSheet(sheetName);
+                sheet.trackAllColumnsForAutoSizing();
+                long rows = executeAndWrite(conn, materialized, sheet);
+                autoSizeAllColumns(sheet);
+                System.out.println("   ✔ Rows written: " + rows);
+            }
 
-****************************************************************
-
-<script>
-  const openBtn = document.getElementById('openPeer');
-  const modal = document.getElementById('launchModal');
-  const closeBtn = document.getElementById('closeModal');
-  const cancelBtn = document.getElementById('cancelBtn');
-  const envSelect = document.getElementById('env');
-  const runBtn = document.getElementById('runBtn');
-  const form = document.getElementById('launchForm');
-  const toast = document.getElementById('toast');
-
-  function openModal(){ modal.setAttribute('aria-hidden','false'); setTimeout(()=>envSelect.focus(),0); document.addEventListener('keydown', esc); }
-  function closeModal(){ modal.setAttribute('aria-hidden','true'); document.removeEventListener('keydown', esc); }
-  function esc(e){ if(e.key==='Escape') closeModal(); }
-
-  if (openBtn) openBtn.addEventListener('click', openModal);
-  closeBtn.addEventListener('click', closeModal);
-  cancelBtn.addEventListener('click', closeModal);
-  modal.addEventListener('click', (e)=>{ if(e.target===modal) closeModal(); });
-
-  envSelect.addEventListener('change', ()=>{ runBtn.disabled = !envSelect.value; });
-
-  form.addEventListener('submit', async (e)=>{
-    e.preventDefault();
-    runBtn.disabled = true;
-    const payload = { environment: envSelect.value };
-
-    try {
-      const res = await fetch('/peer-review/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      showToast('Validation started for ' + payload.environment);
-    } catch(err){
-      showToast('Failed to start: ' + err.message);
-    } finally {
-      closeModal();
-      runBtn.disabled = false;
+            // 4) Save workbook
+            try (FileOutputStream fos = new FileOutputStream(outputPath.toFile())) {
+                wb.write(fos);
+            }
+            System.out.println("✔ Done. Workbook saved: " + outputPath.toAbsolutePath());
+        }
     }
-  });
 
-  function showToast(msg){
-    toast.textContent = msg;
-    toast.style.display = 'block';
-    setTimeout(()=> toast.style.display='none', 2200);
-  }
-</script>
-
-
-****************************************************************
-
-<button class="individualtools-button" id="openPeerBtn" type="button">Open</button>
-
-
-
-<!-- Peer Review Launch Modal -->
-<div class="pr-overlay" id="prOverlay" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="prModalTitle">
-  <div class="pr-modal" role="document">
-    <header class="pr-modal-header">
-      <h3 id="prModalTitle">Launch Validation</h3>
-      <button class="pr-close" id="prCloseBtn" aria-label="Close">×</button>
-    </header>
-
-    <form id="prLaunchForm">
-      <div class="pr-field">
-        <label for="prEnv">Select Environment</label>
-        <select id="prEnv" name="environment" required>
-          <option value="" selected disabled>Choose…</option>
-          <option value="SIT">SIT</option>
-          <option value="UAT">UAT</option>
-          <option value="PROD">PROD</option>
-        </select>
-      </div>
-
-      <div class="pr-row">
-        <button type="button" class="pr-btn pr-secondary" id="prCancelBtn">Cancel</button>
-        <button type="submit" class="pr-btn" id="prRunBtn" disabled>Run Validation</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<div class="pr-toast" id="prToast">Validation started…</div>
-
-<script>
-  // Grab elements
-  const prOpenBtn  = document.getElementById('openPeerBtn');
-  const prOverlay  = document.getElementById('prOverlay');
-  const prCloseBtn = document.getElementById('prCloseBtn');
-  const prCancel   = document.getElementById('prCancelBtn');
-  const prEnv      = document.getElementById('prEnv');
-  const prRunBtn   = document.getElementById('prRunBtn');
-  const prForm     = document.getElementById('prLaunchForm');
-  const prToast    = document.getElementById('prToast');
-
-  // IMPORTANT: toggle aria-hidden (don’t use style.display)
-  function prOpen()  { prOverlay.setAttribute('aria-hidden','false'); setTimeout(()=>prEnv.focus(),0); document.addEventListener('keydown', prEsc); }
-  function prClose() { prOverlay.setAttribute('aria-hidden','true');  document.removeEventListener('keydown', prEsc); }
-  function prEsc(e){ if(e.key === 'Escape') prClose(); }
-
-  prOpenBtn?.addEventListener('click', prOpen);
-  prCloseBtn.addEventListener('click', prClose);
-  prCancel.addEventListener('click', prClose);
-  prOverlay.addEventListener('click', (e)=>{ if(e.target === prOverlay) prClose(); });
-
-  prEnv.addEventListener('change', ()=>{ prRunBtn.disabled = !prEnv.value; });
-
-  prForm.addEventListener('submit', async (e)=>{
-    e.preventDefault();
-    prRunBtn.disabled = true;
-    const payload = { environment: prEnv.value };
-    try {
-      await fetch('/peer-review/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      prToast.textContent = 'Validation started for ' + payload.environment;
-    } catch (err) {
-      prToast.textContent = 'Failed to start: ' + err.message;
-    } finally {
-      prToast.style.display = 'block';
-      setTimeout(()=> prToast.style.display = 'none', 2200);
-      prClose();
-      prRunBtn.disabled = false;
+    private static Connection newConnection() throws SQLException {
+        // With integratedSecurity=true, the Microsoft JDBC driver uses your current Windows credentials.
+        // Make sure the appropriate mssql-jdbc_auth-<arch>.dll is resolvable via PATH or -Djava.library.path.
+        return DriverManager.getConnection(JDBC_URL);
     }
-  });
-</script>
 
+    // Reads A1..A6 from sheet 0 as SQL strings (empty cells are ignored)
+    private static List<String> readSixQueries(Path xlsx) throws IOException {
+        List<String> list = new ArrayList<>(6);
+        try (FileInputStream fis = new FileInputStream(xlsx.toFile());
+             Workbook wb = WorkbookFactory.create(fis)) {
+            Sheet s = wb.getSheetAt(0);
+            for (int r = 0; r < 6; r++) {
+                Row row = s.getRow(r);
+                if (row == null) continue;
+                Cell c = row.getCell(0);
+                if (c == null) continue;
+                c.setCellType(CellType.STRING);
+                String sql = c.getStringCellValue();
+                if (sql != null && !sql.isBlank()) {
+                    list.add(sql.trim());
+                }
+            }
+        }
+        return list;
+    }
 
+    // Executes the 1st query; expects exactly one column of keys (any type → String)
+    private static List<String> fetchKeys(Connection conn, String keySql) throws SQLException {
+        List<String> keys = new ArrayList<>(2048);
+        try (Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery(keySql)) {
+            final ResultSetMetaData md = rs.getMetaData();
+            if (md.getColumnCount() != 1) {
+                throw new IllegalStateException("Key query must return exactly 1 column; got " + md.getColumnCount());
+            }
+            while (rs.next()) {
+                Object val = rs.getObject(1);
+                if (val != null) keys.add(val.toString());
+            }
+        }
+        return keys;
+    }
 
+    private static void createTempKeysTable(Connection conn) throws SQLException {
+        try (Statement st = conn.createStatement()) {
+            st.executeUpdate("IF OBJECT_ID('tempdb..#Keys') IS NOT NULL DROP TABLE #Keys;");
+            st.executeUpdate("CREATE TABLE #Keys (k NVARCHAR(256) NOT NULL);");
+        }
+    }
 
-/* Overlay */
-.pr-overlay {
-  position: fixed; inset: 0; background: rgba(15,23,42,.45);
-  display: none; align-items: center; justify-content: center;
-  z-index: 2000; padding: 24px;
+    private static void insertKeysIntoTemp(Connection conn, List<String> keys) throws SQLException {
+        if (keys.isEmpty()) return;
+        final String sql = "INSERT INTO #Keys(k) VALUES (?)";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            int count = 0;
+            for (String k : keys) {
+                ps.setString(1, k);
+                ps.addBatch();
+                if (++count % BATCH_INSERT_SIZE == 0) {
+                    ps.executeBatch();
+                }
+            }
+            ps.executeBatch();
+        }
+    }
+
+    // Replace {{IN_KEYS(col)}} with "col IN (SELECT k FROM #Keys)"
+    private static String materializeInKeys(String raw) {
+        Matcher m = IN_KEYS_TOKEN.matcher(raw);
+        StringBuffer sb = new StringBuffer();
+        while (m.find()) {
+            String col = m.group(1).trim();
+            String replacement = col + " IN (SELECT k FROM #Keys)";
+            m.appendReplacement(sb, Matcher.quoteReplacement(replacement));
+        }
+        m.appendTail(sb);
+        return sb.toString();
+    }
+
+    // Execute query and stream the ResultSet into the given sheet; returns row count (excluding header)
+    private static long executeAndWrite(Connection conn, String sql, SXSSFSheet sheet) throws SQLException {
+        try (Statement st = conn.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
+            st.setFetchSize(10_000); // driver-specific; for SQL Server this still buffers, but helps
+            try (ResultSet rs = st.executeQuery(sql)) {
+                ResultSetMetaData md = rs.getMetaData();
+                int cols = md.getColumnCount();
+
+                // Header
+                Row hdr = sheet.createRow(0);
+                for (int c = 1; c <= cols; c++) {
+                    Cell cell = hdr.createCell(c - 1, CellType.STRING);
+                    cell.setCellValue(md.getColumnLabel(c));
+                }
+
+                // Rows
+                long r = 1;
+                while (rs.next()) {
+                    Row row = sheet.createRow((int) r);
+                    for (int c = 1; c <= cols; c++) {
+                        Object val = rs.getObject(c);
+                        Cell cell = row.createCell(c - 1);
+                        if (val == null) {
+                            cell.setBlank();
+                        } else if (val instanceof Number num) {
+                            cell.setCellValue(num.doubleValue());
+                        } else if (val instanceof java.sql.Date d) {
+                            cell.setCellValue(d);
+                        } else if (val instanceof java.sql.Timestamp ts) {
+                            cell.setCellValue(ts);
+                        } else if (val instanceof Boolean b) {
+                            cell.setCellValue(b);
+                        } else {
+                            cell.setCellValue(val.toString());
+                        }
+                    }
+                    r++;
+                }
+                return r - 1;
+            }
+        }
+    }
+
+    private static void autoSizeAllColumns(SXSSFSheet sheet) {
+        // Determine max column index from header row
+        Row hdr = sheet.getRow(0);
+        if (hdr == null) return;
+        int last = hdr.getLastCellNum();
+        for (int c = 0; c < last; c++) {
+            try {
+                sheet.autoSizeColumn(c);
+            } catch (Exception ignored) { }
+        }
+    }
+
+    private static String nowStamp() {
+        return LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
+    }
 }
-.pr-overlay[aria-hidden="false"] { display: flex; }
-
-/* Modal card */
-.pr-modal {
-  width: 100%; max-width: 520px; background: #fff; border-radius: 18px;
-  box-shadow: 0 10px 30px rgba(2,6,23,.15);
-  padding: 24px 24px 20px; position: relative;
-}
-.pr-modal-header { display:flex; align-items:center; justify-content:space-between; margin-bottom: 12px; }
-.pr-close { background: none; border: 0; font-size: 22px; cursor: pointer; color: #6b7280; }
-
-/* Fields */
-.pr-field { display: grid; gap: 8px; margin: 14px 0 6px; }
-.pr-field label { font-weight: 600; }
-.pr-field select {
-  width: 100%; padding: 12px 14px; font-size: 16px; border-radius: 12px;
-  border: 1px solid #e5e7eb; background: #f9fafb;
-}
-
-/* Buttons */
-.pr-row { display: flex; gap: 12px; justify-content: flex-end; margin-top: 18px; }
-.pr-btn {
-  display:inline-flex; align-items:center; justify-content:center; gap:8px;
-  padding:12px 18px; border-radius:12px; border:0; cursor:pointer;
-  background:#2563eb; color:#fff; font-weight:700; letter-spacing:.3px;
-  box-shadow:0 6px 16px rgba(37,99,235,.35); transition: transform .04s, background .2s;
-}
-.pr-btn:hover{ background:#1d4ed8; }
-.pr-btn:active{ transform: translateY(1px); }
-.pr-secondary{ background:#e5e7eb; color:#111827; box-shadow:none; }
-.pr-secondary:hover{ background:#d1d5db; }
-
-/* Toast */
-.pr-toast {
-  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
-  background: #10b981; color: white; padding: 10px 14px; border-radius: 999px;
-  display: none; box-shadow: 0 10px 30px rgba(2,6,23,.15); z-index: 2100;
-}
-
-
-
-********************************************************************
