@@ -1,0 +1,264 @@
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.streaming.SXSSFSheet;
+import org.apache.poi.xssf.streaming.SXSSFWorkbook;
+
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.sql.*;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Properties;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * MultiQueryExcelExporter
+ * ------------------------------------------------------------
+ * Java 17+ utility that:
+ *  1) Reads 6 SQL queries from an Excel file (first sheet, cells A1..A6)
+ *  2) Runs the 1st query to fetch ~1500 distinct keys (any single column)
+ *  3) Loads those keys into a SQL Server temp table (#Keys)
+ *  4) Executes the remaining 5 queries, each containing a placeholder
+ *     token of the form {{IN_KEYS(<column_name>)}}
+ *     which will be replaced by `<column_name> IN (SELECT k FROM #Keys)`
+ *  5) Streams each query's results to a separate sheet in an output XLSX
+ *
+ * Why a temp table? It avoids extremely long IN-lists and is both fast and safe.
+ * Temp tables are scoped to the connection; we reuse one connection for everything.
+ *
+ * Requirements:
+ *  - SQL Server JDBC driver on the classpath (mssql-jdbc)
+ *  - Apache POI (poi-ooxml + poi-ooxml-lite) for Excel I/O
+ *
+ * Input queries.xlsx format (Sheet 0):
+ *  A1 -> Key producer query (must return exactly one column of distinct values)
+ *  A2..A6 -> Downstream queries; include a token like {{IN_KEYS(AccountId)}}
+ *
+ * Usage (adjust constants or pass args):
+ *  java -cp "app.jar;lib/*" MultiQueryExcelExporter \
+ *       ./queries.xlsx \
+ *       ./out/results-<timestamp>.xlsx
+ *
+ * JDBC URL examples for SQL Server:
+ *  - Using Windows auth via integratedSecurity:
+ *    jdbc:sqlserver://HOST:1433;databaseName=DB;encrypt=true;trustServerCertificate=true;
+ *    (Add: ;integratedSecurity=true ) if using the native auth DLL.
+ *  - Using SQL auth:
+ *    jdbc:sqlserver://HOST:1433;databaseName=DB;encrypt=true;trustServerCertificate=true;
+ *
+ * Downstream query example:
+ *  SELECT t.* FROM dbo.Transactions t WHERE {{IN_KEYS(AccountId)}};
+ * will become:
+ *  SELECT t.* FROM dbo.Transactions t WHERE AccountId IN (SELECT k FROM #Keys);
+ */
+public class MultiQueryExcelExporter {
+
+    // --- Configure defaults here or via args/env ---
+    private static final String DEFAULT_INPUT_XLSX = "./queries.xlsx"; // sheet0 A1..A6
+    private static final String DEFAULT_OUTPUT_XLSX = "./results-" + nowStamp() + ".xlsx";
+
+    // Provide your JDBC settings here
+    private static final String JDBC_URL = System.getProperty("jdbc.url",
+            "jdbc:sqlserver://localhost:1433;databaseName=YourDB;encrypt=true;trustServerCertificate=true");
+    private static final String JDBC_USER = System.getProperty("jdbc.user", "your_user");
+    private static final String JDBC_PASS = System.getProperty("jdbc.pass", "your_password");
+
+    private static final int BATCH_INSERT_SIZE = 500; // insert keys into #Keys in chunks
+
+    // Token like {{IN_KEYS(ColumnName)}} gets replaced in SQL text
+    private static final Pattern IN_KEYS_TOKEN = Pattern.compile("\\{\\{IN_KEYS\\(([^)]+)\\)\\}}", Pattern.CASE_INSENSITIVE);
+
+    public static void main(String[] args) throws Exception {
+        final Path inputPath = Paths.get(args.length > 0 ? args[0] : DEFAULT_INPUT_XLSX);
+        final Path outputPath = Paths.get(args.length > 1 ? args[1] : DEFAULT_OUTPUT_XLSX);
+
+        System.out.println("→ Input queries:  " + inputPath.toAbsolutePath());
+        System.out.println("→ Output workbook: " + outputPath.toAbsolutePath());
+
+        final List<String> queries = readSixQueries(inputPath);
+        if (queries.size() < 6) {
+            throw new IllegalStateException("Expected 6 queries in A1..A6 of the first sheet; got " + queries.size());
+        }
+
+        try (Connection conn = newConnection();
+             SXSSFWorkbook wb = new SXSSFWorkbook(1000)) { // keep 1000 rows in memory per sheet
+
+            wb.setCompressTempFiles(true);
+
+            // 1) Run key query
+            final String keyQuery = queries.get(0);
+            final List<String> keys = fetchKeys(conn, keyQuery);
+            System.out.println("✔ Key count: " + keys.size());
+
+            // 2) Create + load temp table
+            createTempKeysTable(conn);
+            insertKeysIntoTemp(conn, keys);
+
+            // 3) Execute the remaining 5 queries → write to 5 sheets
+            for (int i = 1; i <= 5; i++) {
+                final String rawQuery = queries.get(i);
+                final String materialized = materializeInKeys(rawQuery);
+                final String sheetName = "Q" + (i + 1);
+
+                System.out.println("→ Executing query " + (i + 1) + " into sheet '" + sheetName + "' …");
+                final SXSSFSheet sheet = wb.createSheet(sheetName);
+                sheet.trackAllColumnsForAutoSizing();
+                long rows = executeAndWrite(conn, materialized, sheet);
+                autoSizeAllColumns(sheet);
+                System.out.println("   ✔ Rows written: " + rows);
+            }
+
+            // 4) Save workbook
+            try (FileOutputStream fos = new FileOutputStream(outputPath.toFile())) {
+                wb.write(fos);
+            }
+            System.out.println("✔ Done. Workbook saved: " + outputPath.toAbsolutePath());
+        }
+    }
+
+    private static Connection newConnection() throws SQLException {
+        Properties props = new Properties();
+        props.put("user", JDBC_USER);
+        props.put("password", JDBC_PASS);
+        // If you use Windows Integrated Security, configure your driver accordingly instead.
+        return DriverManager.getConnection(JDBC_URL, props);
+    }
+
+    // Reads A1..A6 from sheet 0 as SQL strings (empty cells are ignored)
+    private static List<String> readSixQueries(Path xlsx) throws IOException {
+        List<String> list = new ArrayList<>(6);
+        try (FileInputStream fis = new FileInputStream(xlsx.toFile());
+             Workbook wb = WorkbookFactory.create(fis)) {
+            Sheet s = wb.getSheetAt(0);
+            for (int r = 0; r < 6; r++) {
+                Row row = s.getRow(r);
+                if (row == null) continue;
+                Cell c = row.getCell(0);
+                if (c == null) continue;
+                c.setCellType(CellType.STRING);
+                String sql = c.getStringCellValue();
+                if (sql != null && !sql.isBlank()) {
+                    list.add(sql.trim());
+                }
+            }
+        }
+        return list;
+    }
+
+    // Executes the 1st query; expects exactly one column of keys (any type → String)
+    private static List<String> fetchKeys(Connection conn, String keySql) throws SQLException {
+        List<String> keys = new ArrayList<>(2048);
+        try (Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery(keySql)) {
+            final ResultSetMetaData md = rs.getMetaData();
+            if (md.getColumnCount() != 1) {
+                throw new IllegalStateException("Key query must return exactly 1 column; got " + md.getColumnCount());
+            }
+            while (rs.next()) {
+                Object val = rs.getObject(1);
+                if (val != null) keys.add(val.toString());
+            }
+        }
+        return keys;
+    }
+
+    private static void createTempKeysTable(Connection conn) throws SQLException {
+        try (Statement st = conn.createStatement()) {
+            st.executeUpdate("IF OBJECT_ID('tempdb..#Keys') IS NOT NULL DROP TABLE #Keys;");
+            st.executeUpdate("CREATE TABLE #Keys (k NVARCHAR(256) NOT NULL);");
+        }
+    }
+
+    private static void insertKeysIntoTemp(Connection conn, List<String> keys) throws SQLException {
+        if (keys.isEmpty()) return;
+        final String sql = "INSERT INTO #Keys(k) VALUES (?)";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            int count = 0;
+            for (String k : keys) {
+                ps.setString(1, k);
+                ps.addBatch();
+                if (++count % BATCH_INSERT_SIZE == 0) {
+                    ps.executeBatch();
+                }
+            }
+            ps.executeBatch();
+        }
+    }
+
+    // Replace {{IN_KEYS(col)}} with "col IN (SELECT k FROM #Keys)"
+    private static String materializeInKeys(String raw) {
+        Matcher m = IN_KEYS_TOKEN.matcher(raw);
+        StringBuffer sb = new StringBuffer();
+        while (m.find()) {
+            String col = m.group(1).trim();
+            String replacement = col + " IN (SELECT k FROM #Keys)";
+            m.appendReplacement(sb, Matcher.quoteReplacement(replacement));
+        }
+        m.appendTail(sb);
+        return sb.toString();
+    }
+
+    // Execute query and stream the ResultSet into the given sheet; returns row count (excluding header)
+    private static long executeAndWrite(Connection conn, String sql, SXSSFSheet sheet) throws SQLException {
+        try (Statement st = conn.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
+            st.setFetchSize(10_000); // driver-specific; for SQL Server this still buffers, but helps
+            try (ResultSet rs = st.executeQuery(sql)) {
+                ResultSetMetaData md = rs.getMetaData();
+                int cols = md.getColumnCount();
+
+                // Header
+                Row hdr = sheet.createRow(0);
+                for (int c = 1; c <= cols; c++) {
+                    Cell cell = hdr.createCell(c - 1, CellType.STRING);
+                    cell.setCellValue(md.getColumnLabel(c));
+                }
+
+                // Rows
+                long r = 1;
+                while (rs.next()) {
+                    Row row = sheet.createRow((int) r);
+                    for (int c = 1; c <= cols; c++) {
+                        Object val = rs.getObject(c);
+                        Cell cell = row.createCell(c - 1);
+                        if (val == null) {
+                            cell.setBlank();
+                        } else if (val instanceof Number num) {
+                            cell.setCellValue(num.doubleValue());
+                        } else if (val instanceof java.sql.Date d) {
+                            cell.setCellValue(d);
+                        } else if (val instanceof java.sql.Timestamp ts) {
+                            cell.setCellValue(ts);
+                        } else if (val instanceof Boolean b) {
+                            cell.setCellValue(b);
+                        } else {
+                            cell.setCellValue(val.toString());
+                        }
+                    }
+                    r++;
+                }
+                return r - 1;
+            }
+        }
+    }
+
+    private static void autoSizeAllColumns(SXSSFSheet sheet) {
+        // Determine max column index from header row
+        Row hdr = sheet.getRow(0);
+        if (hdr == null) return;
+        int last = hdr.getLastCellNum();
+        for (int c = 0; c < last; c++) {
+            try {
+                sheet.autoSizeColumn(c);
+            } catch (Exception ignored) { }
+        }
+    }
+
+    private static String nowStamp() {
+        return LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
+    }
+}
