@@ -1,0 +1,57 @@
+private static final int FETCH_SIZE = 10_000;
+private static final int MAX_CELL_CHARS = 32_767; // Excel string cell limit
+
+
+
+long appendRows(ResultSet rs, String key) throws SQLException {
+    long count = 0;
+    final int cols = rs.getMetaData().getColumnCount();
+    while (rs.next()) {
+        Row row = sheet.createRow(nextRow++);
+        int col = 0;
+        if (keyColumn) {
+            row.createCell(col++, CellType.STRING).setCellValue(key == null ? "" : truncate(key));
+        }
+        for (int c = 1; c <= cols; c++) {
+            Object val = rs.getObject(c);
+            Cell cell = row.createCell(col++);
+            if (val == null) {
+                cell.setBlank();
+            } else if (val instanceof Number num) {
+                cell.setCellValue(num.doubleValue());
+            } else if (val instanceof java.sql.Date d) {
+                cell.setCellValue(d);
+            } else if (val instanceof java.sql.Timestamp ts) {
+                cell.setCellValue(ts);
+            } else if (val instanceof Boolean b) {
+                cell.setCellValue(b);
+            } else if (val instanceof Clob clob) {
+                String s = clobToString(clob, MAX_CELL_CHARS);
+                cell.setCellValue(truncate(s));
+            } else if (val instanceof SQLXML xml) {
+                String s = xml.getString();
+                cell.setCellValue(truncate(s));
+            } else {
+                String s = val.toString();
+                cell.setCellValue(truncate(s));
+            }
+        }
+        count++;
+    }
+    return count;
+}
+
+
+
+private static String truncate(String s) {
+    if (s == null) return "";
+    if (s.length() <= MAX_CELL_CHARS) return s;
+    // Keep room for ellipsis
+    return s.substring(0, MAX_CELL_CHARS - 1) + "…";
+}
+
+private static String clobToString(Clob clob, int maxChars) throws SQLException {
+    long len = clob.length();
+    int toRead = (int) Math.min(len, maxChars);
+    return clob.getSubString(1, toRead);
+}
