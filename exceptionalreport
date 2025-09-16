@@ -43,10 +43,11 @@ public class MultiQueryExcelExporter {
 
     private static final int FETCH_SIZE = 10_000;
 
+    // Tokens that indicate per-key queries
     private static final Pattern FSID_TOKEN        = Pattern.compile(":FSID", Pattern.CASE_INSENSITIVE);
-    private static final Pattern KEY_TOKEN         = Pattern.compile("\\{\\{\\s*KEY\\s*\\}}", Pattern.CASE_INSENSITIVE);
-    private static final Pattern QUOTED_FSID_TOKEN = Pattern.compile("'\\s*:FSID\\s*'", Pattern.CASE_INSENSITIVE);
-    private static final Pattern QUOTED_KEY_TOKEN  = Pattern.compile("'\\s*\\{\\{\\s*KEY\\s*\\}}\\s*'", Pattern.CASE_INSENSITIVE);
+    private static final Pattern KEY_TOKEN         = Pattern.compile("\{\{\s*KEY\s*\}}", Pattern.CASE_INSENSITIVE);
+    private static final Pattern QUOTED_FSID_TOKEN = Pattern.compile("'\s*:FSID\s*'", Pattern.CASE_INSENSITIVE);
+    private static final Pattern QUOTED_KEY_TOKEN  = Pattern.compile("'\s*\{\{\s*KEY\s*\}}\s*'", Pattern.CASE_INSENSITIVE);
 
     // Desired sheet names for Q2..Q6
     private static final String[] SHEET_NAMES = {
@@ -111,6 +112,16 @@ public class MultiQueryExcelExporter {
                 if (perKey) {
                     try (PreparedStatement ps = conn.prepareStatement(pq.sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
                         ps.setFetchSize(FETCH_SIZE);
+
+                        // sanity: if driver can report parameter count, ensure it's >0
+                        try {
+                            int jdbcParams = ps.getParameterMetaData().getParameterCount();
+                            if (jdbcParams == 0) {
+                                throw new IllegalArgumentException("No JDBC parameters after token replacement. SQL=
+" + pq.sql);
+                            }
+                        } catch (SQLException ignored) { /* some drivers don't support this */ }
+
                         boolean headerWritten = false;
                         long totalRows = 0;
                         for (String key : keys) {
@@ -185,11 +196,16 @@ public class MultiQueryExcelExporter {
         return keys;
     }
 
-    private static Optional<PreparedQuery> tryPreparePerKeyStatement(String raw) {
+    /**
+     * Replace placeholder tokens with JDBC '?' and count how many we created.
+     * If no tokens are present, returns the original SQL with paramCount=0.
+     */
+    private static PreparedQuery preparePerKeyStatement(String raw) {
         String sql = raw;
         int count = 0;
         StringBuffer sb;
 
+        // Replace quoted tokens first (e.g., ':FSID' or '{{KEY}}')
         Matcher q1 = QUOTED_FSID_TOKEN.matcher(sql);
         sb = new StringBuffer();
         while (q1.find()) { q1.appendReplacement(sb, "?"); count++; }
@@ -200,6 +216,7 @@ public class MultiQueryExcelExporter {
         while (q2.find()) { q2.appendReplacement(sb, "?"); count++; }
         q2.appendTail(sb); sql = sb.toString();
 
+        // Replace unquoted tokens
         Matcher m1 = FSID_TOKEN.matcher(sql);
         sb = new StringBuffer();
         while (m1.find()) { m1.appendReplacement(sb, "?"); count++; }
@@ -210,10 +227,7 @@ public class MultiQueryExcelExporter {
         while (m2.find()) { m2.appendReplacement(sb, "?"); count++; }
         m2.appendTail(sb); sql = sb.toString();
 
-        if (count == 0) {
-            return Optional.empty();
-        }
-        return Optional.of(new PreparedQuery(sql, count));
+        return new PreparedQuery(sql, count);
     }
 
     private static final class SheetWriter {
@@ -253,54 +267,6 @@ public class MultiQueryExcelExporter {
                 for (int c = 1; c <= cols; c++) {
                     Object val = rs.getObject(c);
                     Cell cell = row.createCell(col++);
-                    if (val == null) {
-                        cell.setBlank();
-                    } else if (val instanceof Number num) {
-                        cell.setCellValue(num.doubleValue());
-                    } else if (val instanceof java.sql.Date d) {
-                        cell.setCellValue(d);
-                    } else if (val instanceof java.sql.Timestamp ts) {
-                        cell.setCellValue(ts);
-                    } else if (val instanceof Boolean b) {
-                        cell.setCellValue(b);
-                    } else {
-                        cell.setCellValue(val.toString());
-                    }
-                }
-                count++;
-            }
-            return count;
-        }
-
-        void autoSizeAllColumns() {
-            Row hdr = sheet.getRow(0);
-            if (hdr == null) return;
-            int last = hdr.getLastCellNum();
-            for (int c = 0; c < last; c++) {
-                try { sheet.autoSizeColumn(c); } catch (Exception ignored) {}
-            }
-        }
-    }
-
-        void writeHeader(ResultSetMetaData md) throws SQLException {
-            Row hdr = sheet.createRow(nextRow++);
-            Cell keyCell = hdr.createCell(0, CellType.STRING);
-            keyCell.setCellValue("Key");
-            for (int c = 1; c <= md.getColumnCount(); c++) {
-                Cell cell = hdr.createCell(c, CellType.STRING);
-                cell.setCellValue(md.getColumnLabel(c));
-            }
-        }
-
-        long appendRows(ResultSet rs, String key) throws SQLException {
-            long count = 0;
-            final int cols = rs.getMetaData().getColumnCount();
-            while (rs.next()) {
-                Row row = sheet.createRow(nextRow++);
-                row.createCell(0, CellType.STRING).setCellValue(key == null ? "" : key);
-                for (int c = 1; c <= cols; c++) {
-                    Object val = rs.getObject(c);
-                    Cell cell = row.createCell(c);
                     if (val == null) {
                         cell.setBlank();
                     } else if (val instanceof Number num) {
