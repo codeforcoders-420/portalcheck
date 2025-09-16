@@ -15,54 +15,51 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * MultiQueryExcelExporter — Per-Key Mode
- * ------------------------------------------------------------
- * Java 17+ utility that:
- *  1) Reads 6 SQL queries from an Excel file (first sheet, cells A1..A6)
- *  2) Runs the 1st query to fetch ~1500+ distinct keys (exactly one-column)
- *  3) For each of the remaining 5 queries, executes the query **one key at a time**
- *     by binding the key anywhere the token ":FSID" (or {{KEY}}) appears.
- *  4) Streams *all* matching rows across all keys into a single sheet per query
- *     (Q2..Q6) and prefixes an extra column "Key" so you know which FSID
- *     produced each row.
+ * MultiQueryExcelExporter — Per-Key Streaming Edition (Windows Auth)
+ * -----------------------------------------------------------------
+ * Java 17 utility that:
+ *   1) Reads 6 SQL queries from an Excel file (Sheet 0, cells A1..A6)
+ *   2) Executes Query #1 to get a single-column list of keys (e.g., ~1600 FSIDs)
+ *   3) For each of Queries #2..#6, executes the query ONCE PER KEY, binding the
+ *      key value anywhere the token appears: :FSID or {{KEY}} (quoted or unquoted)
+ *   4) Streams all returned rows into an output workbook with sheets Q2..Q6.
+ *      An extra first column "Key" shows which key produced that row.
  *
- *  This avoids giant IN-lists and temp tables, and strictly follows your
- *  "value-by-value" execution requirement.
+ * Why this design:
+ *   - Avoids giant IN() lists and temp tables
+ *   - Handles self-joins (you can use the token twice in the same query)
+ *   - Memory-safe for large data (SXSSF streaming)
  *
- *  Tokens supported in Query #2..#6:
- *    - :FSID               → replaced with JDBC parameter '?', bound to the key
- *    - {{KEY}}             → same behavior as :FSID (use either style)
- *    - You may include the token multiple times in one statement; all receive the
- *      same bound value (useful for self-joins filtering both a and b).
+ * Tokens it understands in Queries #2..#6:
+ *   - :FSID
+ *   - '{{KEY}}' (with or without quotes; quotes are stripped automatically)
+ *   - You can use the token multiple times; the same bound value will be used.
  *
- *  Output:
- *    - One workbook with 5 sheets: Q2..Q6
- *    - Each sheet contains a header row: [Key, <DB column labels...>]
- *    - Rows from all keys are appended; streaming keeps memory small.
- *
- * Requirements:
- *  - Microsoft SQL Server JDBC driver (mssql-jdbc)
- *  - Apache POI (poi-ooxml)
- *  - Windows Integrated Auth DLL available (mssql-jdbc_auth-*.dll) for SSPI
+ * JDBC: Windows Integrated Authentication (SSPI) for Microsoft SQL Server.
+ * Make sure the appropriate mssql-jdbc_auth-<arch>.dll is on PATH or in -Djava.library.path.
  */
 public class MultiQueryExcelExporter {
 
-    // --- Configure defaults here or via args/env ---
-    private static final String DEFAULT_INPUT_XLSX = "./queries.xlsx"; // sheet0 A1..A6
+    // ==== Configuration =====================================================
+    private static final String DEFAULT_INPUT_XLSX  = "./queries.xlsx"; // A1..A6 on Sheet 0
     private static final String DEFAULT_OUTPUT_XLSX = "./results-" + nowStamp() + ".xlsx";
 
-    // Windows Integrated Authentication (SSPI). Ensure sqljdbc_auth.dll is on PATH or -Djava.library.path
-    private static final String JDBC_URL = System.getProperty("jdbc.url",
-            "jdbc:sqlserver://localhost:1433;databaseName=YourDB;encrypt=true;trustServerCertificate=true;integratedSecurity=true");
+    // Windows Integrated Auth (change host/db or override with -Djdbc.url=...)
+    private static final String JDBC_URL = System.getProperty(
+            "jdbc.url",
+            "jdbc:sqlserver://localhost:1433;databaseName=YourDB;encrypt=true;trustServerCertificate=true;integratedSecurity=true"
+    );
 
-    private static final int FETCH_SIZE = 10_000;
+    private static final int FETCH_SIZE = 10_000; // driver hint
 
     // Token patterns
-    private static final Pattern FSID_TOKEN = Pattern.compile(":FSID", Pattern.CASE_INSENSITIVE);
-    private static final Pattern KEY_TOKEN  = Pattern.compile("\{\{KEY\}}", Pattern.CASE_INSENSITIVE);
+    private static final Pattern FSID_TOKEN           = Pattern.compile(":FSID", Pattern.CASE_INSENSITIVE);
+    private static final Pattern KEY_TOKEN            = Pattern.compile("\{\{\s*KEY\s*\}}", Pattern.CASE_INSENSITIVE);
+    private static final Pattern QUOTED_FSID_TOKEN    = Pattern.compile("'\s*:FSID\s*'", Pattern.CASE_INSENSITIVE);
+    private static final Pattern QUOTED_KEY_TOKEN     = Pattern.compile("'\s*\{\{\s*KEY\s*\}}\s*'", Pattern.CASE_INSENSITIVE);
 
     public static void main(String[] args) throws Exception {
-        final Path inputPath = Paths.get(args.length > 0 ? args[0] : DEFAULT_INPUT_XLSX);
+        final Path inputPath  = Paths.get(args.length > 0 ? args[0] : DEFAULT_INPUT_XLSX);
         final Path outputPath = Paths.get(args.length > 1 ? args[1] : DEFAULT_OUTPUT_XLSX);
 
         System.out.println("→ Input queries:  " + inputPath.toAbsolutePath());
@@ -79,17 +76,18 @@ public class MultiQueryExcelExporter {
             wb.setCompressTempFiles(true);
 
             // 1) Run key query
-            final String keyQuery = queries.get(0);
-            final List<String> keys = fetchKeys(conn, keyQuery);
+            final String keySql = queries.get(0);
+            final List<String> keys = fetchKeys(conn, keySql);
             System.out.println("✔ Key count: " + keys.size());
 
-            // 2) Execute the remaining 5 queries per-key and append to sheets
+            // 2) Prepare writers for Q2..Q6
             final Map<Integer, SheetWriter> writers = new LinkedHashMap<>();
             for (int i = 1; i <= 5; i++) {
                 final String sheetName = "Q" + (i + 1);
                 writers.put(i, new SheetWriter(wb.createSheet(sheetName)));
             }
 
+            // 3) For each downstream query, execute per key and stream rows
             for (int qi = 1; qi <= 5; qi++) {
                 final String raw = queries.get(qi);
                 final PreparedQuery pq = preparePerKeyStatement(raw);
@@ -97,34 +95,46 @@ public class MultiQueryExcelExporter {
 
                 System.out.println("→ Executing query " + (qi + 1) + " per-key into sheet '" + writer.sheet.getSheetName() + "' …");
 
-                // Prepare the statement once (with the correct number of ?) and reuse it
                 try (PreparedStatement ps = conn.prepareStatement(pq.sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
                     ps.setFetchSize(FETCH_SIZE);
 
+                    // Sanity check: ensure JDBC sees parameters post-replacement
+                    int jdbcParams = 0;
+                    try {
+                        jdbcParams = ps.getParameterMetaData().getParameterCount();
+                    } catch (SQLException ignore) { /* some drivers might not support */ }
+                    if (jdbcParams == 0) {
+                        throw new IllegalArgumentException(
+                                "This query has no JDBC parameters after token replacement.
+" +
+                                "Likely cause: token inside a comment or not parsed as SQL.
+SQL after replacement:
+" + pq.sql);
+                    }
+
                     boolean headerWritten = false;
-                    long written = 0;
+                    long totalRows = 0;
 
                     for (String key : keys) {
-                        // Bind the key into all parameter positions
+                        final String bind = key == null ? null : key.trim();
                         for (int p = 1; p <= pq.paramCount; p++) {
-                            ps.setString(p, key == null ? null : key.trim());
+                            ps.setString(p, bind);
                         }
-
                         try (ResultSet rs = ps.executeQuery()) {
                             if (!headerWritten) {
                                 writer.writeHeader(rs.getMetaData());
                                 headerWritten = true;
                             }
-                            written += writer.appendRows(rs, key);
+                            totalRows += writer.appendRows(rs, bind);
                         }
                     }
 
                     writer.autoSizeAllColumns();
-                    System.out.println("   ✔ Rows written (Q" + (qi + 1) + "): " + written);
+                    System.out.println("   ✔ Rows written (Q" + (qi + 1) + "): " + totalRows);
                 }
             }
 
-            // 3) Save workbook
+            // 4) Save workbook
             try (FileOutputStream fos = new FileOutputStream(outputPath.toFile())) {
                 wb.write(fos);
             }
@@ -132,13 +142,13 @@ public class MultiQueryExcelExporter {
         }
     }
 
+    // === JDBC helpers =======================================================
     private static Connection newConnection() throws SQLException {
         // With integratedSecurity=true, the Microsoft JDBC driver uses your current Windows credentials.
-        // Make sure the appropriate mssql-jdbc_auth-<arch>.dll is resolvable via PATH or -Djava.library.path.
         return DriverManager.getConnection(JDBC_URL);
     }
 
-    // Reads A1..A6 from sheet 0 as SQL strings (empty cells are ignored)
+    // === Excel/Query helpers ===============================================
     private static List<String> readSixQueries(Path xlsx) throws IOException {
         List<String> list = new ArrayList<>(6);
         try (FileInputStream fis = new FileInputStream(xlsx.toFile());
@@ -151,20 +161,17 @@ public class MultiQueryExcelExporter {
                 if (c == null) continue;
                 c.setCellType(CellType.STRING);
                 String sql = c.getStringCellValue();
-                if (sql != null && !sql.isBlank()) {
-                    list.add(sql.trim());
-                }
+                if (sql != null && !sql.isBlank()) list.add(sql.trim());
             }
         }
         return list;
     }
 
-    // Executes the 1st query; expects exactly one column of keys (any type → String)
     private static List<String> fetchKeys(Connection conn, String keySql) throws SQLException {
         List<String> keys = new ArrayList<>(2048);
         try (Statement st = conn.createStatement();
              ResultSet rs = st.executeQuery(keySql)) {
-            final ResultSetMetaData md = rs.getMetaData();
+            ResultSetMetaData md = rs.getMetaData();
             if (md.getColumnCount() != 1) {
                 throw new IllegalStateException("Key query must return exactly 1 column; got " + md.getColumnCount());
             }
@@ -176,27 +183,33 @@ public class MultiQueryExcelExporter {
         return keys;
     }
 
-    // Prepare a per-key SQL with JDBC placeholders and a parameter count
+    // Replace tokens with '?' and count how many parameters we created
     private static PreparedQuery preparePerKeyStatement(String raw) {
         String sql = raw;
         int count = 0;
+        StringBuffer sb;
+
+        // 1) Replace quoted tokens first (e.g., ':FSID' or '{{KEY}}') → '?'
+        Matcher q1 = QUOTED_FSID_TOKEN.matcher(sql);
+        sb = new StringBuffer();
+        while (q1.find()) { q1.appendReplacement(sb, "?"); count++; }
+        q1.appendTail(sb); sql = sb.toString();
+
+        Matcher q2 = QUOTED_KEY_TOKEN.matcher(sql);
+        sb = new StringBuffer();
+        while (q2.find()) { q2.appendReplacement(sb, "?"); count++; }
+        q2.appendTail(sb); sql = sb.toString();
+
+        // 2) Replace unquoted tokens → '?'
         Matcher m1 = FSID_TOKEN.matcher(sql);
-        StringBuffer sb = new StringBuffer();
-        while (m1.find()) {
-            m1.appendReplacement(sb, "?");
-            count++;
-        }
-        m1.appendTail(sb);
-        sql = sb.toString();
+        sb = new StringBuffer();
+        while (m1.find()) { m1.appendReplacement(sb, "?"); count++; }
+        m1.appendTail(sb); sql = sb.toString();
 
         Matcher m2 = KEY_TOKEN.matcher(sql);
         sb = new StringBuffer();
-        while (m2.find()) {
-            m2.appendReplacement(sb, "?");
-            count++;
-        }
-        m2.appendTail(sb);
-        sql = sb.toString();
+        while (m2.find()) { m2.appendReplacement(sb, "?"); count++; }
+        m2.appendTail(sb); sql = sb.toString();
 
         if (count == 0) {
             throw new IllegalArgumentException("Downstream query is missing :FSID or {{KEY}} token(s):
@@ -205,7 +218,7 @@ public class MultiQueryExcelExporter {
         return new PreparedQuery(sql, count);
     }
 
-    // Helper to stream into a sheet with an extra leading "Key" column
+    // === Sheet writer =======================================================
     private static final class SheetWriter {
         final SXSSFSheet sheet;
         int nextRow = 0;
@@ -217,7 +230,7 @@ public class MultiQueryExcelExporter {
 
         void writeHeader(ResultSetMetaData md) throws SQLException {
             Row hdr = sheet.createRow(nextRow++);
-            // First column is the Key used
+            // First column is the bound key
             Cell keyCell = hdr.createCell(0, CellType.STRING);
             keyCell.setCellValue("Key");
             for (int c = 1; c <= md.getColumnCount(); c++) {
@@ -231,7 +244,6 @@ public class MultiQueryExcelExporter {
             final int cols = rs.getMetaData().getColumnCount();
             while (rs.next()) {
                 Row row = sheet.createRow(nextRow++);
-                // write the key
                 row.createCell(0, CellType.STRING).setCellValue(key == null ? "" : key);
                 for (int c = 1; c <= cols; c++) {
                     Object val = rs.getObject(c);
