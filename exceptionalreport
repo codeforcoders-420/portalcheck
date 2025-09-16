@@ -10,51 +10,40 @@ import java.nio.file.Paths;
 import java.sql.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Properties;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * MultiQueryExcelExporter
+ * MultiQueryExcelExporter — Per-Key Mode
  * ------------------------------------------------------------
  * Java 17+ utility that:
  *  1) Reads 6 SQL queries from an Excel file (first sheet, cells A1..A6)
- *  2) Runs the 1st query to fetch ~1500 distinct keys (any single column)
- *  3) Loads those keys into a SQL Server temp table (#Keys)
- *  4) Executes the remaining 5 queries, each containing a placeholder
- *     token of the form {{IN_KEYS(<column_name>)}}
- *     which will be replaced by `<column_name> IN (SELECT k FROM #Keys)`
- *  5) Streams each query's results to a separate sheet in an output XLSX
+ *  2) Runs the 1st query to fetch ~1500+ distinct keys (exactly one-column)
+ *  3) For each of the remaining 5 queries, executes the query **one key at a time**
+ *     by binding the key anywhere the token ":FSID" (or {{KEY}}) appears.
+ *  4) Streams *all* matching rows across all keys into a single sheet per query
+ *     (Q2..Q6) and prefixes an extra column "Key" so you know which FSID
+ *     produced each row.
  *
- * Why a temp table? It avoids extremely long IN-lists and is both fast and safe.
- * Temp tables are scoped to the connection; we reuse one connection for everything.
+ *  This avoids giant IN-lists and temp tables, and strictly follows your
+ *  "value-by-value" execution requirement.
+ *
+ *  Tokens supported in Query #2..#6:
+ *    - :FSID               → replaced with JDBC parameter '?', bound to the key
+ *    - {{KEY}}             → same behavior as :FSID (use either style)
+ *    - You may include the token multiple times in one statement; all receive the
+ *      same bound value (useful for self-joins filtering both a and b).
+ *
+ *  Output:
+ *    - One workbook with 5 sheets: Q2..Q6
+ *    - Each sheet contains a header row: [Key, <DB column labels...>]
+ *    - Rows from all keys are appended; streaming keeps memory small.
  *
  * Requirements:
- *  - SQL Server JDBC driver on the classpath (mssql-jdbc)
- *  - Apache POI (poi-ooxml + poi-ooxml-lite) for Excel I/O
- *
- * Input queries.xlsx format (Sheet 0):
- *  A1 -> Key producer query (must return exactly one column of distinct values)
- *  A2..A6 -> Downstream queries; include a token like {{IN_KEYS(AccountId)}}
- *
- * Usage (adjust constants or pass args):
- *  java -cp "app.jar;lib/*" MultiQueryExcelExporter \
- *       ./queries.xlsx \
- *       ./out/results-<timestamp>.xlsx
- *
- * JDBC URL examples for SQL Server:
- *  - Using Windows auth via integratedSecurity:
- *    jdbc:sqlserver://HOST:1433;databaseName=DB;encrypt=true;trustServerCertificate=true;
- *    (Add: ;integratedSecurity=true ) if using the native auth DLL.
- *  - Using SQL auth:
- *    jdbc:sqlserver://HOST:1433;databaseName=DB;encrypt=true;trustServerCertificate=true;
- *
- * Downstream query example:
- *  SELECT t.* FROM dbo.Transactions t WHERE {{IN_KEYS(AccountId)}};
- * will become:
- *  SELECT t.* FROM dbo.Transactions t WHERE AccountId IN (SELECT k FROM #Keys);
+ *  - Microsoft SQL Server JDBC driver (mssql-jdbc)
+ *  - Apache POI (poi-ooxml)
+ *  - Windows Integrated Auth DLL available (mssql-jdbc_auth-*.dll) for SSPI
  */
 public class MultiQueryExcelExporter {
 
@@ -62,18 +51,15 @@ public class MultiQueryExcelExporter {
     private static final String DEFAULT_INPUT_XLSX = "./queries.xlsx"; // sheet0 A1..A6
     private static final String DEFAULT_OUTPUT_XLSX = "./results-" + nowStamp() + ".xlsx";
 
-    // Provide your JDBC settings here
+    // Windows Integrated Authentication (SSPI). Ensure sqljdbc_auth.dll is on PATH or -Djava.library.path
     private static final String JDBC_URL = System.getProperty("jdbc.url",
-            // Windows Integrated Authentication (SSPI). Ensure sqljdbc_auth.dll is on PATH or in -Djava.library.path
             "jdbc:sqlserver://localhost:1433;databaseName=YourDB;encrypt=true;trustServerCertificate=true;integratedSecurity=true");
-    
-    // For integrated security we do not use username/password properties.
-    // If you ever need SQL auth, pass -Djdbc.user and -Djdbc.pass and change the connection code accordingly.
 
-    private static final int BATCH_INSERT_SIZE = 500; // insert keys into #Keys in chunks
+    private static final int FETCH_SIZE = 10_000;
 
-    // Token like {{IN_KEYS(ColumnName)}} gets replaced in SQL text
-    private static final Pattern IN_KEYS_TOKEN = Pattern.compile("\\{\\{IN_KEYS\\(([^)]+)\\)\\}}", Pattern.CASE_INSENSITIVE);
+    // Token patterns
+    private static final Pattern FSID_TOKEN = Pattern.compile(":FSID", Pattern.CASE_INSENSITIVE);
+    private static final Pattern KEY_TOKEN  = Pattern.compile("\{\{KEY\}}", Pattern.CASE_INSENSITIVE);
 
     public static void main(String[] args) throws Exception {
         final Path inputPath = Paths.get(args.length > 0 ? args[0] : DEFAULT_INPUT_XLSX);
@@ -97,25 +83,48 @@ public class MultiQueryExcelExporter {
             final List<String> keys = fetchKeys(conn, keyQuery);
             System.out.println("✔ Key count: " + keys.size());
 
-            // 2) Create + load temp table
-            createTempKeysTable(conn);
-            insertKeysIntoTemp(conn, keys);
-
-            // 3) Execute the remaining 5 queries → write to 5 sheets
+            // 2) Execute the remaining 5 queries per-key and append to sheets
+            final Map<Integer, SheetWriter> writers = new LinkedHashMap<>();
             for (int i = 1; i <= 5; i++) {
-                final String rawQuery = queries.get(i);
-                final String materialized = materializeInKeys(rawQuery);
                 final String sheetName = "Q" + (i + 1);
-
-                System.out.println("→ Executing query " + (i + 1) + " into sheet '" + sheetName + "' …");
-                final SXSSFSheet sheet = wb.createSheet(sheetName);
-                sheet.trackAllColumnsForAutoSizing();
-                long rows = executeAndWrite(conn, materialized, sheet);
-                autoSizeAllColumns(sheet);
-                System.out.println("   ✔ Rows written: " + rows);
+                writers.put(i, new SheetWriter(wb.createSheet(sheetName)));
             }
 
-            // 4) Save workbook
+            for (int qi = 1; qi <= 5; qi++) {
+                final String raw = queries.get(qi);
+                final PreparedQuery pq = preparePerKeyStatement(raw);
+                final SheetWriter writer = writers.get(qi);
+
+                System.out.println("→ Executing query " + (qi + 1) + " per-key into sheet '" + writer.sheet.getSheetName() + "' …");
+
+                // Prepare the statement once (with the correct number of ?) and reuse it
+                try (PreparedStatement ps = conn.prepareStatement(pq.sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
+                    ps.setFetchSize(FETCH_SIZE);
+
+                    boolean headerWritten = false;
+                    long written = 0;
+
+                    for (String key : keys) {
+                        // Bind the key into all parameter positions
+                        for (int p = 1; p <= pq.paramCount; p++) {
+                            ps.setString(p, key == null ? null : key.trim());
+                        }
+
+                        try (ResultSet rs = ps.executeQuery()) {
+                            if (!headerWritten) {
+                                writer.writeHeader(rs.getMetaData());
+                                headerWritten = true;
+                            }
+                            written += writer.appendRows(rs, key);
+                        }
+                    }
+
+                    writer.autoSizeAllColumns();
+                    System.out.println("   ✔ Rows written (Q" + (qi + 1) + "): " + written);
+                }
+            }
+
+            // 3) Save workbook
             try (FileOutputStream fos = new FileOutputStream(outputPath.toFile())) {
                 wb.write(fos);
             }
@@ -167,138 +176,98 @@ public class MultiQueryExcelExporter {
         return keys;
     }
 
-    private static void createTempKeysTable(Connection conn) throws SQLException {
-        try (Statement st = conn.createStatement()) {
-            st.executeUpdate("IF OBJECT_ID('tempdb..#Keys') IS NOT NULL DROP TABLE #Keys;");
-            st.executeUpdate("CREATE TABLE #Keys (k NVARCHAR(256) NOT NULL);");
-        }
-    }
-
-    private static void insertKeysIntoTemp(Connection conn, List<String> keys) throws SQLException {
-        if (keys.isEmpty()) return;
-        final String sql = "INSERT INTO #Keys(k) VALUES (?)";
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            int count = 0;
-            for (String k : keys) {
-                ps.setString(1, k);
-                ps.addBatch();
-                if (++count % BATCH_INSERT_SIZE == 0) {
-                    ps.executeBatch();
-                }
-            }
-            ps.executeBatch();
-        }
-    }
-
-    // Replace {{IN_KEYS(col)}} with "col IN (SELECT k FROM #Keys)"
-    private static String materializeInKeys(String raw) {
-        Matcher m = IN_KEYS_TOKEN.matcher(raw);
+    // Prepare a per-key SQL with JDBC placeholders and a parameter count
+    private static PreparedQuery preparePerKeyStatement(String raw) {
+        String sql = raw;
+        int count = 0;
+        Matcher m1 = FSID_TOKEN.matcher(sql);
         StringBuffer sb = new StringBuffer();
-        while (m.find()) {
-            String col = m.group(1).trim();
-            String replacement = col + " IN (SELECT k FROM #Keys)";
-            m.appendReplacement(sb, Matcher.quoteReplacement(replacement));
+        while (m1.find()) {
+            m1.appendReplacement(sb, "?");
+            count++;
         }
-        m.appendTail(sb);
-        return sb.toString();
+        m1.appendTail(sb);
+        sql = sb.toString();
+
+        Matcher m2 = KEY_TOKEN.matcher(sql);
+        sb = new StringBuffer();
+        while (m2.find()) {
+            m2.appendReplacement(sb, "?");
+            count++;
+        }
+        m2.appendTail(sb);
+        sql = sb.toString();
+
+        if (count == 0) {
+            throw new IllegalArgumentException("Downstream query is missing :FSID or {{KEY}} token(s):
+" + raw);
+        }
+        return new PreparedQuery(sql, count);
     }
 
-    // Execute query and stream the ResultSet into the given sheet; returns row count (excluding header)
-    private static long executeAndWrite(Connection conn, String sql, SXSSFSheet sheet) throws SQLException {
-        try (Statement st = conn.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
-            st.setFetchSize(10_000); // driver-specific; for SQL Server this still buffers, but helps
-            try (ResultSet rs = st.executeQuery(sql)) {
-                ResultSetMetaData md = rs.getMetaData();
-                int cols = md.getColumnCount();
+    // Helper to stream into a sheet with an extra leading "Key" column
+    private static final class SheetWriter {
+        final SXSSFSheet sheet;
+        int nextRow = 0;
 
-                // Header
-                Row hdr = sheet.createRow(0);
+        SheetWriter(SXSSFSheet sheet) {
+            this.sheet = sheet;
+            this.sheet.trackAllColumnsForAutoSizing();
+        }
+
+        void writeHeader(ResultSetMetaData md) throws SQLException {
+            Row hdr = sheet.createRow(nextRow++);
+            // First column is the Key used
+            Cell keyCell = hdr.createCell(0, CellType.STRING);
+            keyCell.setCellValue("Key");
+            for (int c = 1; c <= md.getColumnCount(); c++) {
+                Cell cell = hdr.createCell(c, CellType.STRING);
+                cell.setCellValue(md.getColumnLabel(c));
+            }
+        }
+
+        long appendRows(ResultSet rs, String key) throws SQLException {
+            long count = 0;
+            final int cols = rs.getMetaData().getColumnCount();
+            while (rs.next()) {
+                Row row = sheet.createRow(nextRow++);
+                // write the key
+                row.createCell(0, CellType.STRING).setCellValue(key == null ? "" : key);
                 for (int c = 1; c <= cols; c++) {
-                    Cell cell = hdr.createCell(c - 1, CellType.STRING);
-                    cell.setCellValue(md.getColumnLabel(c));
-                }
-
-                // Rows
-                long r = 1;
-                while (rs.next()) {
-                    Row row = sheet.createRow((int) r);
-                    for (int c = 1; c <= cols; c++) {
-                        Object val = rs.getObject(c);
-                        Cell cell = row.createCell(c - 1);
-                        if (val == null) {
-                            cell.setBlank();
-                        } else if (val instanceof Number num) {
-                            cell.setCellValue(num.doubleValue());
-                        } else if (val instanceof java.sql.Date d) {
-                            cell.setCellValue(d);
-                        } else if (val instanceof java.sql.Timestamp ts) {
-                            cell.setCellValue(ts);
-                        } else if (val instanceof Boolean b) {
-                            cell.setCellValue(b);
-                        } else {
-                            cell.setCellValue(val.toString());
-                        }
+                    Object val = rs.getObject(c);
+                    Cell cell = row.createCell(c);
+                    if (val == null) {
+                        cell.setBlank();
+                    } else if (val instanceof Number num) {
+                        cell.setCellValue(num.doubleValue());
+                    } else if (val instanceof java.sql.Date d) {
+                        cell.setCellValue(d);
+                    } else if (val instanceof java.sql.Timestamp ts) {
+                        cell.setCellValue(ts);
+                    } else if (val instanceof Boolean b) {
+                        cell.setCellValue(b);
+                    } else {
+                        cell.setCellValue(val.toString());
                     }
-                    r++;
                 }
-                return r - 1;
+                count++;
+            }
+            return count;
+        }
+
+        void autoSizeAllColumns() {
+            Row hdr = sheet.getRow(0);
+            if (hdr == null) return;
+            int last = hdr.getLastCellNum();
+            for (int c = 0; c < last; c++) {
+                try { sheet.autoSizeColumn(c); } catch (Exception ignored) {}
             }
         }
     }
 
-    private static void autoSizeAllColumns(SXSSFSheet sheet) {
-        // Determine max column index from header row
-        Row hdr = sheet.getRow(0);
-        if (hdr == null) return;
-        int last = hdr.getLastCellNum();
-        for (int c = 0; c < last; c++) {
-            try {
-                sheet.autoSizeColumn(c);
-            } catch (Exception ignored) { }
-        }
-    }
+    private record PreparedQuery(String sql, int paramCount) {}
 
     private static String nowStamp() {
         return LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
     }
 }
-
-
-*****************
-
-
-SELECT
-    a.NSVM_TABLE            AS 'Query 2: Fee Schedule',
-    a.NSVM_PROCEDURE_CD,
-    a.NSVM_MODIFIER,
-    a.NSVM_EFF_DT,
-    a.NSVM_TERM_DT,
-    a.NSVM_REIM_MTH,
-    a.NSVM_ALLOW,
-    a.NSVM_PCT,
-    a.NSVM_FOLLOWUP_DAYS,
-    a.NSVM_MODIFIER2,
-    a.NSVM_MODIFIER3,
-    a.NSVM_MODIFIER4,
-    b.NSVM_EFF_DT           AS Overlapping_EFF_DT,
-    b.NSVM_TERM_DT          AS Overlapping_TERM_DT,
-    'Overlap'               AS Comment
-FROM NWX_NSVM_SCH_MOD a
-JOIN NWX_NSVM_SCH_MOD b
-  ON  a.NSVM_PROCEDURE_CD = b.NSVM_PROCEDURE_CD
-  AND (a.NSVM_MODIFIER  = b.NSVM_MODIFIER  OR (a.NSVM_MODIFIER  IS NULL AND b.NSVM_MODIFIER  IS NULL))
-  AND (a.NSVM_MODIFIER2 = b.NSVM_MODIFIER2 OR (a.NSVM_MODIFIER2 IS NULL AND b.NSVM_MODIFIER2 IS NULL))
-  AND (a.NSVM_MODIFIER3 = b.NSVM_MODIFIER3 OR (a.NSVM_MODIFIER3 IS NULL AND b.NSVM_MODIFIER3 IS NULL))
-  AND (a.NSVM_MODIFIER4 = b.NSVM_MODIFIER4 OR (a.NSVM_MODIFIER4 IS NULL AND b.NSVM_MODIFIER4 IS NULL))
-AND (
-       (a.NSVM_EFF_DT < b.NSVM_TERM_DT AND a.NSVM_TERM_DT > b.NSVM_EFF_DT)
-    OR (a.NSVM_EFF_DT = b.NSVM_EFF_DT AND a.NSVM_ALLOW <> b.NSVM_ALLOW)
-)
-WHERE
-    {{IN_KEYS(a.NSVM_TABLE)}}
-AND {{IN_KEYS(b.NSVM_TABLE)}}
-ORDER BY
-    a.NSVM_PROCEDURE_CD ASC,
-    a.NSVM_MODIFIER ASC,
-    a.NSVM_EFF_DT ASC
-OPTION (MAX_GRANT_PERCENT = 2);
