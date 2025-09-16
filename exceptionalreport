@@ -19,7 +19,7 @@ import java.util.regex.Pattern;
  * -----------------------------------------------------------------------------
  * - Reads 6 queries from Excel (Sheet 0, cells A1..A6)
  * - Executes Query #1 to get keys (single-column)
- * - Executes Queries #2..#6 once per key, binding :FSID or {{KEY}}
+ * - Executes Queries #2..#6 once per key if tokens exist, otherwise runs once as-is
  * - Writes results into Excel with named sheets:
  *      Query 1 - Duplicate
  *      Query 2 - Invalid
@@ -96,36 +96,46 @@ public class MultiQueryExcelExporter {
                 writers.put(i, new SheetWriter(wb.createSheet(sheetName)));
             }
 
-            // 3) For each downstream query, execute per key and stream rows
+            // 3) For each downstream query, execute either per-key or once if no tokens
             for (int qi = 1; qi <= 5; qi++) {
                 final String raw = queries.get(qi);
                 final PreparedQuery pq = preparePerKeyStatement(raw);
                 final SheetWriter writer = writers.get(qi);
 
-                System.out.println("→ Executing query " + (qi + 1) + " per-key into sheet '" + writer.sheet.getSheetName() + "' …");
+                final boolean perKey = pq.paramCount > 0;
+                writer.useKeyColumn(perKey);
 
-                try (PreparedStatement ps = conn.prepareStatement(pq.sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
-                    ps.setFetchSize(FETCH_SIZE);
+                System.out.println("→ Executing query " + (qi + 1) + (perKey ? " per-key" : " (no key tokens)") +
+                        " into sheet '" + writer.sheet.getSheetName() + "' …");
 
-                    boolean headerWritten = false;
-                    long totalRows = 0;
-
-                    for (String key : keys) {
-                        final String bind = key == null ? null : key.trim();
-                        for (int p = 1; p <= pq.paramCount; p++) {
-                            ps.setString(p, bind);
-                        }
-                        try (ResultSet rs = ps.executeQuery()) {
-                            if (!headerWritten) {
-                                writer.writeHeader(rs.getMetaData());
-                                headerWritten = true;
+                if (perKey) {
+                    try (PreparedStatement ps = conn.prepareStatement(pq.sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
+                        ps.setFetchSize(FETCH_SIZE);
+                        boolean headerWritten = false;
+                        long totalRows = 0;
+                        for (String key : keys) {
+                            final String bind = key == null ? null : key.trim();
+                            for (int p = 1; p <= pq.paramCount; p++) ps.setString(p, bind);
+                            try (ResultSet rs = ps.executeQuery()) {
+                                if (!headerWritten) { writer.writeHeader(rs.getMetaData()); headerWritten = true; }
+                                totalRows += writer.appendRows(rs, bind);
                             }
-                            totalRows += writer.appendRows(rs, bind);
                         }
+                        writer.autoSizeAllColumns();
+                        System.out.println("   ✔ Rows written (" + writer.sheet.getSheetName() + "): " + totalRows);
                     }
-
-                    writer.autoSizeAllColumns();
-                    System.out.println("   ✔ Rows written (" + writer.sheet.getSheetName() + "): " + totalRows);
+                } else {
+                    try (Statement st = conn.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
+                        st.setFetchSize(FETCH_SIZE);
+                        boolean headerWritten = false;
+                        long totalRows = 0;
+                        try (ResultSet rs = st.executeQuery(pq.sql)) {
+                            if (!headerWritten) { writer.writeHeader(rs.getMetaData()); headerWritten = true; }
+                            totalRows += writer.appendRows(rs, null);
+                        }
+                        writer.autoSizeAllColumns();
+                        System.out.println("   ✔ Rows written (" + writer.sheet.getSheetName() + "): " + totalRows);
+                    }
                 }
             }
 
@@ -175,7 +185,7 @@ public class MultiQueryExcelExporter {
         return keys;
     }
 
-    private static PreparedQuery preparePerKeyStatement(String raw) {
+    private static Optional<PreparedQuery> tryPreparePerKeyStatement(String raw) {
         String sql = raw;
         int count = 0;
         StringBuffer sb;
@@ -201,19 +211,76 @@ public class MultiQueryExcelExporter {
         m2.appendTail(sb); sql = sb.toString();
 
         if (count == 0) {
-            throw new IllegalArgumentException("Downstream query is missing :FSID or {{KEY}} token(s):\n" + raw);
+            return Optional.empty();
         }
-        return new PreparedQuery(sql, count);
+        return Optional.of(new PreparedQuery(sql, count));
     }
 
     private static final class SheetWriter {
         final SXSSFSheet sheet;
         int nextRow = 0;
+        private boolean keyColumn = true; // include a leading Key column by default
 
         SheetWriter(SXSSFSheet sheet) {
             this.sheet = sheet;
             this.sheet.trackAllColumnsForAutoSizing();
         }
+
+        void useKeyColumn(boolean use) { this.keyColumn = use; }
+
+        void writeHeader(ResultSetMetaData md) throws SQLException {
+            Row hdr = sheet.createRow(nextRow++);
+            int col = 0;
+            if (keyColumn) {
+                Cell keyCell = hdr.createCell(col++, CellType.STRING);
+                keyCell.setCellValue("Key");
+            }
+            for (int c = 1; c <= md.getColumnCount(); c++) {
+                Cell cell = hdr.createCell(col++, CellType.STRING);
+                cell.setCellValue(md.getColumnLabel(c));
+            }
+        }
+
+        long appendRows(ResultSet rs, String key) throws SQLException {
+            long count = 0;
+            final int cols = rs.getMetaData().getColumnCount();
+            while (rs.next()) {
+                Row row = sheet.createRow(nextRow++);
+                int col = 0;
+                if (keyColumn) {
+                    row.createCell(col++, CellType.STRING).setCellValue(key == null ? "" : key);
+                }
+                for (int c = 1; c <= cols; c++) {
+                    Object val = rs.getObject(c);
+                    Cell cell = row.createCell(col++);
+                    if (val == null) {
+                        cell.setBlank();
+                    } else if (val instanceof Number num) {
+                        cell.setCellValue(num.doubleValue());
+                    } else if (val instanceof java.sql.Date d) {
+                        cell.setCellValue(d);
+                    } else if (val instanceof java.sql.Timestamp ts) {
+                        cell.setCellValue(ts);
+                    } else if (val instanceof Boolean b) {
+                        cell.setCellValue(b);
+                    } else {
+                        cell.setCellValue(val.toString());
+                    }
+                }
+                count++;
+            }
+            return count;
+        }
+
+        void autoSizeAllColumns() {
+            Row hdr = sheet.getRow(0);
+            if (hdr == null) return;
+            int last = hdr.getLastCellNum();
+            for (int c = 0; c < last; c++) {
+                try { sheet.autoSizeColumn(c); } catch (Exception ignored) {}
+            }
+        }
+    }
 
         void writeHeader(ResultSetMetaData md) throws SQLException {
             Row hdr = sheet.createRow(nextRow++);
