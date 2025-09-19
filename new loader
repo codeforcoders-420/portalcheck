@@ -1,96 +1,124 @@
-/* If the element has the hidden attribute, never render it */
-.loading-overlay[hidden] { display: none !important; }
+<button class="individualtools-button" id="openPeerBtn" type="button">Open</button>
 
+***************************
 
-***********************************************
+<!-- Peer Review Launch Modal -->
+<div class="pr-overlay" id="prOverlay" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="prModalTitle">
+  <div class="pr-modal" role="document">
+    <header class="pr-modal-header">
+      <h3 id="prModalTitle">Launch Validation</h3>
+      <button class="pr-close" id="prCloseBtn" aria-label="Close">×</button>
+    </header>
 
-<!-- keep hidden at rest -->
-<div id="loading-overlay" class="loading-overlay" hidden aria-hidden="true">
-  <div class="newloader">
-    <div class="loaderBox1"></div>
-    <div class="loaderBox2"></div>
+    <form id="prLaunchForm">
+      <div class="pr-field">
+        <label for="prEnv">Select Environment</label>
+        <select id="prEnv" name="environment" required>
+          <option value="" selected disabled>Choose…</option>
+          <option value="SIT">SIT</option>
+          <option value="UAT">UAT</option>
+          <option value="PROD">PROD</option>
+        </select>
+      </div>
+
+      <div class="pr-row">
+        <button type="button" class="pr-btn pr-secondary" id="prCancelBtn">Cancel</button>
+        <button type="submit" class="pr-btn" id="prRunBtn" disabled>Run Validation</button>
+      </div>
+    </form>
   </div>
-  <div class="loading-caption">Running validation…</div>
 </div>
 
+<div class="pr-toast" id="prToast">Validation started…</div>
 
-********************************************
+<script>
+  // Grab elements
+  const prOpenBtn  = document.getElementById('openPeerBtn');
+  const prOverlay  = document.getElementById('prOverlay');
+  const prCloseBtn = document.getElementById('prCloseBtn');
+  const prCancel   = document.getElementById('prCancelBtn');
+  const prEnv      = document.getElementById('prEnv');
+  const prRunBtn   = document.getElementById('prRunBtn');
+  const prForm     = document.getElementById('prLaunchForm');
+  const prToast    = document.getElementById('prToast');
 
-document.addEventListener('DOMContentLoaded', () => {
-  const runBtn  = document.getElementById('runValidationBtn');
-  const overlay = document.getElementById('loading-overlay');
-  const form    = document.querySelector('#yourModalFormId'); // optional
+  // IMPORTANT: toggle aria-hidden (don’t use style.display)
+  function prOpen()  { prOverlay.setAttribute('aria-hidden','false'); setTimeout(()=>prEnv.focus(),0); document.addEventListener('keydown', prEsc); }
+  function prClose() { prOverlay.setAttribute('aria-hidden','true');  document.removeEventListener('keydown', prEsc); }
+  function prEsc(e){ if(e.key === 'Escape') prClose(); }
 
-  async function runValidation() {
-    if (runBtn.disabled) return;
-    runBtn.disabled = true;
-    runBtn.dataset.prevText = runBtn.textContent;
-    runBtn.textContent = 'Running…';
-    runBtn.setAttribute('aria-busy', 'true');
+  prOpenBtn?.addEventListener('click', prOpen);
+  prCloseBtn.addEventListener('click', prClose);
+  prCancel.addEventListener('click', prClose);
+  prOverlay.addEventListener('click', (e)=>{ if(e.target === prOverlay) prClose(); });
 
-    overlay.hidden = false;                 // SHOW
-    document.body.classList.add('is-loading');
+  prEnv.addEventListener('change', ()=>{ prRunBtn.disabled = !prEnv.value; });
 
+  prForm.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    prRunBtn.disabled = true;
+    const payload = { environment: prEnv.value };
     try {
-      const res = await fetch('/runValidation', { method:'POST'/*...*/ });
-      if (!res.ok) throw new Error('Validation failed');
-      // success handling...
-    } catch (e) {
-      console.error(e);
-      // error toast...
+      await fetch('/peer-review/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      prToast.textContent = 'Validation started for ' + payload.environment;
+    } catch (err) {
+      prToast.textContent = 'Failed to start: ' + err.message;
     } finally {
-      overlay.hidden = true;                // HIDE
-      document.body.classList.remove('is-loading');
-      runBtn.disabled = false;
-      runBtn.removeAttribute('aria-busy');
-      runBtn.textContent = runBtn.dataset.prevText || 'Run Validation';
+      prToast.style.display = 'block';
+      setTimeout(()=> prToast.style.display = 'none', 2200);
+      prClose();
+      prRunBtn.disabled = false;
     }
-  }
+  });
+</script>
 
-  runBtn?.addEventListener('click', runValidation);
-  form?.addEventListener('submit', (e) => { e.preventDefault(); runValidation(); });
-});
+****************************************************************
 
-*************************************
+/* Overlay */
+.pr-overlay {
+  position: fixed; inset: 0; background: rgba(15,23,42,.45);
+  display: none; align-items: center; justify-content: center;
+  z-index: 2000; padding: 24px;
+}
+.pr-overlay[aria-hidden="false"] { display: flex; }
 
-/* 🔑 Ensure overlay truly disappears when hidden */
-.loading-overlay[hidden] {
-  display: none !important;
+/* Modal card */
+.pr-modal {
+  width: 100%; max-width: 520px; background: #fff; border-radius: 18px;
+  box-shadow: 0 10px 30px rgba(2,6,23,.15);
+  padding: 24px 24px 20px; position: relative;
+}
+.pr-modal-header { display:flex; align-items:center; justify-content:space-between; margin-bottom: 12px; }
+.pr-close { background: none; border: 0; font-size: 22px; cursor: pointer; color: #6b7280; }
+
+/* Fields */
+.pr-field { display: grid; gap: 8px; margin: 14px 0 6px; }
+.pr-field label { font-weight: 600; }
+.pr-field select {
+  width: 100%; padding: 12px 14px; font-size: 16px; border-radius: 12px;
+  border: 1px solid #e5e7eb; background: #f9fafb;
 }
 
-
-**************************************
-
-.loading-overlay {
-  position: fixed;
-  inset: 0;
-  display: flex;                 /* only active when NOT hidden */
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  gap: 12px;
-  background: rgba(0,0,0,0.25);
-  z-index: 5000;
+/* Buttons */
+.pr-row { display: flex; gap: 12px; justify-content: flex-end; margin-top: 18px; }
+.pr-btn {
+  display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  padding:12px 18px; border-radius:12px; border:0; cursor:pointer;
+  background:#2563eb; color:#fff; font-weight:700; letter-spacing:.3px;
+  box-shadow:0 6px 16px rgba(37,99,235,.35); transition: transform .04s, background .2s;
 }
+.pr-btn:hover{ background:#1d4ed8; }
+.pr-btn:active{ transform: translateY(1px); }
+.pr-secondary{ background:#e5e7eb; color:#111827; box-shadow:none; }
+.pr-secondary:hover{ background:#d1d5db; }
 
-.newloader {
-  width: 56px;
-  height: 56px;
-  position: relative;
-}
-
-.newloader > div {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  border: 3px solid currentColor;
-  border-radius: 8px;
-  animation: rotate 1.1s linear infinite;
-}
-
-.loaderBox2 { animation-direction: reverse; }
-
-@keyframes rotate {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
+/* Toast */
+.pr-toast {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+  background: #10b981; color: white; padding: 10px 14px; border-radius: 999px;
+  display: none; box-shadow: 0 10px 30px rgba(2,6,23,.15); z-index: 2100;
 }
