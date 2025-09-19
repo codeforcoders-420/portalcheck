@@ -1,124 +1,54 @@
-<button class="individualtools-button" id="openPeerBtn" type="button">Open</button>
-
-***************************
-
-<!-- Peer Review Launch Modal -->
-<div class="pr-overlay" id="prOverlay" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="prModalTitle">
-  <div class="pr-modal" role="document">
-    <header class="pr-modal-header">
-      <h3 id="prModalTitle">Launch Validation</h3>
-      <button class="pr-close" id="prCloseBtn" aria-label="Close">×</button>
-    </header>
-
-    <form id="prLaunchForm">
-      <div class="pr-field">
-        <label for="prEnv">Select Environment</label>
-        <select id="prEnv" name="environment" required>
-          <option value="" selected disabled>Choose…</option>
-          <option value="SIT">SIT</option>
-          <option value="UAT">UAT</option>
-          <option value="PROD">PROD</option>
-        </select>
-      </div>
-
-      <div class="pr-row">
-        <button type="button" class="pr-btn pr-secondary" id="prCancelBtn">Cancel</button>
-        <button type="submit" class="pr-btn" id="prRunBtn" disabled>Run Validation</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<div class="pr-toast" id="prToast">Validation started…</div>
-
 <script>
-  // Grab elements
-  const prOpenBtn  = document.getElementById('openPeerBtn');
-  const prOverlay  = document.getElementById('prOverlay');
-  const prCloseBtn = document.getElementById('prCloseBtn');
-  const prCancel   = document.getElementById('prCancelBtn');
-  const prEnv      = document.getElementById('prEnv');
-  const prRunBtn   = document.getElementById('prRunBtn');
-  const prForm     = document.getElementById('prLaunchForm');
-  const prToast    = document.getElementById('prToast');
+  // …your existing const prOpenBtn, prCloseBtn, prRun, prEnv, prModal, etc. remain as-is…
 
-  // IMPORTANT: toggle aria-hidden (don’t use style.display)
-  function prOpen()  { prOverlay.setAttribute('aria-hidden','false'); setTimeout(()=>prEnv.focus(),0); document.addEventListener('keydown', prEsc); }
-  function prClose() { prOverlay.setAttribute('aria-hidden','true');  document.removeEventListener('keydown', prEsc); }
-  function prEsc(e){ if(e.key === 'Escape') prClose(); }
-
-  prOpenBtn?.addEventListener('click', prOpen);
-  prCloseBtn.addEventListener('click', prClose);
-  prCancel.addEventListener('click', prClose);
-  prOverlay.addEventListener('click', (e)=>{ if(e.target === prOverlay) prClose(); });
-
-  prEnv.addEventListener('change', ()=>{ prRunBtn.disabled = !prEnv.value; });
-
-  prForm.addEventListener('submit', async (e)=>{
+  // --- ADD/REPLACE THIS HANDLER ---
+  prRun.addEventListener('click', async (e) => {
     e.preventDefault();
-    prRunBtn.disabled = true;
-    const payload = { environment: prEnv.value };
+
+    // Prevent double clicks
+    if (prRun.disabled) return;
+
+    // Swap label to "Report running" and lock the button
+    const previousText = prRun.textContent;
+    prRun.textContent = 'Report running';
+    prRun.disabled = true;
+    prRun.setAttribute('aria-busy', 'true');
+
     try {
-      await fetch('/peer-review/run', {
+      // ⬇️ Call your existing execute function OR backend endpoint
+      // If you already have a function (e.g., prExecute), call that:
+      // await prExecute(prEnv.value);
+
+      // If you post to your Spring Boot endpoint, use:
+      const res = await fetch('/runValidation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ env: prEnv?.value })
       });
-      prToast.textContent = 'Validation started for ' + payload.environment;
+      if (!res.ok) throw new Error('Validation failed');
+
+      // Optional: handle response if needed
+      // const data = await res.json();
+      // showToast('Validation complete'); // if you have a toast
     } catch (err) {
-      prToast.textContent = 'Failed to start: ' + err.message;
+      console.error(err);
+      // Optional: show an error message in your UI
+      // showError('Validation failed. Please try again.');
     } finally {
-      prToast.style.display = 'block';
-      setTimeout(()=> prToast.style.display = 'none', 2200);
-      prClose();
-      prRunBtn.disabled = false;
+      // Always restore the button text/state
+      prRun.textContent = previousText || 'Run Validation';
+      prRun.disabled = false;
+      prRun.removeAttribute('aria-busy');
     }
   });
+
+  // (Keep the rest of your script the same)
 </script>
 
-****************************************************************
 
-/* Overlay */
-.pr-overlay {
-  position: fixed; inset: 0; background: rgba(15,23,42,.45);
-  display: none; align-items: center; justify-content: center;
-  z-index: 2000; padding: 24px;
-}
-.pr-overlay[aria-hidden="false"] { display: flex; }
+**************************
 
-/* Modal card */
-.pr-modal {
-  width: 100%; max-width: 520px; background: #fff; border-radius: 18px;
-  box-shadow: 0 10px 30px rgba(2,6,23,.15);
-  padding: 24px 24px 20px; position: relative;
-}
-.pr-modal-header { display:flex; align-items:center; justify-content:space-between; margin-bottom: 12px; }
-.pr-close { background: none; border: 0; font-size: 22px; cursor: pointer; color: #6b7280; }
-
-/* Fields */
-.pr-field { display: grid; gap: 8px; margin: 14px 0 6px; }
-.pr-field label { font-weight: 600; }
-.pr-field select {
-  width: 100%; padding: 12px 14px; font-size: 16px; border-radius: 12px;
-  border: 1px solid #e5e7eb; background: #f9fafb;
-}
-
-/* Buttons */
-.pr-row { display: flex; gap: 12px; justify-content: flex-end; margin-top: 18px; }
-.pr-btn {
-  display:inline-flex; align-items:center; justify-content:center; gap:8px;
-  padding:12px 18px; border-radius:12px; border:0; cursor:pointer;
-  background:#2563eb; color:#fff; font-weight:700; letter-spacing:.3px;
-  box-shadow:0 6px 16px rgba(37,99,235,.35); transition: transform .04s, background .2s;
-}
-.pr-btn:hover{ background:#1d4ed8; }
-.pr-btn:active{ transform: translateY(1px); }
-.pr-secondary{ background:#e5e7eb; color:#111827; box-shadow:none; }
-.pr-secondary:hover{ background:#d1d5db; }
-
-/* Toast */
-.pr-toast {
-  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
-  background: #10b981; color: white; padding: 10px 14px; border-radius: 999px;
-  display: none; box-shadow: 0 10px 30px rgba(2,6,23,.15); z-index: 2100;
+#prRun[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
