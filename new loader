@@ -1,0 +1,111 @@
+<!-- Select + Run row ... -->
+<button id="runValidationBtn" type="button" class="btn-primary">Run Validation</button>
+
+<!-- Full-screen loading overlay -->
+<div id="loading-overlay" class="loading-overlay" hidden aria-hidden="true">
+  <div class="newloader" role="progressbar" aria-label="Running validation">
+    <div class="loaderBox1"></div>
+    <div class="loaderBox2"></div>
+  </div>
+  <div class="loading-caption">Running validation…</div>
+</div>
+
+
+****************************
+
+/* Overlay that pins to the viewport and centers content */
+.loading-overlay {
+  position: fixed;           /* <-- not relative */
+  inset: 0;                  /* top:0 right:0 bottom:0 left:0 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  background: rgba(0,0,0,0.25);  /* subtle dim */
+  z-index: 5000;                 /* above modal */
+}
+
+/* Your animated square loader */
+.newloader {
+  width: 56px;
+  height: 56px;
+  position: relative;
+}
+
+.newloader > div {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border: 3px solid currentColor;
+  border-radius: 8px;
+  animation: rotate 1.1s linear infinite;
+}
+
+.loaderBox2 { animation-direction: reverse; }
+
+@keyframes rotate {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Optional: prevent background scroll while loading */
+body.is-loading { overflow: hidden; }
+
+/* Disabled button look (if you don’t already have one) */
+button[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+********************************************
+
+<script>
+  const runBtn  = document.getElementById('runValidationBtn');
+  const overlay = document.getElementById('loading-overlay');
+  const envSel  = document.getElementById('envSelect'); // your select element id
+
+  async function runValidation() {
+    if (runBtn.disabled) return;            // guard double clicks
+    runBtn.disabled = true;
+    runBtn.dataset.prevText = runBtn.textContent;
+    runBtn.textContent = 'Running…';
+    runBtn.setAttribute('aria-busy', 'true');
+
+    overlay.hidden = false;                 // show loader
+    document.body.classList.add('is-loading');
+
+    try {
+      // TODO: replace with your real call
+      const payload = { env: envSel?.value };
+      const res = await fetch('/runValidation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      // Handle non-200s explicitly if needed
+      if (!res.ok) throw new Error('Validation failed');
+
+      // ... success handling here ...
+    } catch (err) {
+      console.error(err);
+      // ... show toast/message if you like ...
+    } finally {
+      // Always restore UI
+      overlay.hidden = true;
+      document.body.classList.remove('is-loading');
+      runBtn.disabled = false;
+      runBtn.removeAttribute('aria-busy');
+      runBtn.textContent = runBtn.dataset.prevText || 'Run Validation';
+    }
+  }
+
+  runBtn.addEventListener('click', runValidation);
+
+  // If this is in a <form>, prevent Enter key from submitting twice:
+  document.querySelector('#yourModalFormId')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    runValidation();
+  });
+</script>
