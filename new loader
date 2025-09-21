@@ -1,116 +1,135 @@
-<script>
-  // …your existing const prOpenBtn, prCloseBtn, prRun, prEnv, prModal, etc. remain as-is…
-
-  // --- ADD/REPLACE THIS HANDLER ---
-  prRun.addEventListener('click', async (e) => {
-    e.preventDefault();
-
-    // Prevent double clicks
-    if (prRun.disabled) return;
-
-    // Swap label to "Report running" and lock the button
-    const previousText = prRun.textContent;
-    prRun.textContent = 'Report running';
-    prRun.disabled = true;
-    prRun.setAttribute('aria-busy', 'true');
-
-    try {
-      // ⬇️ Call your existing execute function OR backend endpoint
-      // If you already have a function (e.g., prExecute), call that:
-      // await prExecute(prEnv.value);
-
-      // If you post to your Spring Boot endpoint, use:
-      const res = await fetch('/runValidation', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ env: prEnv?.value })
-      });
-      if (!res.ok) throw new Error('Validation failed');
-
-      // Optional: handle response if needed
-      // const data = await res.json();
-      // showToast('Validation complete'); // if you have a toast
-    } catch (err) {
-      console.error(err);
-      // Optional: show an error message in your UI
-      // showError('Validation failed. Please try again.');
-    } finally {
-      // Always restore the button text/state
-      prRun.textContent = previousText || 'Run Validation';
-      prRun.disabled = false;
-      prRun.removeAttribute('aria-busy');
-    }
-  });
-
-  // (Keep the rest of your script the same)
-</script>
+<section id="prResults" class="pr-results" hidden>
+  <div class="pr-results__tablewrap">
+    <table class="pr-matrix">
+      <!-- Row 1 (left/right vertical headers use rowspan=5) -->
+      <tr>
+        <th class="vhead vhead--left" rowspan="5" scope="col">Validation</th>
+        <th class="label" scope="row">Overlapping Rows</th>
+        <td class="num"><span id="prCnt-overlap">0</span></td>
+        <th class="vhead vhead--right" rowspan="5" scope="col">Count</th>
+      </tr>
+      <tr>
+        <th class="label" scope="row">Check Allowed Amount and %</th>
+        <td class="num"><span id="prCnt-allowedPct">0</span></td>
+      </tr>
+      <tr>
+        <th class="label" scope="row">BR Incorrect (NS/MW Allow or PCT)</th>
+        <td class="num"><span id="prCnt-brIncorrect">0</span></td>
+      </tr>
+      <tr>
+        <th class="label" scope="row">Negative Allowed Amount</th>
+        <td class="num"><span id="prCnt-negativeAllowed">0</span></td>
+      </tr>
+      <tr>
+        <th class="label" scope="row">Length of Proc and Mod</th>
+        <td class="num"><span id="prCnt-lengthProcMod">0</span></td>
+      </tr>
+      <!-- Optional total row -->
+      <tr class="total">
+        <th class="label" scope="row">Total</th>
+        <td class="num" colspan="2"><span id="prCnt-total">0</span></td>
+      </tr>
+    </table>
+  </div>
+  <p class="pr-results__hint">These counts update after validation completes.</p>
+</section>
 
 
-**************************
+*************************************************
 
-#prRun[disabled] {
-  opacity: 0.6;
-  cursor: not-allowed;
+/* Container */
+.pr-results {
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid rgba(2,6,23,.08);
+  border-radius: 12px;
+  box-shadow: 0 6px 18px rgba(2,6,23,.06);
 }
 
-***************************************
+.pr-results__tablewrap { overflow: auto; }
 
-document.addEventListener('DOMContentLoaded', () => {
-  const prRun = document.getElementById('prRun');
-  const prEnv = document.getElementById('prEnv');
+/* Table look */
+.pr-matrix {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 14px;
+  color: #0b1220;
+}
 
-  if (!prRun) {
-    console.warn('Run button #prRun not found');
-    return;
-  }
+.pr-matrix th,
+.pr-matrix td {
+  border: 1px solid rgba(2,6,23,.12);
+  padding: 10px 12px;
+  background: #fff;
+}
 
-  prRun.addEventListener('click', (e) => {
-    // 1) kill form submit / bubbling that might reload the page
-    e.preventDefault();
-    e.stopPropagation();
+/* Validation name cells */
+.pr-matrix .label {
+  text-align: left;
+  font-weight: 600;
+  background: #f7f8fa;
+}
 
-    if (prRun.disabled) return; // guard double clicks
+/* Number cells */
+.pr-matrix .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 
-    const previousText = prRun.textContent;
-    prRun.textContent = 'Report running';
-    prRun.disabled = true;
-    prRun.setAttribute('aria-busy', 'true');
+/* Vertical headers (left/right black bars like Excel) */
+.pr-matrix .vhead {
+  width: 40px;                 /* narrow strip */
+  background: #2c2f36;         /* dark bar */
+  color: #fff;
+  text-align: center;
+  writing-mode: vertical-rl;   /* vertical text */
+  transform: rotate(180deg);   /* make it read top-to-bottom */
+  letter-spacing: .5px;
+  font-weight: 700;
+  border-color: #2c2f36;
+}
 
-    // 2) If your work is synchronous (CPU-heavy) the UI won't repaint.
-    //    Use requestAnimationFrame to force a paint before starting work.
-    requestAnimationFrame(async () => {
-      try {
-        // --- start your actual run here ---
-        // If you call backend:
-        /*
-        const res = await fetch('/runValidation', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ env: prEnv?.value })
-        });
-        if (!res.ok) throw new Error('Validation failed');
-        */
+.vhead--left  { border-top-left-radius: 8px;  border-bottom-left-radius: 8px; }
+.vhead--right { border-top-right-radius: 8px; border-bottom-right-radius: 8px; }
 
-        // If you currently call a synchronous function like processExport(),
-        // wrap it so the label shows first:
-        // await new Promise((resolve) => setTimeout(() => { processExport(); resolve(); }, 0));
+/* Total row */
+.pr-matrix .total .label {
+  background: #eef2f7;
+  font-weight: 700;
+}
+.pr-matrix .total .num {
+  background: #eef2f7;
+  font-weight: 700;
+}
 
-        // demo delay:
-        await new Promise(r => setTimeout(r, 2000));
-        // --- end work ---
-      } catch (err) {
-        console.error(err);
-        // show toast/error UI if needed
-      } finally {
-        // 3) Always restore UI
-        prRun.textContent = previousText || 'Run Validation';
-        prRun.disabled = false;
-        prRun.removeAttribute('aria-busy');
-      }
-    });
-  });
+.pr-results__hint {
+  margin: 8px 2px 0;
+  font-size: 12px;
+  color: #67707c;
+}
 
-  // If the button lives inside a <form>, also block default submit there:
-  prRun.closest('form')?.addEventListener('submit', (ev) => ev.preventDefault());
-});
+
+*****************************************************************
+
+<span id="prCnt-overlap">${overlapCount}</span>
+<span id="prCnt-allowedPct">${allowedPctCount}</span>
+<span id="prCnt-brIncorrect">${brIncorrectCount}</span>
+<span id="prCnt-negativeAllowed">${negativeAllowedCount}</span>
+<span id="prCnt-lengthProcMod">${lengthProcModCount}</span>
+<span id="prCnt-total">${totalCount}</span>
+
+****************************************************************
+document.getElementById('prResults').hidden = false;
+document.getElementById('prCnt-overlap').textContent        = overlapCount;
+document.getElementById('prCnt-allowedPct').textContent     = allowedPctCount;
+document.getElementById('prCnt-brIncorrect').textContent    = brIncorrectCount;
+document.getElementById('prCnt-negativeAllowed').textContent= negativeAllowedCount;
+document.getElementById('prCnt-lengthProcMod').textContent  = lengthProcModCount;
+document.getElementById('prCnt-total').textContent =
+  overlapCount + allowedPctCount + brIncorrectCount + negativeAllowedCount + lengthProcModCount;
+
+
+******************************************************************
 
