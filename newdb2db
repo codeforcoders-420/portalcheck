@@ -411,3 +411,19 @@ private Path makeOutputPath(String nameHint, String src, String dest, String out
 }
 
 
+***********************************
+
+// When you have a specific oldRate (Rate change case)
+private static void offer(Map<Pk, DiffRecord> agg, Pk pk, DiffType t, Row row, String destEnv, String oldRate) {
+    DiffRecord cur = agg.get(pk);
+    if (cur == null || t.pr > cur.type.pr) {
+        agg.put(pk, new DiffRecord(pk, t, row, destEnv, oldRate));
+    }
+}
+
+// Convenience for non-Rate-change cases (Old Rate = "N/A")
+private static void offer(Map<Pk, DiffRecord> agg, Pk pk, DiffType t, Row row, String destEnv) {
+    offer(agg, pk, t, row, destEnv, "N/A");
+}
+
+
