@@ -427,3 +427,24 @@ private static void offer(Map<Pk, DiffRecord> agg, Pk pk, DiffType t, Row row, S
 }
 
 
+********************************
+
+else if (reimbEq && allowEq && pctEq && effEq && !termEq) {
+    boolean srcOpen  = isOpenEnd(s.get("NSVM_TERM_DT"));
+    boolean destOpen = isOpenEnd(d.get("NSVM_TERM_DT"));
+
+    if (!srcOpen && destOpen) {
+        // DEST still open-ended but SRC ended earlier → this is a Termination
+        // IMPORTANT: For Terminate, output should use DEST row per your mapping.
+        offer(agg, pk, DiffType.TERMINATE, d, dest.name);
+    } else if (srcOpen && !destOpen) {
+        // SRC is open-ended and DEST closed earlier → keep as "Open End date differ"
+        offer(agg, pk, DiffType.OPEN_END_DIFFER, s, dest.name);
+    } else {
+        // Different terms but neither is open-ended (or both are) — treat as Eff/Term mismatch;
+        // if you want a separate label you can add it; for now we keep it as Open End differ fallback.
+        offer(agg, pk, DiffType.OPEN_END_DIFFER, s, dest.name);
+    }
+}
+
+
