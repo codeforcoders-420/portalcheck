@@ -502,4 +502,43 @@ for (Period ps : new ArrayList<>(sPeriods.keySet())) {
     }
 }
 
+*******************************
+
+// ---------- DEST covering-row selector (paste inside FeeScheduleDiffService) ----------
+
+/**
+ * Prefer the DEST period that actually covers the SRC period’s start date
+ * (dest.eff <= src.eff <= dest.term). If none covers, fall back to an
+ * overlapping DEST period that ends the latest (closest applicable).
+ */
+private Row findCoveringDestRow(Map<Period, Row> dPeriods, Period srcPeriod) {
+    if (dPeriods == null || dPeriods.isEmpty()) return null;
+
+    // 1) Exact covering period: dest.eff <= src.eff <= dest.term
+    Row covering = dPeriods.entrySet().stream()
+            .filter(e -> covers(e.getKey(), srcPeriod.eff))
+            .map(Map.Entry::getValue)
+            .findFirst()
+            .orElse(null);
+    if (covering != null) return covering;
+
+    // 2) Fallback: any overlapping period; pick the one with the latest term
+    return dPeriods.entrySet().stream()
+            .filter(e -> overlaps(srcPeriod, e.getKey()))
+            .max(Comparator.comparing(e -> normTerm(e.getKey())))   // latest term wins
+            .map(Map.Entry::getValue)
+            .orElse(null);
+}
+
+/** True if period p covers the given yyyy-MM-dd date (p.eff <= date <= p.term). */
+private static boolean covers(Period p, String effDateYmd) {
+    String max = "9999-12-31";
+    String term = (p.term == null || p.term.isBlank()) ? max : p.term;
+    return p.eff.compareTo(effDateYmd) <= 0 && effDateYmd.compareTo(term) <= 0;
+}
+
+/** Normalize term for comparisons; empty/null treated as open end (9999-12-31). */
+private static String normTerm(Period p) {
+    return (p.term == null || p.term.isBlank()) ? "9999-12-31" : p.term;
+}
 
