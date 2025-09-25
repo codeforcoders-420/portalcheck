@@ -447,4 +447,59 @@ else if (reimbEq && allowEq && pctEq && effEq && !termEq) {
     }
 }
 
+*****************************
+private static boolean isOpenEnd(Object termVal){
+    String s = normDate(termVal);
+    return "9999-12-31".equals(s) || "12/31/9999".equals(s);
+}
+
+****************************************
+
+// 3) SRC-only periods (by Eff/Term key)
+for (Period ps : new ArrayList<>(sPeriods.keySet())) {
+    Row s = sPeriods.get(ps);
+
+    // Pick the correct DEST row to compare (covering if possible; otherwise best overlap)
+    Row destForCompare = findCoveringDestRow(dPeriods, ps);
+
+    if (destForCompare == null) {
+        // No overlap at all -> New Code
+        offer(agg, pk, DiffType.NEW_CODE, s, dest.name);
+        continue;
+    }
+
+    boolean reimbEq = eq(s,"NSVM_REIMB_MTH", destForCompare,"NSVM_REIMB_MTH");
+    boolean allowEq = eq(s,"NSVM_ALLOW",    destForCompare,"NSVM_ALLOW");
+    boolean pctEq   = eq(s,"NSVM_PCT",      destForCompare,"NSVM_PCT");
+
+    if (!reimbEq || !allowEq || !pctEq) {
+        // RATE CHANGE -> OldRate must be from DEST
+        String oldRate = str(destForCompare.get("NSVM_ALLOW"));
+        offer(agg, pk, DiffType.RATE_CHANGE, s, dest.name, oldRate);
+        continue;
+    }
+
+    // At this point, rate attributes match.
+    boolean srcOpen  = isOpenEnd(s.get("NSVM_TERM_DT"));
+    boolean destOpen = isOpenEnd(destForCompare.get("NSVM_TERM_DT"));
+    boolean effEq    = eq(s,"NSVM_EFF_DT", destForCompare,"NSVM_EFF_DT");
+    boolean termEq   = eq(s,"NSVM_TERM_DT", destForCompare,"NSVM_TERM_DT");
+
+    if (termEq && !effEq) {
+        // same term, eff differs
+        offer(agg, pk, DiffType.EFF_DATE_DIFFER, s, dest.name);
+    } else if (!srcOpen && destOpen) {
+        // ✅ DEST still open-ended, SRC closes earlier -> this is Terminate (output DEST row)
+        offer(agg, pk, DiffType.TERMINATE, destForCompare, dest.name);
+    } else if (srcOpen && !destOpen) {
+        // SRC is open but DEST closed -> Open End date differ
+        offer(agg, pk, DiffType.OPEN_END_DIFFER, s, dest.name);
+    } else {
+        // Fallbacks for other boundary-only changes
+        if (!effEq)       offer(agg, pk, DiffType.EFF_DATE_DIFFER, s, dest.name);
+        else if (!termEq) offer(agg, pk, DiffType.OPEN_END_DIFFER, s, dest.name);
+        // else nothing (shouldn’t happen because exact matches were removed)
+    }
+}
+
 
