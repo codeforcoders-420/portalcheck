@@ -350,3 +350,41 @@ public class FeeScheduleDiffService {
         return hk;
     }
 }
+
+
+*****************************************
+
+package com.example.db2db;
+
+import javax.sql.DataSource;
+import java.nio.file.Path;
+import java.util.List;
+
+public class FeeScheduleDiffTest {
+
+    public static void main(String[] args) throws Exception {
+        // --- adjust host, DB, table/view here ---
+        String srcHost   = "SIT-SQL01";     // Source server hostname
+        String srcDb     = "HRDB";          // Source DB name
+        String destHost  = "PRD-SQL01";     // Destination server hostname
+        String destDb    = "HRDB";          // Destination DB name
+
+        String tableOrView = "dbo.NSVM_FEE_SCHEDULE_VIEW"; // your query/view/table name
+        String whereSql    = "";                           // or "WHERE NSVM_TABLE = ?"
+        List<Object> whereParams = List.of();              // e.g. List.of("CMSASPRICING")
+
+        // --- Build DataSources ---
+        DataSource srcDs  = FeeScheduleDiffService.sqlServerDsIntegrated(srcHost, srcDb);
+        DataSource destDs = FeeScheduleDiffService.sqlServerDsIntegrated(destHost, destDb);
+
+        FeeScheduleDiffService.Env srcEnv  = new FeeScheduleDiffService.Env("SIT", srcDs);
+        FeeScheduleDiffService.Env destEnv = new FeeScheduleDiffService.Env("PRD", destDs);
+
+        // --- Run comparison ---
+        FeeScheduleDiffService svc = new FeeScheduleDiffService();
+        Path report = svc.compareSrcVsDest(srcEnv, destEnv, tableOrView, whereSql, whereParams);
+
+        System.out.println("Differences report generated: " + report.toAbsolutePath());
+    }
+}
+
