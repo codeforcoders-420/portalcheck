@@ -388,3 +388,26 @@ public class FeeScheduleDiffTest {
     }
 }
 
+
+***********************************
+
+private Path makeOutputPath(String nameHint, String src, String dest, String outputFolder) throws Exception {
+    String ts = LocalDateTime.now().toString().replace(":", "-");
+
+    Path dir;
+    if (outputFolder != null && !outputFolder.isBlank()) {
+        dir = Paths.get(outputFolder);   // use provided folder
+    } else {
+        dir = Paths.get(System.getProperty("user.dir"), "reports"); // fallback
+    }
+
+    Files.createDirectories(dir);
+
+    // sanitize nameHint for filename safety
+    String base = (nameHint == null ? "FeeSchedule" :
+            nameHint.replaceAll("[^A-Za-z0-9_]+", "_"));
+
+    return dir.resolve("Differences_" + base + "_" + src + "_vs_" + dest + "_" + ts + ".xlsx");
+}
+
+
