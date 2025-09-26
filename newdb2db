@@ -1,3 +1,66 @@
+// --- after you've finished building 'agg' ---
+
+// decide filename BEFORE writing anything
+boolean anyDiffs = !agg.isEmpty();
+String nameHint = sqlQuery;                 // or table/view name if you changed signature
+String prefix   = anyDiffs ? "Differences_" : "Differences_NoDifferences_";
+Path out = makeOutputPathWithPrefix(nameHint, src.name, dest.name, outputFolder, prefix);
+
+// now create & write the workbook
+try (SXSSFWorkbook wb = new SXSSFWorkbook(500);
+     FileOutputStream fos = new FileOutputStream(out.toFile())) {
+
+    Sheet sh = wb.createSheet("Differences");
+    CellStyle header = wb.createCellStyle();
+    Font bold = wb.createFont(); bold.setBold(true); header.setFont(bold);
+
+    writeHeader(sh, header, List.of(
+            "Fee Schedule","Procedure code","MODIFIER","MODIFIER2","MODIFIER3","MODIFIER4",
+            "Eff Date","Term date","Reimb Method","Allowed","Old Rate","Percent","Differences","DestinationEnv"
+    ));
+
+    // write rows only if there are any (it's fine to leave just a header)
+    for (DiffRecord rec : agg.values()) {
+        writeDiff(sh, rec.rowForOutput, rec.type.label, rec.destEnv, rec.oldRate, rec.termOverride);
+    }
+
+    autosize(sh, 14);
+    wb.write(fos);
+}
+
+return out;
+
+
+********************************************
+
+private Path makeOutputPathWithPrefix(String nameHint, String src, String dest,
+                                      String outputFolder, String prefix) throws Exception {
+    String ts = LocalDateTime.now().toString().replace(":", "-");
+    Path dir = (outputFolder != null && !outputFolder.isBlank())
+            ? Paths.get(outputFolder)
+            : Paths.get(System.getProperty("user.dir"), "reports");
+    Files.createDirectories(dir);
+    String base = (nameHint == null ? "FeeSchedule" : nameHint.replaceAll("[^A-Za-z0-9_]+", "_"));
+    return dir.resolve(prefix + base + "_" + src + "_vs_" + dest + "_" + ts + ".xlsx");
+}
+
+
+*********************************************
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 boolean anyDiffs = false;
 
 // Write one row per PK by priority
