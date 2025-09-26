@@ -1,3 +1,80 @@
+package com.example.db2db;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.nio.file.Path;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
+
+@RestController
+@RequestMapping("/db2db")
+public class CompareController {
+
+    private final Map<String, FeeScheduleDiffService.Env> envRegistry;
+    private final FeeScheduleDiffService service = new FeeScheduleDiffService();
+
+    public CompareController(Map<String, FeeScheduleDiffService.Env> envRegistry) {
+        this.envRegistry = envRegistry;
+    }
+
+    // Simple DTO your UI can POST as application/json
+    public record CompareRequest(
+            String feeSchedule,         // dropdown value (e.g., "ABA FEE SCHED")
+            String sourceEnv,           // radio (e.g., "CFG")
+            List<String> destinationEnvs, // checkboxes (e.g., ["PRD","GLD"])
+            String outputFolder         // where to save xlsx (e.g., "C:/Users/Reports/FeeDiffs")
+    ) {}
+
+    public record CompareResponse(List<String> reports) {}
+
+    @PostMapping("/compare")
+    public ResponseEntity<CompareResponse> compare(@RequestBody CompareRequest req) {
+
+        // 1) Resolve SQL for the fee schedule value the user picked
+        //    Your view MUST expose the 11 columns with the same names.
+        String sql = """
+            SELECT NSVM_TABLE, NSVM_PROCEDURE_CD, NSVM_MODIFIER, NSVM_MODIFIER2, NSVM_MODIFIER3,
+                   NSVM_MODIFIER4, NSVM_EFF_DT, NSVM_TERM_DT, NSVM_REIMB_MTH, NSVM_ALLOW, NSVM_PCT
+            FROM dbo.NSVM_FEE_SCHEDULE_VIEW
+            WHERE NSVM_TABLE = ?
+        """;
+        List<Object> params = List.of(req.feeSchedule());
+
+        // 2) Look up source env
+        FeeScheduleDiffService.Env src = envRegistry.get(req.sourceEnv());
+        if (src == null) return ResponseEntity.badRequest().build();
+
+        // 3) Run a job per destination in parallel
+        List<CompletableFuture<Path>> futures = req.destinationEnvs().stream()
+                .map(envName -> {
+                    FeeScheduleDiffService.Env dest = envRegistry.get(envName);
+                    if (dest == null) throw new IllegalArgumentException("Unknown destination: " + envName);
+                    return CompletableFuture.supplyAsync(() -> {
+                        try {
+                            return service.compareSrcVsDest(src, dest, sql, params, req.outputFolder());
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
+                })
+                .toList();
+
+        // 4) Wait & collect
+        List<String> reports = futures.stream()
+                .map(CompletableFuture::join)
+                .map(p -> p.toAbsolutePath().toString())
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(new CompareResponse(reports));
+    }
+}
+
+
+
+
+****************************************************************
 // add field
 String termOverride;   // when non-null, use this for "Term date" cell
 
