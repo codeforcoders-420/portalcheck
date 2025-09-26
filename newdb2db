@@ -47,6 +47,16 @@ private Path makeOutputPathWithPrefix(String nameHint, String src, String dest,
 
 *********************************************
 
+try {
+    Files.move(out, noDiffFile, StandardCopyOption.REPLACE_EXISTING);
+} catch (Exception e) {
+    // fallback for SMB: copy then delete
+    Files.copy(out, noDiffFile, StandardCopyOption.REPLACE_EXISTING);
+    try { Files.delete(out); } catch (Exception ignored) {}
+}
+out = noDiffFile;
+
+******************************************
 
 
 
