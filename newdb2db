@@ -1,3 +1,45 @@
+boolean anyDiffs = false;
+
+// Write one row per PK by priority
+for (DiffRecord rec : agg.values()) {
+    writeDiff(sh, rec.rowForOutput, rec.type.label, rec.destEnv, rec.oldRate, rec.termOverride);
+    anyDiffs = true;
+}
+
+
+if (!anyDiffs) {
+    Path noDiffFile = out.getParent().resolve(out.getFileName().toString()
+            .replace("Differences_", "Differences_NoDifferences_"));
+    Files.move(out, noDiffFile, StandardCopyOption.REPLACE_EXISTING);
+    out = noDiffFile;
+}
+
+
+// ... after building agg map
+
+boolean anyDiffs = false;
+for (DiffRecord rec : agg.values()) {
+    writeDiff(sh, rec.rowForOutput, rec.type.label, rec.destEnv, rec.oldRate, rec.termOverride);
+    anyDiffs = true;
+}
+
+autosize(sh, 14);
+wb.write(fos);
+
+// After workbook is saved, rename if needed
+if (!anyDiffs) {
+    Path noDiffFile = out.getParent().resolve(out.getFileName().toString()
+            .replace("Differences_", "Differences_NoDifferences_"));
+    Files.move(out, noDiffFile, StandardCopyOption.REPLACE_EXISTING);
+    out = noDiffFile;
+}
+
+
+**************************************
+
+
+
+
 package com.example.db2db;
 
 import org.springframework.http.ResponseEntity;
