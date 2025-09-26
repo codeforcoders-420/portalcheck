@@ -1,0 +1,388 @@
+package com.example.db2db;
+
+import com.zaxxer.hikari.HikariDataSource;
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.streaming.SXSSFWorkbook;
+
+import javax.sql.DataSource;
+import java.io.FileOutputStream;
+import java.nio.file.*;
+import java.sql.*;
+import java.time.LocalDateTime;
+import java.util.*;
+import java.util.stream.Collectors;
+
+public class FeeScheduleDiffService {
+
+    // ---------- Columns (exact mapping you provided) ----------
+    private static final List<String> ALL_COLS = List.of(
+            "NSVM_Table",
+            "NSVM_PROCEDURE_CD",
+            "NSVM_MODIFIER",
+            "NSVM_MODIFIER2",
+            "NSVM_MODIFIER3",
+            "NSVM_MODIFIER4",
+            "NSVM_EFF_DT",
+            "NSVM_TERM_DT",
+            "NSVM_REIMB_MTH",
+            "NSVM_ALLOW",
+            "NSVM_PCT"
+    );
+
+    // Composite PK
+    private static final List<String> PK_COLS = List.of(
+            "NSVM_PROCEDURE_CD",
+            "NSVM_MODIFIER",
+            "NSVM_MODIFIER2",
+            "NSVM_MODIFIER3",
+            "NSVM_MODIFIER4"
+    );
+
+    // ---------- Public API ----------
+    /**
+     * Compare Source vs Destination using a full SQL query string (must select the 11 columns above),
+     * write the workbook under outputFolder, and return the path.
+     */
+    public Path compareSrcVsDest(
+            Env src,
+            Env dest,
+            String sqlQuery,               // full SELECT ... (returns the 11 cols with same names)
+            List<Object> params,           // optional parameters for the SQL
+            String outputFolder            // folder where to save the XLSX
+    ) throws Exception {
+
+        Map<Pk, Map<Period, Row>> srcMap = readRowsByPeriod(src.ds, sqlQuery, params);
+        Map<Pk, Map<Period, Row>> dstMap = readRowsByPeriod(dest.ds, sqlQuery, params);
+
+        // Build diffs (pick highest priority per PK)
+        Map<Pk, DiffRecord> agg = new HashMap<>();
+        Set<Pk> allPks = new HashSet<>(srcMap.keySet()); allPks.addAll(dstMap.keySet());
+
+        for (Pk pk : allPks) {
+            Map<Period, Row> sPeriods = new HashMap<>(srcMap.getOrDefault(pk, Map.of()));
+            Map<Period, Row> dPeriods = new HashMap<>(dstMap.getOrDefault(pk, Map.of()));
+
+            // Remove exact equals for identical periods (all 11 columns equal)
+            for (Period p : intersection(sPeriods.keySet(), dPeriods.keySet())) {
+                Row s = sPeriods.get(p), d = dPeriods.get(p);
+                if (s.fingerprint.equals(d.fingerprint)) {
+                    sPeriods.remove(p);
+                    dPeriods.remove(p);
+                }
+            }
+
+            // Same (Eff,Term) on both sides but not identical → classify
+            for (Period p : intersection(sPeriods.keySet(), dPeriods.keySet())) {
+                Row s = sPeriods.get(p), d = dPeriods.get(p);
+                boolean reimbEq = eq(s,"NSVM_REIMB_MTH", d,"NSVM_REIMB_MTH");
+                boolean allowEq = eq(s,"NSVM_ALLOW",    d,"NSVM_ALLOW");
+                boolean pctEq   = eq(s,"NSVM_PCT",      d,"NSVM_PCT");
+                boolean effEq   = eq(s,"NSVM_EFF_DT",   d,"NSVM_EFF_DT");
+                boolean termEq  = eq(s,"NSVM_TERM_DT",  d,"NSVM_TERM_DT");
+
+                if (reimbEq && allowEq && pctEq && termEq && !effEq) {
+                    offer(agg, pk, DiffType.EFF_DATE_DIFFER, s, dest.name);
+                } else if (reimbEq && allowEq && pctEq && effEq && !termEq) {
+                    boolean srcOpen  = isOpenEnd(s.get("NSVM_TERM_DT"));
+                    boolean destOpen = isOpenEnd(d.get("NSVM_TERM_DT"));
+                    if (!srcOpen && destOpen) {
+                        // DEST open, SRC closed earlier → Terminate (print DEST row but use SRC term)
+                        String srcTerm = str(s.get("NSVM_TERM_DT"));
+                        offer(agg, pk, DiffType.TERMINATE, d, dest.name, "N/A", srcTerm);
+                    } else if (srcOpen && !destOpen) {
+                        offer(agg, pk, DiffType.OPEN_END_DIFFER, s, dest.name);
+                    } else {
+                        offer(agg, pk, DiffType.OPEN_END_DIFFER, s, dest.name);
+                    }
+                } else if (!reimbEq || !allowEq || !pctEq) {
+                    String oldRate = str(d.get("NSVM_ALLOW")); // DEST rate
+                    offer(agg, pk, DiffType.RATE_CHANGE, s, dest.name, oldRate);
+                }
+            }
+
+            // SRC-only periods → compare to covering DEST (or latest-overlap)
+            for (Period ps : new ArrayList<>(sPeriods.keySet())) {
+                Row s = sPeriods.get(ps);
+                Row destForCompare = findCoveringDestRow(dPeriods, ps);
+                if (destForCompare == null) {
+                    offer(agg, pk, DiffType.NEW_CODE, s, dest.name);
+                    continue;
+                }
+
+                boolean reimbEq = eq(s,"NSVM_REIMB_MTH", destForCompare,"NSVM_REIMB_MTH");
+                boolean allowEq = eq(s,"NSVM_ALLOW",    destForCompare,"NSVM_ALLOW");
+                boolean pctEq   = eq(s,"NSVM_PCT",      destForCompare,"NSVM_PCT");
+
+                if (!reimbEq || !allowEq || !pctEq) {
+                    String oldRate = str(destForCompare.get("NSVM_ALLOW"));
+                    offer(agg, pk, DiffType.RATE_CHANGE, s, dest.name, oldRate);
+                } else {
+                    boolean srcOpen  = isOpenEnd(s.get("NSVM_TERM_DT"));
+                    boolean destOpen = isOpenEnd(destForCompare.get("NSVM_TERM_DT"));
+                    boolean effEq    = eq(s,"NSVM_EFF_DT",  destForCompare,"NSVM_EFF_DT");
+                    boolean termEq   = eq(s,"NSVM_TERM_DT", destForCompare,"NSVM_TERM_DT");
+
+                    if (!srcOpen && destOpen) {
+                        String srcTerm = str(s.get("NSVM_TERM_DT"));
+                        offer(agg, pk, DiffType.TERMINATE, destForCompare, dest.name, "N/A", srcTerm);
+                    } else if (srcOpen && !destOpen) {
+                        offer(agg, pk, DiffType.OPEN_END_DIFFER, s, dest.name);
+                    } else {
+                        if (!effEq)       offer(agg, pk, DiffType.EFF_DATE_DIFFER, s, dest.name);
+                        else if (!termEq) offer(agg, pk, DiffType.OPEN_END_DIFFER, s, dest.name);
+                    }
+                }
+            }
+
+            // DEST-only periods with no overlap → Terminate
+            for (Period pd : dPeriods.keySet()) {
+                boolean hasOverlap = sPeriods.keySet().stream().anyMatch(sp -> overlaps(sp, pd));
+                if (!hasOverlap) {
+                    offer(agg, pk, DiffType.TERMINATE, dPeriods.get(pd), dest.name);
+                }
+            }
+        }
+
+        // Decide filename BEFORE writing anything (avoid rename on shares)
+        boolean anyDiffs = !agg.isEmpty();
+        String prefix = anyDiffs ? "Differences_" : "Differences_NoDifferences_";
+        Path out = makeOutputPathWithPrefix(sqlQuery, src.name, dest.name, outputFolder, prefix);
+
+        // Write workbook
+        try (SXSSFWorkbook wb = new SXSSFWorkbook(500);
+             FileOutputStream fos = new FileOutputStream(out.toFile())) {
+
+            Sheet sh = wb.createSheet("Differences");
+            CellStyle header = wb.createCellStyle();
+            Font bold = wb.createFont(); bold.setBold(true); header.setFont(bold);
+            writeHeader(sh, header, List.of(
+                    "Fee Schedule","Procedure code","MODIFIER","MODIFIER2","MODIFIER3","MODIFIER4",
+                    "Eff Date","Term date","Reimb Method","Allowed","Old Rate","Percent","Differences","DestinationEnv"
+            ));
+
+            for (DiffRecord rec : agg.values()) {
+                writeDiff(sh, rec.rowForOutput, rec.type.label, rec.destEnv, rec.oldRate, rec.termOverride);
+            }
+
+            autosize(sh, 14);
+            wb.write(fos);
+        }
+
+        return out;
+    }
+
+    // ---------- Reader (period-aware; full SQL) ----------
+    private Map<Pk, Map<Period, Row>> readRowsByPeriod(DataSource ds, String sql, List<Object> params) throws SQLException {
+        Map<Pk, Map<Period, Row>> out = new HashMap<>(4096);
+        try (Connection c = ds.getConnection();
+             PreparedStatement ps = c.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
+            ps.setFetchSize(256);
+            if (params != null) { int i=1; for (Object p : params) ps.setObject(i++, p); }
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Pk pk = new Pk(PK_COLS.stream().map(k -> getVal(rs, k)).collect(Collectors.toList()));
+                    Period period = new Period(getVal(rs,"NSVM_EFF_DT"), getVal(rs,"NSVM_TERM_DT"));
+                    Map<String,Object> vals = new LinkedHashMap<>();
+                    for (String cName : ALL_COLS) vals.put(cName, getVal(rs, cName));
+                    String fp = ALL_COLS.stream().map(cn -> norm(vals.get(cn))).collect(Collectors.joining("\u0001"));
+                    Row row = new Row(pk, vals, fp);
+                    out.computeIfAbsent(pk, __ -> new HashMap<>()).put(period, row);
+                }
+            }
+        }
+        return out;
+    }
+
+    private static Object getVal(ResultSet rs, String col) {
+        try {
+            Object o = rs.getObject(col);
+            if (o instanceof String s) return s.trim();
+            return o;
+        } catch (SQLException e) { throw new RuntimeException(e); }
+    }
+
+    // ---------- Diff priority + aggregator ----------
+    enum DiffType {
+        RATE_CHANGE(5, "Rate change"),
+        EFF_DATE_DIFFER(4, "Eff Date differ"),
+        OPEN_END_DIFFER(3, "Open End date differ"),
+        NEW_CODE(2, "New Code"),
+        TERMINATE(1, "Terminate");
+        final int pr; final String label;
+        DiffType(int pr, String label){ this.pr = pr; this.label = label; }
+    }
+
+    static final class DiffRecord {
+        final Pk pk;
+        DiffType type;
+        Row rowForOutput;   // SRC row for all except Terminate; DEST row for Terminate
+        String destEnv;     // destination compared against
+        String oldRate;     // DEST Allow for Rate change; else "N/A"
+        String termOverride;// when non-null, use this for Term date (SRC term for Terminate)
+
+        DiffRecord(Pk pk, DiffType type, Row rowForOutput, String destEnv, String oldRate, String termOverride) {
+            this.pk = pk; this.type = type; this.rowForOutput = rowForOutput;
+            this.destEnv = destEnv; this.oldRate = oldRate; this.termOverride = termOverride;
+        }
+    }
+
+    // full form (Rate change and/or Terminate with override)
+    private static void offer(Map<Pk, DiffRecord> agg, Pk pk, DiffType t,
+                              Row row, String destEnv, String oldRate, String termOverride) {
+        DiffRecord cur = agg.get(pk);
+        if (cur == null || t.pr > cur.type.pr) {
+            agg.put(pk, new DiffRecord(pk, t, row, destEnv, oldRate, termOverride));
+        }
+    }
+    // convenience: non-rate-change
+    private static void offer(Map<Pk, DiffRecord> agg, Pk pk, DiffType t, Row row, String destEnv) {
+        offer(agg, pk, t, row, destEnv, "N/A", null);
+    }
+    // convenience: rate-change with oldRate
+    private static void offer(Map<Pk, DiffRecord> agg, Pk pk, DiffType t, Row row, String destEnv, String oldRate) {
+        offer(agg, pk, t, row, destEnv, oldRate, null);
+    }
+
+    // ---------- Value classes ----------
+    static final class Pk {
+        final List<Object> parts;
+        Pk(List<Object> parts){ this.parts = parts; }
+        @Override public boolean equals(Object o){
+            if (this == o) return true;
+            if (!(o instanceof Pk p)) return false;
+            if (p.parts.size() != parts.size()) return false;
+            for (int i=0;i<parts.size();i++)
+                if (!Objects.equals(norm(parts.get(i)), norm(p.parts.get(i)))) return false;
+            return true;
+        }
+        @Override public int hashCode(){ return Arrays.hashCode(parts.stream().map(FeeScheduleDiffService::norm).toArray()); }
+        @Override public String toString(){ return parts.toString(); }
+    }
+
+    static final class Period {
+        final String eff;   // yyyy-MM-dd
+        final String term;  // yyyy-MM-dd
+        Period(Object eff, Object term){ this.eff = normDate(eff); this.term = normDate(term); }
+        @Override public boolean equals(Object o){ return o instanceof Period p && eff.equals(p.eff) && term.equals(p.term); }
+        @Override public int hashCode(){ return Objects.hash(eff, term); }
+    }
+
+    static final class Row {
+        final Pk pk; final Map<String,Object> vals; final String fingerprint;
+        Row(Pk pk, Map<String,Object> vals, String fp){ this.pk = pk; this.vals = vals; this.fingerprint = fp; }
+        Object get(String col){ return vals.get(col); }
+    }
+
+    // ---------- Comparators / helpers ----------
+    private static boolean eq(Row a, String ca, Row b, String cb) { return Objects.equals(norm(a.get(ca)), norm(b.get(cb))); }
+
+    private static boolean overlaps(Period a, Period b) {
+        String max = "9999-12-31";
+        String aT = a.term.isBlank()? max : a.term;
+        String bT = b.term.isBlank()? max : b.term;
+        return a.eff.compareTo(bT) <= 0 && b.eff.compareTo(aT) <= 0;
+    }
+
+    private static boolean covers(Period p, String effDateYmd) {
+        String max = "9999-12-31";
+        String term = (p.term == null || p.term.isBlank()) ? max : p.term;
+        return p.eff.compareTo(effDateYmd) <= 0 && effDateYmd.compareTo(term) <= 0;
+    }
+
+    private Row findCoveringDestRow(Map<Period, Row> dPeriods, Period srcPeriod) {
+        if (dPeriods == null || dPeriods.isEmpty()) return null;
+        Row covering = dPeriods.entrySet().stream()
+                .filter(e -> covers(e.getKey(), srcPeriod.eff))
+                .map(Map.Entry::getValue)
+                .findFirst().orElse(null);
+        if (covering != null) return covering;
+
+        return dPeriods.entrySet().stream()
+                .filter(e -> overlaps(srcPeriod, e.getKey()))
+                .max(Comparator.comparing(e -> (e.getKey().term == null || e.getKey().term.isBlank()) ? "9999-12-31" : e.getKey().term))
+                .map(Map.Entry::getValue).orElse(null);
+    }
+
+    private static boolean isOpenEnd(Object termVal){
+        String s = normDate(termVal);
+        return "9999-12-31".equals(s) || "12/31/9999".equals(s);
+    }
+
+    private static String norm(Object o) {
+        if (o == null) return "";
+        if (o instanceof java.sql.Timestamp t) return Long.toString(t.getTime());
+        if (o instanceof java.sql.Date d) return Long.toString(d.getTime());
+        return o.toString().trim();
+    }
+
+    private static String normDate(Object o) {
+        if (o == null) return "";
+        String s = o.toString().trim();
+        if (s.length() >= 10 && s.charAt(4) == '-') return s.substring(0,10); // yyyy-MM-dd / ISO
+        if (s.contains("/")) { String[] p = s.split("/"); if (p.length==3)
+            return String.format("%04d-%02d-%02d", Integer.parseInt(p[2]), Integer.parseInt(p[0]), Integer.parseInt(p[1]));
+        }
+        return s;
+    }
+
+    private static <T> Set<T> intersection(Set<T> a, Set<T> b){ Set<T> s = new HashSet<>(a); s.retainAll(b); return s; }
+
+    // ---------- Excel ----------
+    private void writeHeader(Sheet s, CellStyle style, List<String> cols) {
+        Row r = s.createRow(0);
+        for (int i = 0; i < cols.size(); i++) { Cell c = r.createCell(i); c.setCellValue(cols.get(i)); c.setCellStyle(style); }
+    }
+
+    private void writeDiff(Sheet s, Row row, String diffType, String destEnv, String oldRate, String termOverride) {
+        Row r = s.createRow(s.getLastRowNum() + 1);
+        int i = 0;
+        r.createCell(i++).setCellValue(str(row.get("NSVM_Table")));
+        r.createCell(i++).setCellValue(str(row.get("NSVM_PROCEDURE_CD")));
+        r.createCell(i++).setCellValue(str(row.get("NSVM_MODIFIER")));
+        r.createCell(i++).setCellValue(str(row.get("NSVM_MODIFIER2")));
+        r.createCell(i++).setCellValue(str(row.get("NSVM_MODIFIER3")));
+        r.createCell(i++).setCellValue(str(row.get("NSVM_MODIFIER4")));
+        r.createCell(i++).setCellValue(str(row.get("NSVM_EFF_DT")));
+        String termToWrite = (termOverride != null && !termOverride.isBlank()) ? termOverride : str(row.get("NSVM_TERM_DT"));
+        r.createCell(i++).setCellValue(termToWrite);
+        r.createCell(i++).setCellValue(str(row.get("NSVM_REIMB_MTH")));
+        r.createCell(i++).setCellValue(str(row.get("NSVM_ALLOW")));
+        r.createCell(i++).setCellValue(oldRate);
+        r.createCell(i++).setCellValue(str(row.get("NSVM_PCT")));
+        r.createCell(i++).setCellValue(diffType);
+        r.createCell(i).setCellValue(destEnv);
+    }
+
+    private void autosize(Sheet s, int cols){ for (int i=0;i<cols;i++){ try { s.autoSizeColumn(i);} catch(Exception ignored){} } }
+
+    private Path makeOutputPathWithPrefix(String nameHint, String src, String dest,
+                                          String outputFolder, String prefix) throws Exception {
+        String ts = LocalDateTime.now().toString().replace(":", "-");
+        Path dir = (outputFolder != null && !outputFolder.isBlank())
+                ? Paths.get(outputFolder)
+                : Paths.get(System.getProperty("user.dir"), "reports");
+        Files.createDirectories(dir);
+        String base = (nameHint == null ? "FeeSchedule" : nameHint.replaceAll("[^A-Za-z0-9_]+","_"));
+        return dir.resolve(prefix + base + "_" + src + "_vs_" + dest + "_" + ts + ".xlsx");
+    }
+
+    // ---------- DataSource (Windows auth) ----------
+    public static DataSource sqlServerDsIntegrated(String host, String db) {
+        String url = "jdbc:sqlserver://" + host + ";databaseName=" + db + ";integratedSecurity=true";
+        HikariDataSource hk = new HikariDataSource();
+        hk.setJdbcUrl(url);
+        hk.setMaximumPoolSize(6);
+        hk.setMinimumIdle(1);
+        hk.setConnectionTimeout(15_000);
+        hk.setIdleTimeout(60_000);
+        hk.addDataSourceProperty("encrypt", "true");
+        hk.addDataSourceProperty("trustServerCertificate", "true");
+        return hk;
+    }
+
+    // ---------- Env ----------
+    public static final class Env {
+        public final String name; public final DataSource ds;
+        public Env(String name, DataSource ds){ this.name = name; this.ds = ds; }
+    }
+}
