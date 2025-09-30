@@ -1,0 +1,117 @@
+<form id="tfsForm" method="post" action="/tfs/check">
+  <!-- Year (unchanged) -->
+  <div class="field">
+    <label for="year">Year</label>
+    <select id="year" name="year" required>
+      <option value="">Select Year</option>
+      <option>2025</option>
+      <option>2024</option>
+      <!-- ... -->
+    </select>
+  </div>
+
+  <!-- LOB: dropdown + “Other (enter manually)” -->
+  <div class="field">
+    <label for="lobSelect">LOB</label>
+
+    <!-- Predefined list -->
+    <select id="lobSelect" name="lob" onchange="toggleCustomEntry()" required>
+      <option value="">Select LOB</option>
+      <option>AR</option>
+      <option>CMS</option>
+      <option>Custom</option>
+      <option>IN</option>
+      <option>KY</option>
+      <option>GA</option>
+      <option>MI</option>
+      <option>MS</option>
+      <option>OH</option>
+      <option>RBRVS</option>
+      <option>RJ HEALTH</option>
+      <option>WI</option>
+      <option>WV</option>
+      <option value="__other__">— Other (enter manually)… —</option>
+    </select>
+
+    <!-- Manual entry (hidden by default) -->
+    <input id="lobInput" name="lob" type="text" placeholder="Enter LOB ID"
+           class="hidden" disabled maxlength="50" autocomplete="off" />
+  </div>
+
+  <!-- Fee Schedule: will mirror LOB mode -->
+  <div class="field">
+    <label for="fsSelect">Fee Schedule</label>
+
+    <!-- Predefined list -->
+    <select id="fsSelect" name="feeSchedule" required>
+      <option value="">Select Fee Schedule</option>
+      <option>Professional</option>
+      <option>Facility</option>
+      <option>Dental</option>
+      <option>DRG</option>
+      <!-- ... -->
+    </select>
+
+    <!-- Manual entry -->
+    <input id="fsInput" name="feeSchedule" type="text"
+           placeholder="Enter Fee Schedule"
+           class="hidden" disabled maxlength="80" autocomplete="off" />
+  </div>
+
+  <button type="submit">Check Folder</button>
+</form>
+
+********************************************************
+
+<style>
+  .hidden { display: none; }
+  .field { margin: 0.75rem 0; }
+  label { display:block; margin-bottom: 0.25rem; font-weight: 600; }
+  select, input[type="text"] { width:100%; padding:0.5rem; }
+</style>
+
+****************************************
+
+<script>
+  function toggleCustomEntry() {
+    const isOther = document.getElementById('lobSelect').value === '__other__';
+    // When LOB is “Other”, switch BOTH LOB and Fee Schedule to text inputs
+    swapControl('lob', isOther);
+    swapControl('fs', isOther);
+  }
+
+  function swapControl(prefix, useInput) {
+    const sel = document.getElementById(prefix + 'Select');
+    const inp = document.getElementById(prefix + 'Input');
+
+    if (useInput) {
+      sel.classList.add('hidden');
+      sel.disabled = true;
+
+      inp.classList.remove('hidden');
+      inp.disabled = false;
+      inp.required = true;     // require value when using manual entry
+      inp.focus();
+    } else {
+      inp.classList.add('hidden');
+      inp.disabled = true;
+      inp.required = false;
+      inp.value = '';
+
+      sel.classList.remove('hidden');
+      sel.disabled = false;
+    }
+  }
+
+  // Optional: ensure exactly one field per name is active before submit
+  document.getElementById('tfsForm').addEventListener('submit', function () {
+    const lobIsOther = document.getElementById('lobSelect').value === '__other__';
+    // In case someone changed DOM manually, enforce the intended state
+    swapControl('lob', lobIsOther);
+    swapControl('fs', lobIsOther);
+  });
+</script>
+
+
+**************************************************
+
