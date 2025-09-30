@@ -115,3 +115,156 @@
 
 **************************************************
 
+
+
+
+<!-- LOB -->
+<label>
+  <select id="lobSelect" required class="input">
+    <option value="">Select LOB</option>
+    <option value="AR">AR</option>
+    <option value="CMS">CMS</option>
+    <option value="Custom">Custom</option>
+    <option value="IN">IN</option>
+    <option value="KY">KY</option>
+    <option value="GA">GA</option>
+    <option value="MI">MI</option>
+    <option value="MS">MS</option>
+    <option value="OH">OH</option>
+    <option value="RBRVS">RBRVS</option>
+    <option value="RJ HEALTH">RJ HEALTH</option>
+    <option value="WI">WI</option>
+    <option value="WV">WV</option>
+    <option value="__other__">— Other (enter manually) —</option>
+  </select>
+  <span>LOB</span>
+
+  <!-- NEW: manual entry for LOB (hidden by default) -->
+  <input id="lobInput" class="input" type="text" placeholder="Enter LOB ID"
+         name="lob" style="display:none;" disabled maxlength="50" />
+</label>
+
+<!-- Fee Schedule -->
+<label>
+  <select id="fsSelect" required class="input">
+    <option value="">Select Fee Schedule</option>
+  </select>
+  <span>Fee Schedule</span>
+
+  <!-- NEW: manual entry for Fee Schedule (hidden by default) -->
+  <input id="fsInput" class="input" type="text" placeholder="Enter Fee Schedule"
+         name="feeSchedule" style="display:none;" disabled maxlength="80" />
+</label>
+
+
+
+**********************************
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const lobSelect = document.getElementById('lobSelect');
+  const lobInput  = document.getElementById('lobInput');
+
+  const fsSelect  = document.getElementById('fsSelect');
+  const fsInput   = document.getElementById('fsInput');
+
+  // initial population if needed (optional)
+  if (lobSelect.value && lobSelect.value !== '__other__') {
+    populateFeeSchedules(lobSelect.value);
+  }
+
+  lobSelect.addEventListener("change", function () {
+    const selectedLob = lobSelect.value;
+    const useManual = selectedLob === '__other__';
+
+    // Switch LOB control
+    if (useManual) {
+      // hide select, show input
+      lobSelect.style.display = 'none';
+      lobSelect.disabled = true;
+
+      lobInput.style.display = '';
+      lobInput.disabled = false;
+      lobInput.required = true;
+      lobInput.value = '';           // clear any old value
+
+      // Switch Fee Schedule to manual too and skip fetch
+      switchFeeScheduleToManual();
+    } else {
+      // LOB back to select mode
+      lobInput.style.display = 'none';
+      lobInput.disabled = true;
+      lobInput.required = false;
+
+      lobSelect.style.display = '';
+      lobSelect.disabled = false;
+
+      // Fee Schedule: back to dropdown and repopulate from server
+      switchFeeScheduleToDropdown();
+      populateFeeSchedules(selectedLob);
+    }
+  });
+
+  function switchFeeScheduleToManual() {
+    fsSelect.required = false;
+    fsSelect.style.display = 'none';
+    fsSelect.disabled = true;
+    // clear any old options to avoid stale data when returning
+    fsSelect.options.length = 0;
+
+    fsInput.style.display = '';
+    fsInput.disabled = false;
+    fsInput.required = true;
+    fsInput.value = '';
+  }
+
+  function switchFeeScheduleToDropdown() {
+    fsInput.style.display = 'none';
+    fsInput.disabled = true;
+    fsInput.required = false;
+
+    fsSelect.style.display = '';
+    fsSelect.disabled = false;
+    fsSelect.required = true;
+  }
+
+  function populateFeeSchedules(selectedLob) {
+    // Clear existing options
+    fsSelect.options.length = 0;
+
+    // Default placeholder
+    const defaultOption = document.createElement("option");
+    defaultOption.textContent = "Select Fee Schedule";
+    defaultOption.value = "";
+    defaultOption.disabled = true;
+    defaultOption.selected = true;
+    fsSelect.appendChild(defaultOption);
+
+    fetch(`/fetchfsidsbyLOB?lob=${encodeURIComponent(selectedLob)}`)
+      .then(response => {
+        if (!response.ok) {
+          throw new Error("Failed to fetch fee schedule IDs");
+        }
+        return response.json();
+      })
+      .then(feeSchedules => {
+        // feeSchedules is expected to be an array of strings
+        feeSchedules.forEach(schedule => {
+          const option = document.createElement("option");
+          option.value = schedule;
+          option.textContent = schedule;
+          fsSelect.appendChild(option);
+        });
+      })
+      .catch(error => {
+        console.error("Error loading fee schedules", error);
+        const errorOption = document.createElement("option");
+        errorOption.textContent = "Error loading schedules";
+        errorOption.disabled = true;
+        fsSelect.appendChild(errorOption);
+      });
+  }
+});
+</script>
+
+
