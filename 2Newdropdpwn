@@ -1,0 +1,189 @@
+<!-- LOB -->
+<label>
+  <select id="lobSelect" required class="input sameSize">
+    <option value="">Select LOB</option>
+    <option value="AR">AR</option>
+    <option value="CMS">CMS</option>
+    <option value="Custom">Custom</option>
+    <option value="IN">IN</option>
+    <option value="KY">KY</option>
+    <option value="GA">GA</option>
+    <option value="MI">MI</option>
+    <option value="MS">MS</option>
+    <option value="OH">OH</option>
+    <option value="RBRVS">RBRVS</option>
+    <option value="RJ HEALTH">RJ HEALTH</option>
+    <option value="WI">WI</option>
+    <option value="WV">WV</option>
+    <option value="__other__">— Other (enter manually) —</option>
+  </select>
+  <span>LOB</span>
+
+  <!-- Manual LOB -->
+  <div id="lobManualWrap" style="display:none;">
+    <input id="lobInput" class="input sameSize" type="text"
+           placeholder="Enter LOB ID" name="lob"
+           maxlength="50" autocomplete="off" />
+    <button type="button" id="lobBackBtn" class="linkbtn">Use dropdown</button>
+  </div>
+</label>
+
+<!-- Fee Schedule -->
+<label>
+  <select id="fsSelect" required class="input sameSize">
+    <option value="">Select Fee Schedule</option>
+  </select>
+  <span>Fee Schedule</span>
+
+  <!-- Manual FS -->
+  <div id="fsManualWrap" style="display:none;">
+    <input id="fsInput" class="input sameSize" type="text"
+           placeholder="Enter Fee Schedule" name="feeSchedule"
+           maxlength="80" autocomplete="off" />
+    <button type="button" id="fsBackBtn" class="linkbtn">Use dropdown</button>
+  </div>
+</label>
+
+
+*******************************
+
+<style>
+  /* Make selects and text inputs share identical sizing */
+  .sameSize {
+    width: 100%;
+    box-sizing: border-box;
+    height: 40px;           /* match your Year dropdown height */
+    padding: 8px;           /* consistent padding */
+    font: inherit;          /* same font as form */
+  }
+  /* Tiny inline “Use dropdown” link button */
+  .linkbtn {
+    background: none;
+    border: none;
+    color: #1f6feb;
+    text-decoration: underline;
+    cursor: pointer;
+    padding: 6px 0 0 0;
+    font: inherit;
+  }
+</style>
+
+
+**********************************
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const lobSelect = document.getElementById('lobSelect');
+  const lobManualWrap = document.getElementById('lobManualWrap');
+  const lobInput  = document.getElementById('lobInput');
+  const lobBackBtn = document.getElementById('lobBackBtn');
+
+  const fsSelect  = document.getElementById('fsSelect');
+  const fsManualWrap = document.getElementById('fsManualWrap');
+  const fsInput   = document.getElementById('fsInput');
+  const fsBackBtn = document.getElementById('fsBackBtn');
+
+  // If a predefined LOB is preselected, populate FS immediately
+  if (lobSelect.value && lobSelect.value !== '__other__') {
+    populateFeeSchedules(lobSelect.value);
+  }
+
+  // LOB changes
+  lobSelect.addEventListener("change", function () {
+    const selectedLob = lobSelect.value;
+    const useManual = selectedLob === '__other__';
+    setLobMode(useManual, selectedLob);
+  });
+
+  // Back to dropdown from manual LOB
+  lobBackBtn.addEventListener('click', function () {
+    // Show LOB dropdown, hide manual
+    setLobMode(false, lobSelect.value || '');
+  });
+
+  // Fee Schedule “Use dropdown” (appears only in manual mode)
+  fsBackBtn.addEventListener('click', function () {
+    // Returning FS to dropdown also implies LOB is dropdown mode
+    setLobMode(false, lobSelect.value || '');
+  });
+
+  function setLobMode(useManual, selectedLob) {
+    if (useManual) {
+      // LOB -> manual
+      lobSelect.style.display = 'none';
+      lobManualWrap.style.display = '';
+      lobInput.value = '';
+      lobInput.focus();
+
+      // FS -> manual and clear dropdown
+      switchFeeScheduleToManual();
+    } else {
+      // LOB -> dropdown
+      lobManualWrap.style.display = 'none';
+      lobSelect.style.display = '';
+      // If nothing selected, make sure placeholder is shown
+      if (!lobSelect.value || lobSelect.value === '__other__') {
+        lobSelect.value = '';
+      }
+
+      // FS -> dropdown and repopulate from server (if LOB chosen)
+      switchFeeScheduleToDropdown();
+      if (lobSelect.value) {
+        populateFeeSchedules(lobSelect.value);
+      }
+    }
+  }
+
+  function switchFeeScheduleToManual() {
+    // hide dropdown, show input
+    fsSelect.required = false;
+    fsSelect.style.display = 'none';
+    fsManualWrap.style.display = '';
+    fsSelect.options.length = 0; // clear stale options
+    fsInput.value = '';
+    fsInput.required = true;
+    fsInput.focus();
+  }
+
+  function switchFeeScheduleToDropdown() {
+    fsManualWrap.style.display = 'none';
+    fsInput.required = false;
+    fsSelect.style.display = '';
+    fsSelect.required = true;
+  }
+
+  function populateFeeSchedules(selectedLob) {
+    // Clear existing options
+    fsSelect.options.length = 0;
+
+    // Default placeholder
+    const defaultOption = document.createElement("option");
+    defaultOption.textContent = "Select Fee Schedule";
+    defaultOption.value = "";
+    defaultOption.disabled = true;
+    defaultOption.selected = true;
+    fsSelect.appendChild(defaultOption);
+
+    fetch(`/fetchfsidsbyLOB?lob=${encodeURIComponent(selectedLob)}`)
+      .then(response => {
+        if (!response.ok) throw new Error("Failed to fetch fee schedule IDs");
+        return response.json();
+      })
+      .then(feeSchedules => {
+        feeSchedules.forEach(schedule => {
+          const option = document.createElement("option");
+          option.value = schedule;
+          option.textContent = schedule;
+          fsSelect.appendChild(option);
+        });
+      })
+      .catch(error => {
+        console.error("Error loading fee schedules", error);
+        const errorOption = document.createElement("option");
+        errorOption.textContent = "Error loading schedules";
+        errorOption.disabled = true;
+        fsSelect.appendChild(errorOption);
+      });
+  }
+});
+</script>
