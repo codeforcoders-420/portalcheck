@@ -1,3 +1,115 @@
+static final class DiffRecord {
+    final Pk pk;
+    DiffType type;         // highest-priority reason
+    Row rowForOutput;
+    String destEnv;
+    String oldRate;
+    String termOverride;
+
+    final Set<String> also = new LinkedHashSet<>();  // <-- new
+
+    DiffRecord(Pk pk, DiffType type, Row rowForOutput,
+               String destEnv, String oldRate, String termOverride) {
+        this.pk = pk; this.type = type; this.rowForOutput = rowForOutput;
+        this.destEnv = destEnv; this.oldRate = oldRate; this.termOverride = termOverride;
+        this.also.add(type.label); // always include the primary label
+    }
+}
+
+****************************************************************************
+
+private static void offer(Map<Pk, DiffRecord> agg, Pk pk, DiffType t,
+                          Row row, String destEnv, String oldRate, String termOverride) {
+    DiffRecord cur = agg.get(pk);
+    if (cur == null) {
+        agg.put(pk, new DiffRecord(pk, t, row, destEnv, oldRate, termOverride));
+    } else {
+        // always record the reason, even if lower priority
+        cur.also.add(t.label);
+
+        // upgrade if higher priority
+        if (t.pr > cur.type.pr) {
+            cur.type = t;
+            cur.rowForOutput = row;
+            cur.destEnv = destEnv;
+            cur.oldRate = oldRate;
+            cur.termOverride = termOverride;
+        }
+    }
+}
+
+****************************************************************************
+
+writeHeader(sh, header, List.of(
+    "Fee Schedule","Procedure code","MODIFIER","MODIFIER2","MODIFIER3","MODIFIER4",
+    "Eff Date","Term date","Reimb Method","Allowed","Old Rate","Percent",
+    "Differences","Also","DestinationEnv"
+));
+
+**************************************************************************
+
+private void writeDiff(Sheet s, Row row, String diffType,
+                       String destEnv, String oldRate,
+                       String termOverride, Set<String> also) {
+    Row r = s.createRow(s.getLastRowNum() + 1);
+    int i = 0;
+    r.createCell(i++).setCellValue(str(row.get("NSVM_Table")));
+    r.createCell(i++).setCellValue(str(row.get("NSVM_PROCEDURE_CD")));
+    r.createCell(i++).setCellValue(str(row.get("NSVM_MODIFIER")));
+    r.createCell(i++).setCellValue(str(row.get("NSVM_MODIFIER2")));
+    r.createCell(i++).setCellValue(str(row.get("NSVM_MODIFIER3")));
+    r.createCell(i++).setCellValue(str(row.get("NSVM_MODIFIER4")));
+    r.createCell(i++).setCellValue(str(row.get("NSVM_EFF_DT")));
+    String termToWrite = (termOverride != null && !termOverride.isBlank())
+            ? termOverride : str(row.get("NSVM_TERM_DT"));
+    r.createCell(i++).setCellValue(termToWrite);
+    r.createCell(i++).setCellValue(str(row.get("NSVM_REIMB_MTH")));
+    r.createCell(i++).setCellValue(str(row.get("NSVM_ALLOW")));
+    r.createCell(i++).setCellValue(oldRate);
+    r.createCell(i++).setCellValue(str(row.get("NSVM_PCT")));
+    r.createCell(i++).setCellValue(diffType);                       // main
+    r.createCell(i++).setCellValue(String.join(", ", also));        // <-- new column
+    r.createCell(i).setCellValue(destEnv);
+}
+
+*****************************************************************************
+
+for (DiffRecord rec : agg.values()) {
+    writeDiff(sh, rec.rowForOutput, rec.type.label,
+              rec.destEnv, rec.oldRate, rec.termOverride, rec.also);
+}
+
+************************************************************
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 package com.example.db2db;
 
 import com.zaxxer.hikari.HikariDataSource;
