@@ -1,3 +1,95 @@
+// --- OFFER HELPERS (drop these in and REMOVE the old three) ---
+
+// Full form: can carry both oldRate (for Rate change) and termOverride (for Terminate)
+private static void offer(Map<Pk, DiffRecord> agg, Pk pk, DiffType t,
+                          Row row, String destEnv, String oldRate, String termOverride) {
+    DiffRecord cur = agg.get(pk);
+    if (cur == null) {
+        // first time we see this PK
+        agg.put(pk, new DiffRecord(pk, t, row, destEnv, oldRate, termOverride));
+    } else {
+        // always record this reason, even if it's lower priority
+        cur.also.add(t.label);
+
+        // upgrade to this reason if it has higher priority
+        if (t.pr > cur.type.pr) {
+            cur.type = t;
+            cur.rowForOutput = row;
+            cur.destEnv = destEnv;
+            cur.oldRate = oldRate;
+            cur.termOverride = termOverride;
+        }
+    }
+}
+
+// Convenience for non-Rate-change / no override (Old Rate = "N/A")
+private static void offer(Map<Pk, DiffRecord> agg, Pk pk, DiffType t,
+                          Row row, String destEnv) {
+    offer(agg, pk, t, row, destEnv, "N/A", null);
+}
+
+// Convenience for Rate-change (has oldRate; no term override)
+private static void offer(Map<Pk, DiffRecord> agg, Pk pk, DiffType t,
+                          Row row, String destEnv, String oldRate) {
+    offer(agg, pk, t, row, destEnv, oldRate, null);
+}
+
+
+***************
+
+static final class DiffRecord {
+    final Pk pk;
+    DiffType type;            // highest-priority reason
+    Row rowForOutput;
+    String destEnv;
+    String oldRate;           // DEST NSVM_ALLOW for Rate change; else "N/A"
+    String termOverride;      // SRC term for Terminate; else null
+    final Set<String> also = new LinkedHashSet<>(); // collects ALL reasons
+
+    DiffRecord(Pk pk, DiffType type, Row rowForOutput,
+               String destEnv, String oldRate, String termOverride) {
+        this.pk = pk; this.type = type; this.rowForOutput = rowForOutput;
+        this.destEnv = destEnv; this.oldRate = oldRate; this.termOverride = termOverride;
+        this.also.add(type.label); // seed with primary reason
+    }
+}
+
+***************
+
+private void writeDiff(Sheet s, Row row, String diffType, String destEnv,
+                       String oldRate, String termOverride, Set<String> also) {
+    // ... existing cells ...
+    r.createCell(i++).setCellValue(diffType);
+    r.createCell(i++).setCellValue(String.join(", ", also)); // <-- Also column
+    r.createCell(i).setCellValue(destEnv);
+}
+
+
+****************************************************************
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 static final class DiffRecord {
     final Pk pk;
     DiffType type;         // highest-priority reason
