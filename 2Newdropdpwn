@@ -1,3 +1,64 @@
+<script>
+document.getElementById("checkFolderBtn").addEventListener("click", function () {
+  const yearSelect   = document.getElementById("yearSelect");
+
+  const lobSelect    = document.getElementById("lobSelect");
+  const lobInputEl   = document.getElementById("lobInput");       // element, not .value
+  const lobManualWrap= document.getElementById("lobManualWrap");  // used if you prefer wrap visibility
+
+  const fsSelect     = document.getElementById("fsSelect");
+  const fsInputEl    = document.getElementById("fsInput");        // element, not .value
+  const fsManualWrap = document.getElementById("fsManualWrap");
+
+  // Which control is active?
+  const isLobManual = (lobSelect.value === "__other__") || (lobSelect.style.display === "none") || (lobManualWrap.style.display !== "none");
+  const isFsManual  = (fsSelect.style.display === "none") || (fsManualWrap.style.display !== "none");
+
+  // Read the right values
+  const year = yearSelect.value;
+  const finalLob = isLobManual ? (lobInputEl?.value || "").trim() : (lobSelect.value || "").trim();
+  const finalFeeSchedule = isFsManual ? (fsInputEl?.value || "").trim() : (fsSelect.value || "").trim();
+
+  // Debug
+  console.log("isLobManual:", isLobManual, "finalLob:", finalLob);
+  console.log("isFsManual:", isFsManual, "finalFeeSchedule:", finalFeeSchedule);
+
+  // Validate
+  if (!year || !finalLob || !finalFeeSchedule) {
+    alert("Please select/enter Year, LOB and Fee Schedule.");
+    return;
+  }
+
+  // Build payload for your controller
+  const payload = {
+    year: year,
+    lob: finalLob,
+    feeSchedule: finalFeeSchedule
+  };
+
+  // Example POST (JSON). If you use traditional form post, set hidden inputs instead.
+  fetch("/tfs/check", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  })
+  .then(r => r.ok ? r.json() : Promise.reject(r))
+  .then(data => {
+    console.log("server ok", data);
+    // handle success UI
+  })
+  .catch(err => {
+    console.error("server error", err);
+    // handle error UI
+  });
+});
+</script>
+
+
+**********************************************************
+
+
+
 <!-- LOB -->
 <label>
   <select id="lobSelect" required class="input sameSize">
