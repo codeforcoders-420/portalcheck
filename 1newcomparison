@@ -1,0 +1,422 @@
+import com.univocity.parsers.common.record.Record;
+import com.univocity.parsers.csv.CsvParser;
+import com.univocity.parsers.csv.CsvParserSettings;
+import com.univocity.parsers.csv.CsvWriter;
+import com.univocity.parsers.csv.CsvWriterSettings;
+
+import java.io.*;
+import java.math.BigDecimal;
+import java.nio.file.*;
+import java.sql.*;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.*;
+import java.util.stream.Collectors;
+
+public class DiffTool {
+
+    /* ===========================
+       CONFIG — CHANGE THESE
+       =========================== */
+
+    // <<< NEW: Hard-coded I/O locations
+    private static final Path INPUT_DIR  = Path.of("C:/data/diff/input");   // e.g., C:/data/diff/input
+    private static final Path OUTPUT_DIR = Path.of("C:/data/diff/output");  // e.g., C:/data/diff/output
+
+    // <<< NEW: How we detect which file is source/target
+    private static final String SOURCE_TOKEN = "source"; // case-insensitive contains
+    private static final String TARGET_TOKEN = "target"; // case-insensitive contains
+
+    // Business key columns used to uniquely identify a row (must exist in both CSV & DB)
+    private static final List<String> KEY_COLUMNS = List.of(
+            "Procedure Code", "Modifier"
+    );
+
+    // Columns to compare for equality when a key is present on both sides
+    private static final List<String> COMPARE_COLUMNS = List.of(
+            "Effective", "Termination", "Reimb Method", "Allowed", "Percent",
+            "Modifier2", "Modifier3", "Modifier4", "Active"
+    );
+
+    // Term/End date column name in CSV (used for target->DB filter)
+    private static final String TERM_DATE_COLUMN = "Termination";
+
+    // Keep target rows where Term = 12/31/9999 OR Term >= 01/01/2025
+    private static final LocalDate FILTER_MIN_TERM = LocalDate.of(2025, 1, 1);
+    private static final LocalDate OPEN_END = LocalDate.of(9999, 12, 31);
+
+    // ===== DB CONNECTION (Integrated Security / Windows credentials) =====
+    // Example URL: jdbc:sqlserver://YOUR-SERVER;databaseName=YOUR_DB;integratedSecurity=true;encrypt=true;trustServerCertificate=true
+    private static final String JDBC_URL =
+            "jdbc:sqlserver://localhost;databaseName=YourDb;integratedSecurity=true;encrypt=true;trustServerCertificate=true";
+
+    // Database table/view to compare against
+    private static final String DB_TABLE = "dbo.YourRatesTable";
+
+    // Map CSV header -> DB column name (identity mapping by default; override where names differ)
+    private static final Map<String, String> DB_COLUMN_ALIAS = Map.ofEntries(
+            // Keys
+            Map.entry("Procedure Code", "ProcedureCode"),
+            Map.entry("Modifier", "Modifier"),
+            // Compares
+            Map.entry("Effective", "Effective"),
+            Map.entry("Termination", "Termination"),
+            Map.entry("Reimb Method", "ReimbMethod"),
+            Map.entry("Allowed", "Allowed"),
+            Map.entry("Percent", "Percent"),
+            Map.entry("Modifier2", "Modifier2"),
+            Map.entry("Modifier3", "Modifier3"),
+            Map.entry("Modifier4", "Modifier4"),
+            Map.entry("Active", "Active")
+    );
+
+    /* =========================================
+       END CONFIG
+       ========================================= */
+
+    public static void main(String[] args) throws Exception {
+        Files.createDirectories(OUTPUT_DIR);
+
+        // <<< NEW: discover input files by token
+        Path sourceCsv = findCsvByRole(INPUT_DIR, SOURCE_TOKEN, "source");
+        Path targetCsv = findCsvByRole(INPUT_DIR, TARGET_TOKEN, "target");
+
+        System.out.println("Detected Source: " + sourceCsv.toAbsolutePath());
+        System.out.println("Detected Target: " + targetCsv.toAbsolutePath());
+
+        // 1) Read both CSVs
+        var sourceRows = readCsvAsMap(sourceCsv);
+        var targetRows = readCsvAsMap(targetCsv);
+
+        // Validate required columns exist
+        requireColumns(sourceRows, "Source", KEY_COLUMNS, COMPARE_COLUMNS);
+        requireColumns(targetRows, "Target", KEY_COLUMNS, COMPARE_COLUMNS);
+        if (!targetRows.headers.contains(TERM_DATE_COLUMN)) {
+            throw new IllegalArgumentException("Target CSV missing required term date column: " + TERM_DATE_COLUMN);
+        }
+
+        // 2) Diff Source vs Target
+        var srcVsTgtDiffs = diffTwoCsvs("Source", sourceRows, "Target", targetRows);
+        var out1 = OUTPUT_DIR.resolve("differences_source_vs_target.csv"); // <<< NEW: always in OUTPUT_DIR
+        writeDiffCsv(out1, srcVsTgtDiffs);
+        System.out.println("Wrote: " + out1.toAbsolutePath() + " (" + srcVsTgtDiffs.size() + " rows)");
+
+        // 3) Filter Target by term date rule, then compare vs DB
+        var filteredTarget = filterTargetByTerm(targetRows, TERM_DATE_COLUMN);
+        var dbRows = fetchDbRowsForKeys(filteredTarget);
+
+        var tgtVsDbDiffs = diffCsvVsDb("Target(filtered)", filteredTarget, "DB", dbRows);
+        var out2 = OUTPUT_DIR.resolve("differences_target_vs_db.csv"); // <<< NEW: always in OUTPUT_DIR
+        writeDiffCsv(out2, tgtVsDbDiffs);
+        System.out.println("Wrote: " + out2.toAbsolutePath() + " (" + tgtVsDbDiffs.size() + " rows)");
+    }
+
+    /* ========================= NEW: Input autodetect ========================= */
+
+    private static Path findCsvByRole(Path dir, String token, String label) throws IOException {
+        if (!Files.isDirectory(dir)) {
+            throw new IllegalArgumentException("INPUT_DIR not found: " + dir.toAbsolutePath());
+        }
+
+        String tok = token.toLowerCase(Locale.ROOT);
+
+        // List CSV files that contain the token in the filename (case-insensitive)
+        List<Path> matches = Files.list(dir)
+                .filter(p -> Files.isRegularFile(p))
+                .filter(p -> {
+                    String name = p.getFileName().toString().toLowerCase(Locale.ROOT);
+                    return (name.endsWith(".csv") || name.endsWith(".txt")) && name.contains(tok);
+                })
+                .sorted((a, b) -> {
+                    // Most-recently-modified first
+                    try {
+                        return -Long.compare(Files.getLastModifiedTime(a).toMillis(),
+                                             Files.getLastModifiedTime(b).toMillis());
+                    } catch (IOException e) {
+                        return 0;
+                    }
+                })
+                .toList();
+
+        if (matches.isEmpty()) {
+            throw new IllegalStateException("No " + label + " file found in " + dir.toAbsolutePath() +
+                    " whose name contains token: '" + token + "'");
+        }
+
+        // If multiple, pick most recently modified
+        return matches.get(0);
+    }
+
+    /* ========================= Helpers (unchanged) ========================= */
+
+    private record CsvData(List<String> headers, Map<Key, Map<String, String>> rowsByKey) {}
+    private record Key(List<String> values) {
+        static Key from(Map<String, String> row, List<String> keyColumns) {
+            var vals = keyColumns.stream()
+                    .map(c -> normalizeCell(row.get(c)))
+                    .toList();
+            return new Key(vals);
+        }
+    }
+    private record DiffRow(
+            Key key,
+            String status,
+            List<String> mismatchedColumns,
+            Map<String, String> leftValues,
+            Map<String, String> rightValues
+    ) {}
+
+    private static CsvData readCsvAsMap(Path path) throws IOException {
+        CsvParserSettings s = new CsvParserSettings();
+        s.setHeaderExtractionEnabled(true);
+        s.setLineSeparatorDetectionEnabled(true);
+        s.setNullValue("");
+        s.setEmptyValue("");
+        s.setMaxColumns(2048);
+        CsvParser parser = new CsvParser(s);
+
+        List<String> headers;
+        Map<Key, Map<String, String>> rowsByKey = new LinkedHashMap<>();
+
+        try (Reader r = Files.newBufferedReader(path)) {
+            parser.beginParsing(r);
+            headers = List.of(parser.getRecordMetadata().headers());
+
+            Record rec;
+            while ((rec = parser.parseNextRecord()) != null) {
+                Map<String, String> row = new LinkedHashMap<>();
+                for (String h : headers) {
+                    row.put(h, rec.getString(h));
+                }
+                Key k = Key.from(row, KEY_COLUMNS);
+                rowsByKey.put(k, row); // last occurrence wins
+            }
+        }
+        return new CsvData(headers, rowsByKey);
+    }
+
+    private static void requireColumns(CsvData data, String label, List<String> keyCols, List<String> cmpCols) {
+        var missing = new ArrayList<String>();
+        for (String h : keyCols) if (!data.headers.contains(h)) missing.add(h);
+        for (String h : cmpCols) if (!data.headers.contains(h)) missing.add(h);
+        if (!missing.isEmpty()) {
+            throw new IllegalArgumentException(label + " CSV missing columns: " + missing);
+        }
+    }
+
+    private static List<DiffRow> diffTwoCsvs(String leftName, CsvData left, String rightName, CsvData right) {
+        Set<Key> allKeys = new LinkedHashSet<>();
+        allKeys.addAll(left.rowsByKey.keySet());
+        allKeys.addAll(right.rowsByKey.keySet());
+
+        List<DiffRow> out = new ArrayList<>(Math.max(16, allKeys.size()/2));
+        for (Key k : allKeys) {
+            var l = left.rowsByKey.get(k);
+            var r = right.rowsByKey.get(k);
+            if (l == null) {
+                out.add(new DiffRow(k, "MISSING_ON_LEFT", List.of(), null, project(r)));
+                continue;
+            }
+            if (r == null) {
+                out.add(new DiffRow(k, "MISSING_ON_RIGHT", List.of(), project(l), null));
+                continue;
+            }
+            var mismatches = compareRowValues(l, r, COMPARE_COLUMNS);
+            if (!mismatches.isEmpty()) {
+                out.add(new DiffRow(k, "VALUE_MISMATCH", mismatches, project(l), project(r)));
+            }
+        }
+        return out;
+    }
+
+    private static Map<String, String> project(Map<String, String> row) {
+        Map<String, String> m = new LinkedHashMap<>();
+        for (String c : KEY_COLUMNS) m.put(c, row.get(c));
+        for (String c : COMPARE_COLUMNS) m.put(c, row.getOrDefault(c, ""));
+        return m;
+    }
+
+    private static List<String> compareRowValues(Map<String, String> a, Map<String, String> b, List<String> columns) {
+        List<String> mismatches = new ArrayList<>();
+        for (String c : columns) {
+            String va = normalizeCell(a.get(c));
+            String vb = normalizeCell(b.get(c));
+            if (!Objects.equals(va, vb)) mismatches.add(c);
+        }
+        return mismatches;
+    }
+
+    private static String normalizeCell(String s) {
+        if (s == null) return null;
+        String t = s.trim();
+        if (t.isEmpty()) return null;
+
+        LocalDate d = tryParseDate(t);
+        if (d != null) return d.toString(); // ISO yyyy-MM-dd
+
+        String cleaned = t.replace(",", "");
+        if (cleaned.startsWith("$")) cleaned = cleaned.substring(1);
+        try {
+            BigDecimal bd = new BigDecimal(cleaned);
+            bd = bd.stripTrailingZeros();
+            return bd.toPlainString();
+        } catch (NumberFormatException ignore) {}
+
+        return cleaned.replaceAll("\\s+", " ");
+    }
+
+    private static final List<DateTimeFormatter> DATE_FORMATS = List.of(
+            DateTimeFormatter.ofPattern("M/d/uuuu"),
+            DateTimeFormatter.ofPattern("MM/dd/uuuu"),
+            DateTimeFormatter.ISO_LOCAL_DATE,
+            DateTimeFormatter.ofPattern("M/d/uu"),
+            DateTimeFormatter.ofPattern("MM/dd/uu")
+    );
+
+    private static LocalDate tryParseDate(String s) {
+        for (var fmt : DATE_FORMATS) {
+            try { return LocalDate.parse(s, fmt); }
+            catch (DateTimeParseException ignore) {}
+        }
+        return null;
+    }
+
+    private static CsvData filterTargetByTerm(CsvData target, String termCol) {
+        Map<Key, Map<String, String>> rows = new LinkedHashMap<>();
+        for (var e : target.rowsByKey.entrySet()) {
+            var row = e.getValue();
+            var termRaw = row.get(termCol);
+            LocalDate term = (termRaw == null) ? null : tryParseDate(termRaw.trim());
+            if (term == null) continue;
+            if (term.equals(OPEN_END) || !term.isBefore(FILTER_MIN_TERM)) {
+                rows.put(e.getKey(), row);
+            }
+        }
+        return new CsvData(target.headers, rows);
+    }
+
+    /* ================== DB ================== */
+
+    private static CsvData fetchDbRowsForKeys(CsvData filteredTarget) throws SQLException {
+        if (filteredTarget.rowsByKey.isEmpty()) {
+            return new CsvData(new ArrayList<>(DB_COLUMN_ALIAS.keySet()), Map.of());
+        }
+
+        try (Connection cx = DriverManager.getConnection(JDBC_URL)) {
+            cx.setAutoCommit(false);
+
+            String tempTable = "#keys" + System.nanoTime();
+
+            String create = "CREATE TABLE " + tempTable + " (" +
+                    KEY_COLUMNS.stream().map(c -> colName(c) + " NVARCHAR(255)").collect(Collectors.joining(", ")) +
+                    ");";
+            try (Statement st = cx.createStatement()) {
+                st.execute(create);
+            }
+
+            String placeholders = KEY_COLUMNS.stream().map(c -> "?").collect(Collectors.joining(", "));
+            String insert = "INSERT INTO " + tempTable + " (" +
+                    KEY_COLUMNS.stream().map(DiffTool::colName).collect(Collectors.joining(", ")) +
+                    ") VALUES (" + placeholders + ")";
+            try (PreparedStatement ps = cx.prepareStatement(insert)) {
+                for (var k : filteredTarget.rowsByKey.keySet()) {
+                    int i = 1;
+                    for (String val : k.values) ps.setString(i++, val);
+                    ps.addBatch();
+                }
+                ps.executeBatch();
+            }
+
+            List<String> selectCols = new ArrayList<>();
+            for (String c : KEY_COLUMNS)     selectCols.add("t." + dbCol(c) + " AS [" + c + "]");
+            for (String c : COMPARE_COLUMNS) selectCols.add("t." + dbCol(c) + " AS [" + c + "]");
+
+            String onJoin = KEY_COLUMNS.stream()
+                    .map(c -> "t." + dbCol(c) + " = k." + colName(c))
+                    .collect(Collectors.joining(" AND "));
+
+            String sql = "SELECT " + String.join(", ", selectCols) +
+                    " FROM " + DB_TABLE + " t " +
+                    " JOIN " + tempTable + " k ON " + onJoin;
+
+            Map<Key, Map<String, String>> rowsByKey = new LinkedHashMap<>();
+            List<String> headers = new ArrayList<>();
+            headers.addAll(KEY_COLUMNS);
+            headers.addAll(COMPARE_COLUMNS);
+
+            try (Statement st = cx.createStatement(); ResultSet rs = st.executeQuery(sql)) {
+                while (rs.next()) {
+                    Map<String, String> row = new LinkedHashMap<>();
+                    for (String h : headers) {
+                        row.put(h, rs.getString(h));
+                    }
+                    Key k = Key.from(row, KEY_COLUMNS);
+                    rowsByKey.put(k, row);
+                }
+            }
+
+            try (Statement st = cx.createStatement()) {
+                st.execute("DROP TABLE " + tempTable);
+            }
+            cx.commit();
+
+            return new CsvData(headers, rowsByKey);
+        }
+    }
+
+    private static String colName(String csvHeader) {
+        return csvHeader.replaceAll("[^A-Za-z0-9_]", "_");
+    }
+
+    private static String dbCol(String csvHeader) {
+        String col = DB_COLUMN_ALIAS.get(csvHeader);
+        if (col == null) {
+            throw new IllegalStateException("No DB column alias mapping for CSV header: " + csvHeader);
+        }
+        return col;
+    }
+
+    private static List<DiffRow> diffCsvVsDb(String leftName, CsvData left, String rightName, CsvData right) {
+        return diffTwoCsvs(leftName, left, rightName, right);
+    }
+
+    private static void writeDiffCsv(Path out, List<DiffRow> diffs) throws IOException {
+        CsvWriterSettings s = new CsvWriterSettings();
+        s.setHeaders(buildHeaders());
+        s.setHeaderWritingEnabled(true);
+
+        try (Writer w = Files.newBufferedWriter(out);
+             CsvWriter writer = new CsvWriter(w, s)) {
+
+            writer.writeHeaders();
+
+            for (DiffRow d : diffs) {
+                Map<String, String> L = d.leftValues == null ? Map.of() : d.leftValues;
+                Map<String, String> R = d.rightValues == null ? Map.of() : d.rightValues;
+
+                List<String> row = new ArrayList<>();
+                row.add(d.status);
+                row.add(String.join("|", d.mismatchedColumns));
+
+                for (String c : KEY_COLUMNS)     row.add(L.getOrDefault(c, ""));
+                for (String c : KEY_COLUMNS)     row.add(R.getOrDefault(c, ""));
+                for (String c : COMPARE_COLUMNS) row.add(L.getOrDefault(c, ""));
+                for (String c : COMPARE_COLUMNS) row.add(R.getOrDefault(c, ""));
+
+                writer.writeRow(row);
+            }
+        }
+    }
+
+    private static String[] buildHeaders() {
+        List<String> headers = new ArrayList<>();
+        headers.add("Status");
+        headers.add("Differences");
+        for (String c : KEY_COLUMNS)     headers.add("Left::" + c);
+        for (String c : KEY_COLUMNS)     headers.add("Right::" + c);
+        for (String c : COMPARE_COLUMNS) headers.add("Left::" + c);
+        for (String c : COMPARE_COLUMNS) headers.add("Right::" + c);
+        return headers.toArray(String[]::new);
+    }
+}
