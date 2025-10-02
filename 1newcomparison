@@ -1,3 +1,43 @@
+private static void writeDiffCsv(Path out, List<DiffRow> diffs) throws IOException {
+    CsvWriterSettings s = new CsvWriterSettings();
+    s.setHeaders(buildHeaders());
+    s.setHeaderWritingEnabled(true);
+
+    try (Writer w = Files.newBufferedWriter(out)) {
+        CsvWriter writer = new CsvWriter(w, s);   // not AutoCloseable
+        writer.writeHeaders();
+
+        for (DiffRow d : diffs) {
+            Map<String, String> L = d.leftValues()  == null ? Map.of() : d.leftValues();
+            Map<String, String> R = d.rightValues() == null ? Map.of() : d.rightValues();
+
+            List<String> row = new ArrayList<>();
+            row.add(d.status());  // record accessor
+            row.add(String.join("|",
+                    d.mismatchedColumns() == null ? List.of() : d.mismatchedColumns()));
+
+            // keys (Left, then Right)
+            for (String c : KEY_COLUMNS)    row.add(L.getOrDefault(c, ""));
+            for (String c : KEY_COLUMNS)    row.add(R.getOrDefault(c, ""));
+            // compare columns (Left, then Right)
+            for (String c : COMPARE_COLUMNS) row.add(L.getOrDefault(c, ""));
+            for (String c : COMPARE_COLUMNS) row.add(R.getOrDefault(c, ""));
+
+            writer.writeRow(row);
+        }
+
+        writer.flush();   // ensure everything hits the underlying Writer
+        writer.close();   // must close manually (CsvWriter isn't AutoCloseable)
+    }
+}
+
+
+
+**********************************
+
+
+
+
 import com.univocity.parsers.common.record.Record;
 import com.univocity.parsers.csv.CsvParser;
 import com.univocity.parsers.csv.CsvParserSettings;
