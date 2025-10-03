@@ -1,3 +1,132 @@
+// Business-match key for Target vs DB
+private static final List<String> MOD_KEY_COLS = List.of(
+    "Procedure Code", "Modifier", "Modifier2", "Modifier3", "Modifier4"
+);
+
+// Exact & partial compare sets (CSV header names)
+private static final List<String> EXACT_COMPARE = List.of(
+    "Effective", "Termination", "Reimb Method", "Allowed", "Percent"
+);
+private static final List<String> PARTIAL_COMPARE = List.of(
+    "Termination", "Reimb Method", "Allowed", "Percent"
+);
+
+
+private static Key keyFrom(Map<String,String> row, List<String> cols) {
+    var vals = cols.stream().map(c -> normalizeCell(row.get(c))).toList();
+    return new Key(vals);
+}
+
+private static boolean rowMatchesOn(Map<String,String> a, Map<String,String> b, List<String> cols) {
+    for (String c : cols) {
+        String va = normalizeCell(a.get(c));
+        String vb = normalizeCell(b.get(c));
+        if (!Objects.equals(va, vb)) return false;
+    }
+    return true;
+}
+
+private static List<String> diffColumns(Map<String,String> a, Map<String,String> b, List<String> cols) {
+    List<String> out = new ArrayList<>();
+    for (String c : cols) {
+        String va = normalizeCell(a.get(c));
+        String vb = normalizeCell(b.get(c));
+        if (!Objects.equals(va, vb)) out.add(c);
+    }
+    return out;
+}
+
+
+/**
+ * Target(filtered by term rules) vs DB with custom matching:
+ * 1) Match by PROC+MOD+MOD2+MOD3+MOD4
+ * 2) If any DB row under that key EXACT_COMPARE-matches -> ignore
+ * 3) Else if any DB row PARTIAL_COMPARE-matches -> ignore
+ * 4) Else -> list as VALUE_MISMATCH (pick first DB row for side-by-side)
+ * Also emits DB-only rows as MISSING_ON_LEFT (remove the last loop if you don't want them).
+ */
+private static List<DiffRow> diffTargetVsDbWithRules(CsvData targetFiltered, CsvData dbRows) {
+    // Group DB by business key (PROC+MOD..+MOD4)
+    Map<Key, List<Map<String,String>>> dbByModKey = new LinkedHashMap<>();
+    for (var e : dbRows.rowsByKey().entrySet()) {
+        var row = e.getValue();
+        dbByModKey.computeIfAbsent(keyFrom(row, MOD_KEY_COLS), k -> new ArrayList<>()).add(row);
+    }
+
+    List<DiffRow> out = new ArrayList<>();
+
+    // 1) Walk Target rows
+    for (var e : targetFiltered.rowsByKey().entrySet()) {
+        Map<String,String> t = e.getValue();
+        Key modKey = keyFrom(t, MOD_KEY_COLS);
+        List<Map<String,String>> dbList = dbByModKey.get(modKey);
+
+        if (dbList == null || dbList.isEmpty()) {
+            // Target combo not present in DB
+            out.add(new DiffRow(
+                    modKey, "MISSING_ON_RIGHT", List.of(),
+                    project(t), null
+            ));
+            continue;
+        }
+
+        // 2a) Exact match exists?
+        boolean exact = dbList.stream().anyMatch(d -> rowMatchesOn(t, d, EXACT_COMPARE));
+        if (exact) continue;  // ignore
+
+        // 2b) Partial match (ignore Effective) exists?
+        boolean partial = dbList.stream().anyMatch(d -> rowMatchesOn(t, d, PARTIAL_COMPARE));
+        if (partial) continue; // ignore
+
+        // 3) Otherwise: record a value mismatch (show diffs vs first DB candidate)
+        Map<String,String> d0 = dbList.get(0);
+        List<String> mismCols = diffColumns(t, d0, EXACT_COMPARE);
+        out.add(new DiffRow(
+                modKey, "VALUE_MISMATCH", mismCols,
+                project(t), project(d0)
+        ));
+    }
+
+    // ---- Optional: DB-only rows (keep if you also want to see DB extras) ----
+    // Build a set of Target business keys to detect DB-only
+    Set<Key> targetKeys = targetFiltered.rowsByKey().values().stream()
+            .map(r -> keyFrom(r, MOD_KEY_COLS)).collect(java.util.stream.Collectors.toSet());
+
+    for (var e : dbByModKey.entrySet()) {
+        if (!targetKeys.contains(e.getKey())) {
+            // take first row just for presentation
+            Map<String,String> d0 = e.getValue().get(0);
+            out.add(new DiffRow(
+                    e.getKey(), "MISSING_ON_LEFT", List.of(),
+                    null, project(d0)
+            ));
+        }
+    }
+    // ------------------------------------------------------------------------
+
+    return out;
+}
+
+
+var filteredTarget = filterTargetByTerm(targetRows, TERM_DATE_COLUMN);
+// if you pass FeeScheduleId, keep your parameterized fetch:
+int feeScheduleId = 12345; // set appropriately
+var dbRows = fetchDbRowsForKeys(filteredTarget, feeScheduleId);
+
+// APPLY YOUR RULES:
+var tgtVsDbDiffs = diffTargetVsDbWithRules(filteredTarget, dbRows);
+
+var out2 = OUTPUT_DIR.resolve("differences_target_vs_db.csv");
+writeDiffCsv(out2, tgtVsDbDiffs);
+System.out.println("Wrote: " + out2.toAbsolutePath() + " (" + tgtVsDbDiffs.size() + " rows)");
+
+
+
+*****************************************************************************
+
+
+
+
 // Call like: fetchDbRowsForKeys(filteredTarget, feeScheduleId)
 private static CsvData fetchDbRowsForKeys(CsvData filteredTarget, int feeScheduleId) throws SQLException {
     if (filteredTarget.rowsByKey().isEmpty()) {
