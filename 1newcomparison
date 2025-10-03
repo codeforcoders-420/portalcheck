@@ -1,3 +1,203 @@
+// Call like: fetchDbRowsForKeys(filteredTarget, feeScheduleId)
+private static CsvData fetchDbRowsForKeys(CsvData filteredTarget, int feeScheduleId) throws SQLException {
+    if (filteredTarget.rowsByKey().isEmpty()) {
+        return new CsvData(new ArrayList<>(DB_COLUMN_ALIAS.keySet()), Map.of());
+    }
+
+    // Your standard/official base SQL (returns the universe for this FeeScheduleId)
+    // IMPORTANT: columns must match DB_COLUMN_ALIAS (right-hand names) or alias to them.
+    final String BASE_SQL = """
+        SELECT
+            ProcedureCode,
+            Modifier,
+            Effective,
+            Termination,
+            ReimbMethod,
+            Allowed,
+            Percent,
+            Modifier2,
+            Modifier3,
+            Modifier4,
+            Active
+        FROM dbo.YourViewOrTable
+        WHERE IsActive = 1
+          AND FeeScheduleId = ?
+    """;
+
+    try (Connection cx = DriverManager.getConnection(JDBC_URL)) {
+        cx.setAutoCommit(false);
+
+        // 1) Temp table holding just the keys from Target(filtered)
+        String tempTable = "#keys" + System.nanoTime();
+        try (Statement st = cx.createStatement()) {
+            st.execute("CREATE TABLE " + tempTable + " (" +
+                    KEY_COLUMNS.stream().map(c -> colName(c) + " NVARCHAR(255)")
+                            .collect(java.util.stream.Collectors.joining(", "))
+                    + ")");
+        }
+
+        // 2) Batch insert keys
+        String placeholders = KEY_COLUMNS.stream().map(c -> "?")
+                .collect(java.util.stream.Collectors.joining(", "));
+        String insertSql = "INSERT INTO " + tempTable + " (" +
+                KEY_COLUMNS.stream().map(DiffTool::colName)
+                        .collect(java.util.stream.Collectors.joining(", "))
+                + ") VALUES (" + placeholders + ")";
+        try (PreparedStatement ps = cx.prepareStatement(insertSql)) {
+            for (var k : filteredTarget.rowsByKey().keySet()) {
+                int i = 1;
+                for (String v : k.values()) ps.setString(i++, v);
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
+
+        // 3) Build SELECT list projected to CSV header names
+        java.util.List<String> selectCols = new java.util.ArrayList<>();
+        for (String c : KEY_COLUMNS)     selectCols.add("t." + dbCol(c) + " AS [" + c + "]");
+        for (String c : COMPARE_COLUMNS) selectCols.add("t." + dbCol(c) + " AS [" + c + "]");
+
+        // 4) Join on all key columns
+        String onJoin = KEY_COLUMNS.stream()
+                .map(c -> "t." + dbCol(c) + " = k." + colName(c))
+                .collect(java.util.stream.Collectors.joining(" AND "));
+
+        // 5) Final SQL: your BASE_SQL as a derived table, joined to temp keys
+        String finalSql = """
+            SELECT %s
+            FROM ( %s ) AS t
+            JOIN %s AS k ON %s
+        """.formatted(String.join(", ", selectCols), BASE_SQL, tempTable, onJoin);
+
+        Map<Key, Map<String, String>> rowsByKey = new LinkedHashMap<>();
+        java.util.List<String> headers = new java.util.ArrayList<>();
+        headers.addAll(KEY_COLUMNS);
+        headers.addAll(COMPARE_COLUMNS);
+
+        try (PreparedStatement ps = cx.prepareStatement(finalSql)) {
+            ps.setInt(1, feeScheduleId); // bind FeeScheduleId from caller
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Map<String, String> row = new LinkedHashMap<>();
+                    for (String h : headers) row.put(h, rs.getString(h));
+                    rowsByKey.put(Key.from(row, KEY_COLUMNS), row);
+                }
+            }
+        }
+
+        try (Statement st = cx.createStatement()) { st.execute("DROP TABLE " + tempTable); }
+        cx.commit();
+
+        return new CsvData(headers, rowsByKey);
+    }
+}
+
+
+********************************
+
+private static List<DiffRow> diffCsvVsDb(String leftName, CsvData leftTarget, String rightName, CsvData rightDb) {
+    Set<Key> allKeys = new LinkedHashSet<>();
+    allKeys.addAll(leftTarget.rowsByKey().keySet());
+    allKeys.addAll(rightDb.rowsByKey().keySet());
+
+    List<DiffRow> out = new ArrayList<>(Math.max(16, allKeys.size()/2));
+    for (Key k : allKeys) {
+        var l = leftTarget.rowsByKey().get(k);
+        var r = rightDb.rowsByKey().get(k);
+
+        if (l == null) {
+            // DB-only
+            out.add(new DiffRow(k, "MISSING_ON_LEFT", List.of(), null, project(r)));
+            continue;
+        }
+        if (r == null) {
+            // Target-only
+            out.add(new DiffRow(k, "MISSING_ON_RIGHT", List.of(), project(l), null));
+            continue;
+        }
+        var mismatches = compareRowValues(l, r, COMPARE_COLUMNS);
+        if (!mismatches.isEmpty()) {
+            out.add(new DiffRow(k, "VALUE_MISMATCH", mismatches, project(l), project(r)));
+        }
+    }
+    return out;
+}
+
+************************************
+
+public static void main(String[] args) throws Exception {
+    Files.createDirectories(OUTPUT_DIR);
+
+    var sourceRows = readCsvAsMap(SOURCE_CSV);
+    var targetRows = readCsvAsMap(TARGET_CSV);
+
+    requireColumns(sourceRows, "Source", KEY_COLUMNS, COMPARE_COLUMNS);
+    requireColumns(targetRows, "Target", KEY_COLUMNS, COMPARE_COLUMNS);
+    if (!targetRows.headers().contains(TERM_DATE_COLUMN)) {
+        throw new IllegalArgumentException("Target CSV missing required term date column: " + TERM_DATE_COLUMN);
+    }
+
+    // 1) Source vs Target
+    var srcVsTgtDiffs = diffTwoCsvs("Source", sourceRows, "Target", targetRows);
+    var out1 = OUTPUT_DIR.resolve("differences_source_vs_target.csv");
+    writeDiffCsv(out1, srcVsTgtDiffs);
+    System.out.println("Wrote: " + out1.toAbsolutePath() + " (" + srcVsTgtDiffs.size() + " rows)");
+
+    // 2) Target filter by Term and compare against DB for a given FeeScheduleId
+    int feeScheduleId = 12345; // TODO: set from UI/args/config
+    var filteredTarget = filterTargetByTerm(targetRows, TERM_DATE_COLUMN);
+    var dbRows = fetchDbRowsForKeys(filteredTarget, feeScheduleId);
+
+    var tgtVsDbDiffs = diffCsvVsDb("Target(filtered)", filteredTarget, "DB", dbRows);
+    var out2 = OUTPUT_DIR.resolve("differences_target_vs_db.csv");
+    writeDiffCsv(out2, tgtVsDbDiffs);
+    System.out.println("Wrote: " + out2.toAbsolutePath() + " (" + tgtVsDbDiffs.size() + " rows)");
+}
+
+*********************************
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 private static void writeDiffCsv(Path out, List<DiffRow> diffs) throws IOException {
     CsvWriterSettings s = new CsvWriterSettings();
     s.setHeaders(buildHeaders());
