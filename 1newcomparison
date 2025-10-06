@@ -1,3 +1,142 @@
+// Write ONLY the filtered rows into an .xlsx file (one sheet: "Filtered")
+private static void writeFilteredTargetToXlsx(Path outXlsx, CsvData filtered, List<String> columns) throws IOException {
+    try (org.apache.poi.xssf.streaming.SXSSFWorkbook wb = new org.apache.poi.xssf.streaming.SXSSFWorkbook(500);
+         java.io.OutputStream os = java.nio.file.Files.newOutputStream(outXlsx)) {
+
+        org.apache.poi.xssf.streaming.SXSSFSheet sh = wb.createSheet("Filtered");
+
+        // header
+        org.apache.poi.ss.usermodel.Row hr = sh.createRow(0);
+        for (int i = 0; i < columns.size(); i++) hr.createCell(i).setCellValue(columns.get(i));
+
+        // rows
+        int r = 1;
+        for (var rowMap : filtered.rowsByKey().values()) {
+            org.apache.poi.ss.usermodel.Row row = sh.createRow(r++);
+            for (int c = 0; c < columns.size(); c++) {
+                String col = columns.get(c);
+                String val = rowMap.getOrDefault(col, "");
+                row.createCell(c).setCellValue(val == null ? "" : val);
+            }
+        }
+
+        wb.write(os);
+        wb.dispose(); // free temp files
+    }
+}
+
+**************
+// Creates one workbook with two sheets: "Filtered" (pass) and "Excluded" (fail) + parsed term + reason
+private static void exportFilterDiagnostics(Path outXlsx, CsvData target, String termCol) throws IOException {
+    try (org.apache.poi.xssf.streaming.SXSSFWorkbook wb = new org.apache.poi.xssf.streaming.SXSSFWorkbook(500);
+         java.io.OutputStream os = java.nio.file.Files.newOutputStream(outXlsx)) {
+
+        var cols = new java.util.ArrayList<String>(target.headers());
+        cols.add("__ParsedTermISO");
+        cols.add("__Reason");
+
+        org.apache.poi.xssf.streaming.SXSSFSheet pass = wb.createSheet("Filtered");
+        org.apache.poi.xssf.streaming.SXSSFSheet fail = wb.createSheet("Excluded");
+
+        // headers
+        org.apache.poi.ss.usermodel.Row h1 = pass.createRow(0);
+        org.apache.poi.ss.usermodel.Row h2 = fail.createRow(0);
+        for (int i = 0; i < cols.size(); i++) {
+            h1.createCell(i).setCellValue(cols.get(i));
+            h2.createCell(i).setCellValue(cols.get(i));
+        }
+
+        int rp = 1, rf = 1;
+        for (var e : target.rowsByKey().entrySet()) {
+            var rowMap = e.getValue();
+            String raw = rowMap.get(termCol);
+            java.time.LocalDate parsed = (raw == null) ? null : tryParseDate(raw.trim());
+
+            boolean include = parsed != null && (parsed.equals(OPEN_END) || !parsed.isBefore(FILTER_MIN_TERM));
+            String reason;
+            if (parsed == null) reason = "Term parse failed";
+            else if (parsed.equals(OPEN_END)) reason = "Open end (9999-12-31)";
+            else if (!parsed.isBefore(FILTER_MIN_TERM)) reason = "Term >= 2025-01-01";
+            else reason = "Term < 2025-01-01";
+
+            var vals = new java.util.ArrayList<String>(cols.size());
+            for (String h : target.headers()) vals.add(rowMap.getOrDefault(h, ""));
+            vals.add(parsed == null ? "" : parsed.toString());
+            vals.add(reason);
+
+            org.apache.poi.ss.usermodel.Row r = (include ? pass : fail).createRow(include ? rp++ : rf++);
+            for (int i = 0; i < vals.size(); i++) r.createCell(i).setCellValue(vals.get(i));
+        }
+
+        wb.write(os);
+        wb.dispose();
+    }
+}
+
+**************
+
+var filteredTarget = filterTargetByTerm(targetRows, TERM_DATE_COLUMN);
+
+// Just the filtered rows:
+Path outFiltered = OUTPUT_DIR.resolve("target_filtered_rows.xlsx");
+writeFilteredTargetToXlsx(outFiltered, filteredTarget, targetRows.headers());
+System.out.println("Wrote filtered rows to: " + outFiltered.toAbsolutePath()
+        + " (rows=" + filteredTarget.rowsByKey().size() + ")");
+
+// Optional: pass & fail with reasons to debug discrepancies:
+Path outDiag = OUTPUT_DIR.resolve("target_filter_diagnostics.xlsx");
+exportFilterDiagnostics(outDiag, targetRows, TERM_DATE_COLUMN);
+System.out.println("Wrote diagnostics to: " + outDiag.toAbsolutePath());
+
+************************
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // Business-match key for Target vs DB
 private static final List<String> MOD_KEY_COLS = List.of(
     "Procedure Code", "Modifier", "Modifier2", "Modifier3", "Modifier4"
