@@ -1,0 +1,166 @@
+// same key type
+private record Key(List<String> values) {
+    static Key from(Map<String,String> row, List<String> keyCols) {
+        return new Key(keyCols.stream().map(c -> normalizeCell(row.get(c))).toList());
+    }
+}
+
+// keep ALL rows for each key
+private record CsvData(List<String> headers, Map<Key, List<Map<String,String>>> rowsByKey) {}
+
+
+##############
+
+private static CsvData readCsvAsMap(Path path) throws IOException {
+    CsvParserSettings s = new CsvParserSettings();
+    s.setHeaderExtractionEnabled(true);
+    s.setLineSeparatorDetectionEnabled(true);
+    s.setNullValue("");
+    s.setEmptyValue("");
+    s.setMaxColumns(2048);
+    CsvParser parser = new CsvParser(s);
+
+    List<String> headers;
+    Map<Key, List<Map<String,String>>> rowsByKey = new LinkedHashMap<>();
+
+    try (Reader r = Files.newBufferedReader(path)) {
+        parser.beginParsing(r);
+        headers = List.of(parser.getRecordMetadata().headers());
+
+        Record rec;
+        while ((rec = parser.parseNextRecord()) != null) {
+            Map<String,String> row = new LinkedHashMap<>();
+            for (String h : headers) row.put(h, rec.getString(h));
+            Key k = Key.from(row, KEY_COLUMNS);
+            rowsByKey.computeIfAbsent(k, __ -> new ArrayList<>()).add(row);
+        }
+    }
+    return new CsvData(headers, rowsByKey);
+}
+
+#####################
+
+private static CsvData filterTargetByTerm(CsvData target, String termCol) {
+    Map<Key, List<Map<String,String>>> out = new LinkedHashMap<>();
+
+    for (var e : target.rowsByKey().entrySet()) {
+        Key k = e.getKey();
+        for (var row : e.getValue()) {
+            LocalDate term = Optional.ofNullable(row.get(termCol))
+                    .map(String::trim).map(DiffTool::tryParseDate).orElse(null);
+            if (term == null) continue;
+            if (term.equals(OPEN_END) || !term.isBefore(FILTER_MIN_TERM)) {
+                out.computeIfAbsent(k, __ -> new ArrayList<>()).add(row);
+            }
+        }
+    }
+    return new CsvData(target.headers(), out);
+}
+
+######################
+
+private static Map<String,String> project(Map<String,String> row) {
+    Map<String,String> m = new LinkedHashMap<>();
+    for (String c : KEY_COLUMNS)     m.put(c, row.get(c));
+    for (String c : COMPARE_COLUMNS) m.put(c, row.getOrDefault(c, ""));
+    return m;
+}
+
+#####################
+
+Map<Key, List<Map<String,String>>> rowsByKey = new LinkedHashMap<>();
+List<String> headers = new ArrayList<>();
+headers.addAll(KEY_COLUMNS);
+headers.addAll(COMPARE_COLUMNS);
+
+try (Statement st = cx.createStatement(); ResultSet rs = st.executeQuery(sql)) {
+    while (rs.next()) {
+        Map<String,String> row = new LinkedHashMap<>();
+        for (String h : headers) row.put(h, rs.getString(h));
+        Key k = Key.from(row, KEY_COLUMNS);
+        rowsByKey.computeIfAbsent(k, __ -> new ArrayList<>()).add(row);
+    }
+}
+return new CsvData(headers, rowsByKey);
+
+###########################
+
+private static final List<String> MOD_KEY_COLS = List.of(
+    "Procedure Code","Modifier","Modifier2","Modifier3","Modifier4"
+);
+private static final List<String> EXACT_COMPARE   = List.of("Effective","Termination","Reimb Method","Allowed","Percent");
+private static final List<String> PARTIAL_COMPARE = List.of("Termination","Reimb Method","Allowed","Percent");
+
+private static Key keyFrom(Map<String,String> row, List<String> cols){
+    return new Key(cols.stream().map(c -> normalizeCell(row.get(c))).toList());
+}
+private static boolean rowMatchesOn(Map<String,String> a, Map<String,String> b, List<String> cols){
+    for (String c: cols){ if(!Objects.equals(normalizeCell(a.get(c)), normalizeCell(b.get(c)))) return false; }
+    return true;
+}
+private static List<String> diffColumns(Map<String,String> a, Map<String,String> b, List<String> cols){
+    List<String> out=new ArrayList<>();
+    for(String c: cols){ if(!Objects.equals(normalizeCell(a.get(c)), normalizeCell(b.get(c)))) out.add(c); }
+    return out;
+}
+
+#######################
+
+private static List<DiffRow> diffTargetVsDbWithRules(CsvData targetFiltered, CsvData dbRows) {
+    // group DB rows by MOD_KEY_COLS
+    Map<Key, List<Map<String,String>>> dbByModKey = new LinkedHashMap<>();
+    for (var e : dbRows.rowsByKey().entrySet()) {
+        for (var dbRow : e.getValue()) {
+            dbByModKey.computeIfAbsent(keyFrom(dbRow, MOD_KEY_COLS), __ -> new ArrayList<>()).add(dbRow);
+        }
+    }
+
+    List<DiffRow> out = new ArrayList<>();
+
+    // compare EVERY target row under each key
+    for (var e : targetFiltered.rowsByKey().entrySet()) {
+        for (var tRow : e.getValue()) {
+            Key modKey = keyFrom(tRow, MOD_KEY_COLS);
+            List<Map<String,String>> dbList = dbByModKey.get(modKey);
+
+            if (dbList == null || dbList.isEmpty()) {
+                out.add(new DiffRow(modKey, "MISSING_ON_RIGHT", List.of(), project(tRow), null));
+                continue;
+            }
+
+            boolean exact = dbList.stream().anyMatch(d -> rowMatchesOn(tRow, d, EXACT_COMPARE));
+            if (exact) continue; // ignore exact matches
+
+            boolean partial = dbList.stream().anyMatch(d -> rowMatchesOn(tRow, d, PARTIAL_COMPARE));
+            if (partial) continue; // ignore partial matches
+
+            // take first DB row just for side-by-side context
+            Map<String,String> d0 = dbList.get(0);
+            out.add(new DiffRow(modKey, "VALUE_MISMATCH", diffColumns(tRow, d0, EXACT_COMPARE), project(tRow), project(d0)));
+        }
+    }
+
+    // (optional) DB-only rows:
+    Set<Key> targetModKeys = targetFiltered.rowsByKey().values().stream()
+            .flatMap(list -> list.stream())
+            .map(r -> keyFrom(r, MOD_KEY_COLS))
+            .collect(java.util.stream.Collectors.toSet());
+
+    for (var eDb : dbByModKey.entrySet()) {
+        if (!targetModKeys.contains(eDb.getKey())) {
+            Map<String,String> d0 = eDb.getValue().get(0);
+            out.add(new DiffRow(eDb.getKey(), "MISSING_ON_LEFT", List.of(), null, project(d0)));
+        }
+    }
+
+    return out;
+}
+
+############################
+
+for (var e : target.rowsByKey().entrySet()) {
+    for (var rowMap : e.getValue()) {
+        // same logic as before...
+    }
+}
+
