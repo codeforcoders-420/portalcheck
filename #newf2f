@@ -16,15 +16,21 @@ import java.time.format.DateTimeParseException;
 import java.util.*;
 
 /**
- * Source vs Target CSV comparator
- * --------------------------------
- * - Reads "input/Source.csv" and "input/Target.csv"
- * - Keeps ALL rows per 5-key (Procedure Code + Modifiers)
- * - Removes exact and partial matches
- * - Writes diff-output/differences_source_vs_target.csv
- * - "Differences" lists mismatched columns and src/tgt values
+ * Bi-directional CSV comparator
+ * -----------------------------
+ * Reads:   input/Source.csv, input/Target.csv
+ * Writes:  diff-output/differences_bidirectional.csv
+ *
+ * For each direction (A→B):
+ *  - Keep ALL rows per 5-key (Procedure Code, Modifier, Modifier2, Modifier3, Modifier4)
+ *  - Ignore exact matches (key + Effective/Termination/Reimb Method/Allowed/Percent)
+ *  - Ignore partial matches (key + Termination/Reimb Method/Allowed/Percent)
+ *  - Otherwise, report row with Differences (which fields differ + src/tgt values)
+ *  - If key missing on right, Differences="Key Missing"
+ *
+ * Output columns (12): Direction + your 11 requested columns
  */
-public class SourceTargetDiff {
+public class BidirectionalDiff {
 
     /* ========================== CONFIG ========================== */
 
@@ -34,30 +40,38 @@ public class SourceTargetDiff {
     private static final Path SOURCE_CSV = INPUT_DIR.resolve("Source.csv");
     private static final Path TARGET_CSV = INPUT_DIR.resolve("Target.csv");
 
+    // 5-key combo used to group rows (PRESERVE ALL rows per key)
     private static final List<String> MOD_KEY_COLS = List.of(
             "Procedure Code", "Modifier", "Modifier2", "Modifier3", "Modifier4"
     );
+
+    // Compare sets
     private static final List<String> EXACT_COMPARE = List.of(
             "Effective", "Termination", "Reimb Method", "Allowed", "Percent"
     );
     private static final List<String> PARTIAL_COMPARE = List.of(
             "Termination", "Reimb Method", "Allowed", "Percent"
     );
+
+    // Output columns (Direction + your 11)
     private static final List<String> OUTPUT_COLS = List.of(
+            "Direction",
             "Procedure Code", "Modifier", "Modifier2", "Modifier3", "Modifier4",
             "Effective", "Termination", "Reimb Method", "Allowed", "Percent", "Differences"
     );
 
     /* ========================== TYPES ========================== */
 
+    // Composite key of normalized values (for reliable grouping)
     private record Key(List<String> values) {
-        static Key from(Map<String,String> row, List<String> cols) {
+        static Key from(Map<String, String> row, List<String> cols) {
             return new Key(cols.stream().map(c -> normalizeCell(row.get(c))).toList());
         }
     }
 
+    // CSV data preserving ALL rows per key
     private record CsvData(List<String> headers,
-                           Map<Key, List<Map<String,String>>> rowsByKey) {}
+                           Map<Key, List<Map<String, String>>> rowsByKey) {}
 
     /* ========================== MAIN ========================== */
 
@@ -77,41 +91,58 @@ public class SourceTargetDiff {
         requireColumns(source, "Source", MOD_KEY_COLS, EXACT_COMPARE);
         requireColumns(target, "Target", MOD_KEY_COLS, EXACT_COMPARE);
 
-        List<Map<String,String>> diffs = diffSourceVsTarget(source, target);
+        // Pass 1: Source -> Target
+        List<Map<String,String>> s2t = compareOneWay("Source→Target", source, target);
+        // Pass 2: Target -> Source
+        List<Map<String,String>> t2s = compareOneWay("Target→Source", target, source);
 
-        Path out = OUTPUT_DIR.resolve("differences_source_vs_target.csv");
-        writeSlimCsv(out, diffs);
+        // Combine
+        List<Map<String,String>> all = new ArrayList<>(s2t.size() + t2s.size());
+        all.addAll(s2t);
+        all.addAll(t2s);
 
-        System.out.printf("✅ Compared %d source rows → %d differences written to %s%n",
-                source.rowsByKey().values().stream().mapToInt(List::size).sum(),
-                diffs.size(), out.toAbsolutePath());
+        Path out = OUTPUT_DIR.resolve("differences_bidirectional.csv");
+        writeSlimCsv(out, all);
+
+        int sourceRows = source.rowsByKey().values().stream().mapToInt(List::size).sum();
+        int targetRows = target.rowsByKey().values().stream().mapToInt(List::size).sum();
+
+        System.out.printf("✅ Compared Source(%d rows) ↔ Target(%d rows)%n", sourceRows, targetRows);
+        System.out.printf("   Differences: %d written to %s%n", all.size(), out.toAbsolutePath());
     }
 
     /* ========================== CORE LOGIC ========================== */
 
-    private static List<Map<String,String>> diffSourceVsTarget(CsvData source, CsvData target) {
-        Map<Key, List<Map<String,String>>> tgtByKey = target.rowsByKey();
+    /**
+     * One-way comparison (left → right) using the specified rules.
+     * Direction label is written to the output "Direction" column.
+     */
+    private static List<Map<String,String>> compareOneWay(String direction,
+                                                          CsvData left,
+                                                          CsvData right) {
+        Map<Key, List<Map<String,String>>> rightByKey = right.rowsByKey();
         List<Map<String,String>> out = new ArrayList<>();
 
-        for (var e : source.rowsByKey().entrySet()) {
-            for (var sRow : e.getValue()) {
-                Key k = Key.from(sRow, MOD_KEY_COLS);
-                List<Map<String,String>> candidates = tgtByKey.get(k);
+        for (var e : left.rowsByKey().entrySet()) {
+            for (var lRow : e.getValue()) {
+                Key k = Key.from(lRow, MOD_KEY_COLS);
+                List<Map<String,String>> candidates = rightByKey.get(k);
 
                 if (candidates == null || candidates.isEmpty()) {
-                    out.add(makeOutRow(sRow, "Key Missing"));
+                    out.add(makeOutRow(direction, lRow, "Key Missing"));
                     continue;
                 }
 
-                boolean exact = candidates.stream().anyMatch(t -> rowMatchesOn(sRow, t, EXACT_COMPARE));
-                if (exact) continue;
+                boolean exact = candidates.stream().anyMatch(r -> rowMatchesOn(lRow, r, EXACT_COMPARE));
+                if (exact) continue; // ignore exact matches
 
-                boolean partial = candidates.stream().anyMatch(t -> rowMatchesOn(sRow, t, PARTIAL_COMPARE));
-                if (partial) continue;
+                boolean partial = candidates.stream().anyMatch(r -> rowMatchesOn(lRow, r, PARTIAL_COMPARE));
+                if (partial) continue; // ignore partial matches
 
-                Map<String,String> best = chooseBestMatch(sRow, candidates, EXACT_COMPARE);
-                String details = buildDifferencesDetail(sRow, best, EXACT_COMPARE);
-                out.add(makeOutRow(sRow, details));
+                // Choose best match to show tgt values in Differences
+                Map<String,String> best = chooseBestMatch(lRow, candidates, EXACT_COMPARE);
+                String details = buildDifferencesDetail(lRow, best, EXACT_COMPARE);
+                out.add(makeOutRow(direction, lRow, details));
             }
         }
         return out;
@@ -120,23 +151,25 @@ public class SourceTargetDiff {
     /* ========================== HELPERS ========================== */
 
     private static CsvData readCsvAsMap(Path path) throws IOException {
-        var s = new CsvParserSettings();
+        CsvParserSettings s = new CsvParserSettings();
         s.setHeaderExtractionEnabled(true);
         s.setLineSeparatorDetectionEnabled(true);
         s.setNullValue("");
         s.setEmptyValue("");
         s.setMaxColumns(4096);
-        var parser = new CsvParser(s);
+
+        CsvParser parser = new CsvParser(s);
 
         List<String> headers;
-        Map<Key,List<Map<String,String>>> rowsByKey = new LinkedHashMap<>();
+        Map<Key, List<Map<String, String>>> rowsByKey = new LinkedHashMap<>();
 
         try (Reader r = Files.newBufferedReader(path)) {
             parser.beginParsing(r);
             headers = List.of(parser.getRecordMetadata().headers());
+
             Record rec;
             while ((rec = parser.parseNextRecord()) != null) {
-                Map<String,String> row = new LinkedHashMap<>();
+                Map<String, String> row = new LinkedHashMap<>();
                 for (String h : headers) row.put(h, rec.getString(h));
                 Key k = Key.from(row, MOD_KEY_COLS);
                 rowsByKey.computeIfAbsent(k, __ -> new ArrayList<>()).add(row);
@@ -161,24 +194,27 @@ public class SourceTargetDiff {
         return true;
     }
 
-    private static Map<String,String> chooseBestMatch(Map<String,String> src,
+    // Choose the candidate that matches the most fields among 'cols'
+    private static Map<String,String> chooseBestMatch(Map<String,String> left,
                                                       List<Map<String,String>> candidates,
                                                       List<String> cols) {
         Map<String,String> best = candidates.get(0);
         int bestScore = -1;
-        for (var t : candidates) {
+        for (var r : candidates) {
             int score = 0;
             for (String c : cols)
-                if (Objects.equals(normalizeCell(src.get(c)), normalizeCell(t.get(c)))) score++;
-            if (score > bestScore) { bestScore = score; best = t; }
+                if (Objects.equals(normalizeCell(left.get(c)), normalizeCell(r.get(c)))) score++;
+            if (score > bestScore) { bestScore = score; best = r; }
         }
         return best;
     }
 
-    private static Map<String,String> makeOutRow(Map<String,String> src, String differences) {
+    private static Map<String,String> makeOutRow(String direction, Map<String,String> row, String differences) {
         Map<String,String> m = new LinkedHashMap<>();
+        m.put("Direction", direction);
         for (String c : OUTPUT_COLS) {
-            if (!"Differences".equals(c)) m.put(c, raw(src, c));
+            if ("Direction".equals(c) || "Differences".equals(c)) continue;
+            m.put(c, raw(row, c));
         }
         m.put("Differences", differences);
         return m;
@@ -189,28 +225,32 @@ public class SourceTargetDiff {
         return v == null ? "" : v.trim();
     }
 
-    private static String buildDifferencesDetail(Map<String,String> src,
-                                                 Map<String,String> tgt,
+    // "Allowed(src=123.45, tgt=120.00) | Effective(src=2024-09-01, tgt=2024-10-01)"
+    private static String buildDifferencesDetail(Map<String,String> left,
+                                                 Map<String,String> right,
                                                  List<String> compareCols) {
         List<String> parts = new ArrayList<>();
         for (String c : compareCols) {
-            String sNorm = normalizeCell(src.get(c));
-            String tNorm = normalizeCell(tgt.get(c));
-            if (!Objects.equals(sNorm, tNorm)) {
-                parts.add(c + "(src=" + raw(src, c) + ", tgt=" + raw(tgt, c) + ")");
+            String lNorm = normalizeCell(left.get(c));
+            String rNorm = normalizeCell(right.get(c));
+            if (!Objects.equals(lNorm, rNorm)) {
+                parts.add(c + "(src=" + raw(left, c) + ", tgt=" + raw(right, c) + ")");
             }
         }
         return parts.isEmpty() ? "" : String.join(" | ", parts);
     }
 
+    // Normalize values: numbers ($, , stripping) and dates (to yyyy-MM-dd); trim/collapse whitespace
     private static String normalizeCell(String s) {
         if (s == null) return null;
         String t = s.trim();
         if (t.isEmpty()) return null;
 
+        // Dates
         LocalDate d = tryParseDate(t);
         if (d != null) return d.toString();
 
+        // Numbers
         String cleaned = t.replace(",", "");
         if (cleaned.startsWith("$")) cleaned = cleaned.substring(1);
         try {
@@ -219,6 +259,7 @@ public class SourceTargetDiff {
             return bd.toPlainString();
         } catch (NumberFormatException ignore) {}
 
+        // Strings
         return cleaned.replaceAll("\\s+", " ");
     }
 
@@ -239,10 +280,10 @@ public class SourceTargetDiff {
     }
 
     private static void writeSlimCsv(Path out, List<Map<String,String>> rows) throws IOException {
-        var settings = new CsvWriterSettings();
+        CsvWriterSettings settings = new CsvWriterSettings();
         settings.setHeaderWritingEnabled(true);
         try (Writer w = Files.newBufferedWriter(out)) {
-            var writer = new CsvWriter(w, settings);
+            CsvWriter writer = new CsvWriter(w, settings);
             writer.writeHeaders(OUTPUT_COLS.toArray(new String[0]));
             for (var r : rows) {
                 List<String> line = new ArrayList<>(OUTPUT_COLS.size());
