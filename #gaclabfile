@@ -1,0 +1,280 @@
+#!/usr/bin/env python3
+"""
+Extract "Proc Code" & "Max Allow" pairs from pages 3–22 (inclusive)
+for every PDF in an input folder and write a combined Excel to an output folder.
+
+Improvements:
+- Amount can be WITH or WITHOUT a "$" (e.g., "$135.68" or "135.68").
+- Fallback pass pairs code and amount using word-level positions if line regex misses cases.
+
+Install:
+    pip install pdfplumber pandas xlsxwriter
+
+Run:
+    python extract_proc_max_allow.py
+"""
+
+import os
+import re
+import sys
+import glob
+import time
+from typing import List, Dict, Tuple
+
+import pandas as pd
+
+
+# ---------- Prompts ----------
+def ask_path(prompt: str, must_be_dir: bool = True) -> str:
+    while True:
+        p = input(prompt).strip().strip('"').strip("'")
+        if not p:
+            print("Please enter a path.")
+            continue
+        if must_be_dir:
+            if os.path.isdir(p):
+                return os.path.abspath(p)
+            print("That folder does not exist. Please try again.")
+        else:
+            return os.path.abspath(p)
+
+
+def ask_page_range(default_start: int = 3, default_end: int = 22) -> Tuple[int, int]:
+    raw = input(f"Page range (press Enter for default {default_start}-{default_end}): ").strip()
+    if not raw:
+        return default_start, default_end
+    try:
+        if "-" in raw:
+            s, e = raw.split("-", 1)
+            s = int(s.strip()); e = int(e.strip())
+            if s <= 0 or e <= 0 or s > e:
+                raise ValueError
+            return s, e
+        else:
+            p = int(raw)
+            if p <= 0:
+                raise ValueError
+            return p, p
+    except Exception:
+        print("Invalid page range. Using defaults.")
+        return default_start, default_end
+
+
+# ---------- Patterns & helpers ----------
+
+# Accept amount with or without "$"
+# Examples: "$1,234.56", "1,234.56", "$135.68", "135.68"
+AMOUNT_PATTERN = r"(?:\$\s*)?([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})|[0-9]+(?:\.[0-9]{2}))"
+
+# Code then whitespace(s) then amount somewhere right on the SAME line
+CODE_AMOUNT_REGEX = re.compile(r"\b([A-Za-z0-9]{3,7})\s+" + AMOUNT_PATTERN + r"\b")
+
+HEADER_NOISE_SNIPPETS = (
+    "Schedule of Maximum Allowable",
+    "Proc Max Allow",
+    "Maximum Allowable",
+    "Max Allowable",
+    "Max Allow",
+    "Allowed",
+    "Allowable",
+    "Page ",
+    # months
+    "October", "September", "August", "July", "June", "May", "April", "March",
+    "February", "January", "November", "December",
+)
+
+
+def clean_amount(a: str):
+    a = a.replace(",", "").strip()
+    try:
+        return float(a)
+    except Exception:
+        return None
+
+
+def looks_like_noise_line(line: str) -> bool:
+    L = line.lower()
+    if len(L) < 2:
+        return True
+    for snip in HEADER_NOISE_SNIPPETS:
+        if snip.lower() in L:
+            return True
+    return False
+
+
+# ---------- Extraction ----------
+def extract_line_level(page, page_num: int, pdf_name: str) -> List[Dict]:
+    txt = page.extract_text(x_tolerance=2, y_tolerance=2) or ""
+    rows: List[Dict] = []
+    for raw_ln in txt.splitlines():
+        line = re.sub(r"[^\S\r\n]+", " ", raw_ln).strip()
+        if not line or looks_like_noise_line(line):
+            continue
+        for m in CODE_AMOUNT_REGEX.finditer(line):
+            code = m.group(1)
+            amt = clean_amount(m.group(2))
+            if amt is None or len(code) < 3:
+                continue
+            rows.append({
+                "Source File": pdf_name,
+                "Page": page_num,
+                "Proc Code": code,
+                "Max Allow": amt,
+            })
+    return rows
+
+
+def extract_words_fallback(page, page_num: int, pdf_name: str) -> List[Dict]:
+    """
+    Word-level pairing: find code-like tokens and the NEAREST amount-like token on same text line.
+    This rescues cases where the $ is missing or spacing breaks simple line regex.
+    """
+    rows: List[Dict] = []
+    words = page.extract_words(use_text_flow=True, keep_blank_chars=False) or []
+    if not words:
+        return rows
+
+    # Group words by their y0 band (same text line). Allow a small tolerance.
+    # We'll bin lines by rounding y0 to nearest integer.
+    lines_map = {}
+    for w in words:
+        key = round(w.get("top", 0))
+        lines_map.setdefault(key, []).append(w)
+
+    code_pat = re.compile(r"^[A-Za-z0-9]{3,7}$")
+    amt_pat = re.compile(r"^" + AMOUNT_PATTERN + r"$")
+
+    for key, wlist in lines_map.items():
+        # sort left-to-right
+        wlist = sorted(wlist, key=lambda x: x.get("x0", 0))
+        # collect candidates
+        codes = []
+        amts = []
+        for w in wlist:
+            text = (w.get("text") or "").strip()
+            if not text:
+                continue
+            if code_pat.match(text):
+                codes.append(w)
+            elif amt_pat.match(text):
+                amts.append(w)
+
+        # nearest amount to the right for each code
+        for cw in codes:
+            cx = cw.get("x0", 0)
+            best = None
+            best_dx = 1e9
+            best_val = None
+            for aw in amts:
+                ax = aw.get("x0", 0)
+                if ax <= cx:
+                    continue
+                m = amt_pat.match(aw.get("text", "").strip())
+                if not m:
+                    continue
+                val = clean_amount(m.group(1))
+                if val is None:
+                    continue
+                dx = ax - cx
+                if dx < best_dx:
+                    best_dx = dx
+                    best = aw
+                    best_val = val
+            if best is not None:
+                rows.append({
+                    "Source File": pdf_name,
+                    "Page": page_num,
+                    "Proc Code": cw.get("text").strip(),
+                    "Max Allow": best_val,
+                })
+    return rows
+
+
+def extract_from_pdf(pdf_path: str, start_page: int, end_page: int) -> List[Dict]:
+    rows: List[Dict] = []
+    import pdfplumber
+    with pdfplumber.open(pdf_path) as pdf:
+        total = len(pdf.pages)
+        s = max(1, start_page)
+        e = min(end_page, total)
+        if s > total:
+            return rows
+        for pno in range(s-1, e):
+            page = pdf.pages[pno]
+            pdf_name = os.path.basename(pdf_path)
+            page_num = pno + 1
+
+            # Pass 1: simple line-level regex
+            r1 = extract_line_level(page, page_num, pdf_name)
+            rows.extend(r1)
+
+            # Pass 2 (fallback): only add pairs not already found on this page+code+amount
+            r2 = extract_words_fallback(page, page_num, pdf_name)
+            if r2:
+                keyset = {(d["Proc Code"], d["Max Allow"]) for d in r1}
+                for d in r2:
+                    if (d["Proc Code"], d["Max Allow"]) not in keyset:
+                        rows.append(d)
+
+    return rows
+
+
+def autosize_excel_columns(writer, df, sheet_name):
+    try:
+        ws = writer.sheets[sheet_name]
+        for i, col in enumerate(df.columns):
+            col_width = max(12, min(60, df[col].astype(str).map(len).max() + 2))
+            ws.set_column(i, i, col_width)
+    except Exception:
+        pass
+
+
+def main():
+    print("=== Proc Code & Max Allow Extractor (Pages 3–22) ===")
+    in_folder = ask_path("Enter INPUT folder path (where the PDF files are): ")
+    out_folder = ask_path("Enter OUTPUT folder path (where Excel should be saved): ")
+    start_page, end_page = ask_page_range(3, 22)
+
+    pdfs = sorted(glob.glob(os.path.join(in_folder, '*.pdf')))
+    if not pdfs:
+        print("No PDF files found in the input folder.")
+        sys.exit(1)
+
+    print(f"Found {len(pdfs)} PDF(s). Processing pages {start_page}–{end_page} ...")
+    all_rows: List[Dict] = []
+    for idx, pdf_path in enumerate(pdfs, start=1):
+        print(f"  [{idx}/{len(pdfs)}] {os.path.basename(pdf_path)}")
+        try:
+            rows = extract_from_pdf(pdf_path, start_page, end_page)
+            all_rows.extend(rows)
+        except Exception as e:
+            print(f"[WARN] Failed to process {os.path.basename(pdf_path)}: {e}")
+
+    if not all_rows:
+        print("No data extracted. Please verify the PDFs and page range.")
+        sys.exit(2)
+
+    df = pd.DataFrame(all_rows)
+    df.drop_duplicates(['Source File', 'Page', 'Proc Code', 'Max Allow'], inplace=True)
+    df.sort_values(by=['Source File', 'Page', 'Proc Code'], inplace=True)
+
+    ts = time.strftime('%Y%m%d_%H%M%S')
+    out_name = f'ProcCode_MaxAllow_p{start_page}-{end_page}_{ts}.xlsx'
+    out_path = os.path.join(out_folder, out_name)
+
+    with pd.ExcelWriter(out_path, engine='xlsxwriter') as writer:
+        sheet = f'P{start_page}_{end_page}'
+        df.to_excel(writer, index=False, sheet_name=sheet)
+        autosize_excel_columns(writer, df, sheet)
+
+    # Quick confirmation for your example (optional print if present)
+    hit_52284 = df[(df['Proc Code'] == '52284') & (df['Page'] >= start_page) & (df['Page'] <= end_page)]
+    if not hit_52284.empty:
+        sample = hit_52284.iloc[0]
+        print(f"Found example: Proc Code 52284 on page {sample['Page']} with Max Allow {sample['Max Allow']}")
+
+    print(f"\nDone! Wrote {len(df):,} rows to:\n  {out_path}")
+
+
+if __name__ == "__main__":
+    main()
