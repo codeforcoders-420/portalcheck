@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
 """
-Extract "Proc Code" & "Max Allow" pairs from pages 3–22 (inclusive)
-for every PDF in an input folder and write a combined Excel to an output folder.
+Extract "Proc Code" & "Max Allow" pairs from PDFs.
 
-Improvements:
-- Amount can be WITH or WITHOUT a "$" (e.g., "$135.68" or "135.68").
-- Fallback pass pairs code and amount using word-level positions if line regex misses cases.
+Features:
+- Input/output folder prompts
+- Page range prompt (default 3–22)
+- Amounts with/without "$", parentheses, or trailing letter (e.g., "135.68f")
+- Reconstructs split codes (e.g., "G03" "06" -> "G0306")
+- Strict code filter: 5 digits OR 1 uppercase letter + 4 digits
+- Pairs code->amount on same line or next 1–2 lines
+- De-duplicates per (Page, Proc Code)
+- Writes a single combined Excel
 
 Install:
     pip install pdfplumber pandas xlsxwriter
 
 Run:
-    python extract_proc_max_allow.py
+    python extract_proc_max_allow_final.py
 """
 
 import os
@@ -23,8 +28,7 @@ from typing import List, Dict, Tuple
 
 import pandas as pd
 
-
-# ---------- Prompts ----------
+# -------------------- Prompts --------------------
 def ask_path(prompt: str, must_be_dir: bool = True) -> str:
     while True:
         p = input(prompt).strip().strip('"').strip("'")
@@ -37,7 +41,6 @@ def ask_path(prompt: str, must_be_dir: bool = True) -> str:
             print("That folder does not exist. Please try again.")
         else:
             return os.path.abspath(p)
-
 
 def ask_page_range(default_start: int = 3, default_end: int = 22) -> Tuple[int, int]:
     raw = input(f"Page range (press Enter for default {default_start}-{default_end}): ").strip()
@@ -59,183 +62,188 @@ def ask_page_range(default_start: int = 3, default_end: int = 22) -> Tuple[int, 
         print("Invalid page range. Using defaults.")
         return default_start, default_end
 
+# -------------------- Patterns & Helpers --------------------
+# Amount core (with decimals), e.g. 1,520.30 or 135.68
+AMOUNT_CORE = r"(?:[0-9]{1,3}(?:,[0-9]{3})*|[0-9]+)\.[0-9]{2}"
+# Accept with or without $, optional parentheses, optional single trailing letter (OCR artifact)
+AMOUNT_PATTERN = rf"(?:\(?\s*\$\s*)?({AMOUNT_CORE})[A-Za-z]?\s*\)?"
+AMT_INLINE_PAT = re.compile(r"^" + AMOUNT_PATTERN + r"$")
 
-# ---------- Patterns & helpers ----------
-
-# Accept amount with or without "$"
-# Examples: "$1,234.56", "1,234.56", "$135.68", "135.68"
-AMOUNT_PATTERN = r"(?:\$\s*)?([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})|[0-9]+(?:\.[0-9]{2}))"
-
-# Code then whitespace(s) then amount somewhere right on the SAME line
-CODE_AMOUNT_REGEX = re.compile(r"\b([A-Za-z0-9]{3,7})\s+" + AMOUNT_PATTERN + r"\b")
-
-HEADER_NOISE_SNIPPETS = (
-    "Schedule of Maximum Allowable",
-    "Proc Max Allow",
-    "Maximum Allowable",
-    "Max Allowable",
-    "Max Allow",
-    "Allowed",
-    "Allowable",
-    "Page ",
-    # months
-    "October", "September", "August", "July", "June", "May", "April", "March",
-    "February", "January", "November", "December",
-)
-
+# Strict final code pattern: 5 digits OR 1 uppercase letter + 4 digits
+FINAL_CODE_PAT = re.compile(r"^(?:[A-Z]\d{4}|\d{5})$")
+# For token reconstruction we accept short alnum tokens (final check uses FINAL_CODE_PAT)
+CODE_TOKEN_PAT = re.compile(r"^[A-Za-z0-9]{1,5}$")
 
 def clean_amount(a: str):
-    a = a.replace(",", "").strip()
+    """Normalize amount text to float, dropping commas/parens/trailing letters."""
+    a = a.replace(",", "").replace("(", "").replace(")", "").strip()
+    a = re.sub(r"[A-Za-z]+$", "", a)  # drop trailing letters like 'f'
     try:
         return float(a)
     except Exception:
         return None
 
+# -------------------- Extraction (pdfplumber-based) --------------------
+def group_lines(words, y_tol=5):
+    """Group word boxes into visual lines using a y-tolerance."""
+    lines = {}
+    for w in words:
+        key = int(round(w.get("top", 0.0)/y_tol)*y_tol)
+        lines.setdefault(key, []).append(w)
+    ordered = []
+    for key in sorted(lines.keys()):
+        wl = sorted(lines[key], key=lambda x: x.get("x0", 0))
+        ordered.append((key, wl))
+    return ordered
 
-def looks_like_noise_line(line: str) -> bool:
-    L = line.lower()
-    if len(L) < 2:
-        return True
-    for snip in HEADER_NOISE_SNIPPETS:
-        if snip.lower() in L:
-            return True
-    return False
+def parse_amount_from_tokens(tokens, start_idx):
+    """Extract amount starting at tokens[start_idx], handling multi-token splits and trailing alpha."""
+    # Try direct inline match
+    t = (tokens[start_idx].get("text") or "").strip()
+    m = AMT_INLINE_PAT.fullmatch(t)
+    if m:
+        val = clean_amount(m.group(1))
+        if val is not None:
+            return val, start_idx+1
 
+    # Multi-token build
+    collected = ""
+    i = start_idx
+    # optional $, (, ($
+    while i < len(tokens) and (tokens[i]["text"].strip() in ("$", "(", "($")):
+        i += 1
+    consumed = 0
+    while i < len(tokens) and consumed < 8:
+        tt = tokens[i]["text"].strip()
+        if re.fullmatch(r"[0-9,]+", tt) or tt == ".":
+            collected += tt
+            i += 1
+            consumed += 1
+        elif re.fullmatch(r"[A-Za-z]", tt):  # optional trailing letter
+            collected += tt
+            i += 1
+            consumed += 1
+            break
+        else:
+            break
+    # optional closing ')'
+    if i < len(tokens) and tokens[i]["text"].strip() == ")":
+        i += 1
 
-# ---------- Extraction ----------
-def extract_line_level(page, page_num: int, pdf_name: str) -> List[Dict]:
-    txt = page.extract_text(x_tolerance=2, y_tolerance=2) or ""
-    rows: List[Dict] = []
-    for raw_ln in txt.splitlines():
-        line = re.sub(r"[^\S\r\n]+", " ", raw_ln).strip()
-        if not line or looks_like_noise_line(line):
-            continue
-        for m in CODE_AMOUNT_REGEX.finditer(line):
-            code = m.group(1)
-            amt = clean_amount(m.group(2))
-            if amt is None or len(code) < 3:
+    # Validate and clean
+    collected_num = re.sub(r"[A-Za-z]+$", "", collected)
+    if collected_num and re.fullmatch(AMOUNT_CORE, collected_num):
+        val = clean_amount(collected_num)
+        if val is not None:
+            return val, i
+    return None, start_idx
+
+def reconstruct_codes(tokens):
+    """
+    Merge adjacent tokens into a valid code, preferring the longest span up to 3 tokens.
+    Rejects obvious header words (proc, code, max, allow, allowable).
+    Returns list of tuples: (end_index, code_text, x0)
+    """
+    out = []
+    i = 0
+    n = len(tokens)
+    while i < n:
+        best = None
+        for span in (3, 2, 1):
+            if i + span - 1 >= n:
                 continue
-            rows.append({
-                "Source File": pdf_name,
-                "Page": page_num,
-                "Proc Code": code,
-                "Max Allow": amt,
-            })
-    return rows
+            parts = [(tokens[i+k].get("text") or "").strip() for k in range(span)]
+            # reject header words
+            if any(p.lower() in {"proc", "code", "max", "allow", "allowable"} for p in parts):
+                continue
+            # basic token legality
+            if any((not CODE_TOKEN_PAT.fullmatch(p)) for p in parts):
+                continue
+            merged = "".join(parts).upper()
+            if FINAL_CODE_PAT.fullmatch(merged):
+                best = (i + span, merged, tokens[i].get("x0", 0))
+                break
+        if best:
+            out.append(best)
+            i = best[0]
+        else:
+            i += 1
+    return out
 
+def collect_amounts(wlist):
+    """Collect all amount candidates on a line."""
+    amts = []
+    for idx, w in enumerate(wlist):
+        val, _ = parse_amount_from_tokens(wlist, idx)
+        if val is not None:
+            amts.append((idx, val, wlist[idx].get("x0", 0)))
+    return amts
 
-def extract_words_fallback(page, page_num: int, pdf_name: str) -> List[Dict]:
-    """
-    Word-level pairing: find code-like tokens and the NEAREST amount-like token on same text line.
-    This rescues cases where the $ is missing or spacing breaks simple line regex.
-    """
-    rows: List[Dict] = []
+def extract_page(page, page_num, pdf_name):
+    """Extract rows for one page using word-level pairing across up to two following lines."""
+    rows = []
     words = page.extract_words(use_text_flow=True, keep_blank_chars=False) or []
     if not words:
         return rows
+    lines = group_lines(words, y_tol=5)
 
-    # Group words by their y0 band (same text line). Allow a small tolerance.
-    # We'll bin lines by rounding y0 to nearest integer.
-    lines_map = {}
-    for w in words:
-        key = round(w.get("top", 0))
-        lines_map.setdefault(key, []).append(w)
-
-    code_pat = re.compile(r"^[A-Za-z0-9]{3,7}$")
-    amt_pat = re.compile(r"^" + AMOUNT_PATTERN + r"$")
-
-    for key, wlist in lines_map.items():
-        # sort left-to-right
+    for li, (_, wlist) in enumerate(lines):
         wlist = sorted(wlist, key=lambda x: x.get("x0", 0))
-        # collect candidates
-        codes = []
-        amts = []
-        for w in wlist:
-            text = (w.get("text") or "").strip()
-            if not text:
-                continue
-            if code_pat.match(text):
-                codes.append(w)
-            elif amt_pat.match(text):
-                amts.append(w)
+        codes = reconstruct_codes(wlist)
+        amts_here = collect_amounts(wlist)
+        amts_next = collect_amounts(lines[li+1][1]) if li+1 < len(lines) else []
+        amts_next2 = collect_amounts(lines[li+2][1]) if li+2 < len(lines) else []
 
-        # nearest amount to the right for each code
-        for cw in codes:
-            cx = cw.get("x0", 0)
-            best = None
-            best_dx = 1e9
+        for _, code_text, cx in codes:
             best_val = None
-            for aw in amts:
-                ax = aw.get("x0", 0)
-                if ax <= cx:
-                    continue
-                m = amt_pat.match(aw.get("text", "").strip())
-                if not m:
-                    continue
-                val = clean_amount(m.group(1))
-                if val is None:
-                    continue
+            best_dx = float("inf")
+            # Prefer same-line, nearest to right
+            for _, a_val, ax in amts_here:
                 dx = ax - cx
-                if dx < best_dx:
+                if dx >= 0 and dx < best_dx:
                     best_dx = dx
-                    best = aw
-                    best_val = val
-            if best is not None:
+                    best_val = a_val
+            # Fallback: look at next lines (choose closest in x)
+            if best_val is None:
+                candidates = amts_next or amts_next2
+                if candidates:
+                    best_val = min(candidates, key=lambda t: abs(t[2]-cx))[1]
+            if best_val is not None:
                 rows.append({
                     "Source File": pdf_name,
                     "Page": page_num,
-                    "Proc Code": cw.get("text").strip(),
+                    "Proc Code": code_text,
                     "Max Allow": best_val,
                 })
     return rows
 
-
-def extract_from_pdf(pdf_path: str, start_page: int, end_page: int) -> List[Dict]:
+def extract_pdf(pdf_path: str, start_page: int, end_page: int) -> List[Dict]:
     rows: List[Dict] = []
-    import pdfplumber
+    try:
+        import pdfplumber
+    except ImportError:
+        print("Missing dependency: pdfplumber. Run: pip install pdfplumber")
+        sys.exit(1)
+
     with pdfplumber.open(pdf_path) as pdf:
         total = len(pdf.pages)
         s = max(1, start_page)
         e = min(end_page, total)
         if s > total:
             return rows
-        for pno in range(s-1, e):
+        for pno in range(s - 1, e):
             page = pdf.pages[pno]
-            pdf_name = os.path.basename(pdf_path)
-            page_num = pno + 1
-
-            # Pass 1: simple line-level regex
-            r1 = extract_line_level(page, page_num, pdf_name)
-            rows.extend(r1)
-
-            # Pass 2 (fallback): only add pairs not already found on this page+code+amount
-            r2 = extract_words_fallback(page, page_num, pdf_name)
-            if r2:
-                keyset = {(d["Proc Code"], d["Max Allow"]) for d in r1}
-                for d in r2:
-                    if (d["Proc Code"], d["Max Allow"]) not in keyset:
-                        rows.append(d)
-
+            rows.extend(extract_page(page, pno + 1, os.path.basename(pdf_path)))
     return rows
 
-
-def autosize_excel_columns(writer, df, sheet_name):
-    try:
-        ws = writer.sheets[sheet_name]
-        for i, col in enumerate(df.columns):
-            col_width = max(12, min(60, df[col].astype(str).map(len).max() + 2))
-            ws.set_column(i, i, col_width)
-    except Exception:
-        pass
-
-
+# -------------------- Main --------------------
 def main():
-    print("=== Proc Code & Max Allow Extractor (Pages 3–22) ===")
+    print("=== Proc Code & Max Allow Extractor ===")
     in_folder = ask_path("Enter INPUT folder path (where the PDF files are): ")
     out_folder = ask_path("Enter OUTPUT folder path (where Excel should be saved): ")
     start_page, end_page = ask_page_range(3, 22)
 
-    pdfs = sorted(glob.glob(os.path.join(in_folder, '*.pdf')))
+    pdfs = sorted(glob.glob(os.path.join(in_folder, "*.pdf")))
     if not pdfs:
         print("No PDF files found in the input folder.")
         sys.exit(1)
@@ -245,7 +253,7 @@ def main():
     for idx, pdf_path in enumerate(pdfs, start=1):
         print(f"  [{idx}/{len(pdfs)}] {os.path.basename(pdf_path)}")
         try:
-            rows = extract_from_pdf(pdf_path, start_page, end_page)
+            rows = extract_pdf(pdf_path, start_page, end_page)
             all_rows.extend(rows)
         except Exception as e:
             print(f"[WARN] Failed to process {os.path.basename(pdf_path)}: {e}")
@@ -255,26 +263,38 @@ def main():
         sys.exit(2)
 
     df = pd.DataFrame(all_rows)
-    df.drop_duplicates(['Source File', 'Page', 'Proc Code', 'Max Allow'], inplace=True)
-    df.sort_values(by=['Source File', 'Page', 'Proc Code'], inplace=True)
 
-    ts = time.strftime('%Y%m%d_%H%M%S')
-    out_name = f'ProcCode_MaxAllow_p{start_page}-{end_page}_{ts}.xlsx'
+    # Keep strictly valid codes only (avoid header words)
+    df = df[df["Proc Code"].astype(str).str.fullmatch(r"(?:[A-Z]\d{4}|\d{5})")]
+
+    # De-duplicate per (Source File, Page, Proc Code)
+    df.drop_duplicates(["Source File", "Page", "Proc Code"], inplace=True)
+
+    # Sort for readability
+    df.sort_values(by=["Source File", "Page", "Proc Code"], inplace=True)
+
+    # Write Excel
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    out_name = f"ProcCode_MaxAllow_p{start_page}-{end_page}_{ts}.xlsx"
     out_path = os.path.join(out_folder, out_name)
 
-    with pd.ExcelWriter(out_path, engine='xlsxwriter') as writer:
-        sheet = f'P{start_page}_{end_page}'
+    with pd.ExcelWriter(out_path, engine="xlsxwriter") as writer:
+        sheet = f"P{start_page}_{end_page}"
         df.to_excel(writer, index=False, sheet_name=sheet)
-        autosize_excel_columns(writer, df, sheet)
+        # Autosize columns
+        ws = writer.sheets[sheet]
+        for i, col in enumerate(df.columns):
+            try:
+                width = max(12, min(60, df[col].astype(str).map(len).max() + 2))
+            except Exception:
+                width = 20
+            ws.set_column(i, i, width)
 
-    # Quick confirmation for your example (optional print if present)
-    hit_52284 = df[(df['Proc Code'] == '52284') & (df['Page'] >= start_page) & (df['Page'] <= end_page)]
-    if not hit_52284.empty:
-        sample = hit_52284.iloc[0]
-        print(f"Found example: Proc Code 52284 on page {sample['Page']} with Max Allow {sample['Max Allow']}")
-
+    # Optional: quick per-page counts (print to console)
+    per_page = df.groupby(["Source File", "Page"]).size().reset_index(name="Count")
+    print("\nPer-page counts (first few rows):")
+    print(per_page.head(20).to_string(index=False))
     print(f"\nDone! Wrote {len(df):,} rows to:\n  {out_path}")
-
 
 if __name__ == "__main__":
     main()
