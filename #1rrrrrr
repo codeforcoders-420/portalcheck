@@ -265,3 +265,109 @@ else if ("row".equals(name)) {
     }
 }
 
+*******************
+
+private static void processMappingdataSheet(Path rbrvsPath,
+                                            Set<String> wantedIds,
+                                            SXSSFSheet outSheet) throws Exception {
+
+    int outRowNum = 0;                 // row number in output sheet
+    List<String> header = null;        // to store header row from Mappingdata
+
+    try (OPCPackage opc = OPCPackage.open(rbrvsPath.toFile())) {
+        XSSFReader reader = new XSSFReader(opc);
+        ReadOnlySharedStringsTable sst = new ReadOnlySharedStringsTable(opc);
+
+        XMLInputFactory factory = XMLInputFactory.newInstance();
+        XSSFReader.SheetIterator sheets = (XSSFReader.SheetIterator) reader.getSheetsData();
+
+        boolean sheetFound = false;
+
+        while (sheets.hasNext()) {
+            InputStream sheetStream = sheets.next();
+            String sheetName = sheets.getSheetName(); // name of current sheet in RBRVS.xlsx
+
+            // we only care about "Mappingdata"
+            if (sheetName != null && sheetName.trim().equalsIgnoreCase(TARGET_SHEET_NAME)) {
+                sheetFound = true;
+                System.out.println("Processing sheet: " + sheetName);
+
+                try (sheetStream) {
+                    XMLStreamReader parser = factory.createXMLStreamReader(sheetStream);
+
+                    List<String> currentRow = new ArrayList<>();
+                    int currentCol = -1;
+
+                    // NEW: we will count rows in this sheet
+                    int sheetRowCounter = 0;
+
+                    String cellRef = null;
+                    String cellType = null;
+                    String cellValue = null;
+                    DataFormatter dataFormatter = new DataFormatter();
+
+                    while (parser.hasNext()) {
+                        int event = parser.next();
+                        switch (event) {
+                            case XMLStreamConstants.START_ELEMENT -> {
+                                String name = parser.getLocalName();
+                                if ("row".equals(name)) {
+                                    currentRow = new ArrayList<>();
+                                    currentCol = -1;
+                                } else if ("c".equals(name)) {
+                                    cellRef = parser.getAttributeValue(null, "r");
+                                    cellType = parser.getAttributeValue(null, "t");
+                                    currentCol = colToIndex(cellRef);
+                                } else if ("v".equals(name) || "is".equals(name)) {
+                                    cellValue = "";
+                                }
+                            }
+                            case XMLStreamConstants.CHARACTERS -> {
+                                if (!parser.isWhiteSpace() && cellValue != null) {
+                                    cellValue += parser.getText();
+                                }
+                            }
+                            case XMLStreamConstants.END_ELEMENT -> {
+                                String name = parser.getLocalName();
+                                if ("v".equals(name) || "is".equals(name)) {
+                                    String value = getCellValue(cellType, cellValue, sst, dataFormatter);
+                                    addCellValueToRow(currentRow, currentCol, value);
+                                    cellValue = null;
+                                } else if ("row".equals(name)) {
+                                    // we have a full row now
+                                    sheetRowCounter++;
+
+                                    if (sheetRowCounter == 1) {
+                                        // Row 1 in Mappingdata -> skip (you said headers start from row 2)
+                                        // do nothing
+                                    } else if (sheetRowCounter == 2) {
+                                        // Row 2 -> actual header
+                                        header = List.copyOf(currentRow);
+                                        writeRow(outSheet, outRowNum++, header);
+                                    } else {
+                                        // Data rows start from row 3
+                                        String id = getCellSafe(currentRow, RBRVS_ID_COLUMN_INDEX);
+                                        if (id != null && wantedIds.contains(id)) {
+                                            writeRow(outSheet, outRowNum++, currentRow);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // we found and processed our sheet, no need to read other sheets
+                break;
+            } else {
+                // not the sheet we want, just close it
+                sheetStream.close();
+            }
+        }
+
+        if (!sheetFound) {
+            System.err.println("Sheet '" + TARGET_SHEET_NAME + "' not found in " + rbrvsPath);
+        }
+    }
+}
+
