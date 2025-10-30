@@ -1,0 +1,237 @@
+package com.example.rbrvs;
+
+import org.apache.poi.openxml4j.opc.OPCPackage;
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.eventusermodel.ReadOnlySharedStringsTable;
+import org.apache.poi.xssf.eventusermodel.XSSFReader;
+import org.apache.poi.xssf.usermodel.XSSFDataFormatter;
+import org.apache.poi.xssf.streaming.SXSSFSheet;
+import org.apache.poi.xssf.streaming.SXSSFWorkbook;
+import org.xml.sax.InputSource;
+
+import javax.xml.stream.XMLInputFactory;
+import javax.xml.stream.XMLStreamConstants;
+import javax.xml.stream.XMLStreamReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.*;
+
+/**
+ * Streams ONLY the sheet "Mappingdata" in RBRVS.xlsx and writes
+ * all rows whose ID is present in coreexcel.xlsx into ONE output workbook.
+ */
+public class RbrvsFilterSingleOutput {
+
+    // change this if ID is not in column A of Mappingdata sheet
+    private static final int RBRVS_ID_COLUMN_INDEX = 0;
+
+    // SXSSF window size to keep memory low
+    private static final int SXSSF_ROW_WINDOW = 100;
+
+    // the exact sheet name we care about
+    private static final String TARGET_SHEET_NAME = "Mappingdata";
+
+    public static void main(String[] args) throws Exception {
+        Path inputDir = Path.of("input");
+        Path outputDir = Path.of("output");
+        Files.createDirectories(outputDir);
+
+        Path rbrvsPath = inputDir.resolve("RBRVS.xlsx");
+        Path corePath = inputDir.resolve("coreexcel.xlsx");
+        Path outputFile = outputDir.resolve("Matched_RBRVS.xlsx");
+
+        // 1. load IDs from coreexcel.xlsx
+        Set<String> wantedIds = loadIdsFromCoreExcel(corePath);
+        System.out.println("Loaded " + wantedIds.size() + " IDs from coreexcel.xlsx");
+
+        // 2. create ONE output workbook (streaming)
+        try (SXSSFWorkbook outWb = new SXSSFWorkbook(SXSSF_ROW_WINDOW)) {
+            SXSSFSheet outSheet = outWb.createSheet("Matched");
+
+            // 3. stream ONLY Mappingdata sheet and copy matching rows
+            processMappingdataSheet(rbrvsPath, wantedIds, outSheet);
+
+            // 4. write to disk
+            try (OutputStream os = Files.newOutputStream(outputFile)) {
+                outWb.write(os);
+            }
+            outWb.dispose(); // cleanup temp files
+            System.out.println("Written matched rows to: " + outputFile);
+        }
+
+        System.out.println("Done.");
+    }
+
+    /**
+     * Reads IDs from coreexcel.xlsx (sheet 0, column 0).
+     */
+    private static Set<String> loadIdsFromCoreExcel(Path coreExcel) throws IOException {
+        Set<String> ids = new LinkedHashSet<>();
+        try (InputStream is = Files.newInputStream(coreExcel);
+             Workbook wb = WorkbookFactory.create(is)) {
+
+            Sheet sheet = wb.getSheetAt(0);
+            DataFormatter formatter = new DataFormatter();
+            for (Row row : sheet) {
+                Cell cell = row.getCell(0);   // change to 1 for column B
+                if (cell == null) continue;
+                String id = formatter.formatCellValue(cell).trim();
+                if (!id.isEmpty()) {
+                    ids.add(id);
+                }
+            }
+        }
+        return ids;
+    }
+
+    /**
+     * Find the sheet named "Mappingdata" and stream only that.
+     */
+    private static void processMappingdataSheet(Path rbrvsPath,
+                                                Set<String> wantedIds,
+                                                SXSSFSheet outSheet) throws Exception {
+
+        int outRowNum = 0;
+        List<String> header = null;
+
+        try (OPCPackage opc = OPCPackage.open(rbrvsPath.toFile())) {
+            XSSFReader reader = new XSSFReader(opc);
+            ReadOnlySharedStringsTable sst = new ReadOnlySharedStringsTable(opc);
+
+            XMLInputFactory factory = XMLInputFactory.newInstance();
+            XSSFReader.SheetIterator sheets = (XSSFReader.SheetIterator) reader.getSheetsData();
+
+            boolean sheetFound = false;
+
+            while (sheets.hasNext()) {
+                InputStream sheetStream = sheets.next();
+                String sheetName = sheets.getSheetName(); // <- we can read the name here
+
+                // compare ignoring case & trimming
+                if (sheetName != null && sheetName.trim().equalsIgnoreCase(TARGET_SHEET_NAME)) {
+                    sheetFound = true;
+                    System.out.println("Processing sheet: " + sheetName);
+
+                    try (sheetStream) {
+                        XMLStreamReader parser = factory.createXMLStreamReader(new InputSource(sheetStream));
+
+                        List<String> currentRow = new ArrayList<>();
+                        int currentCol = -1;
+
+                        boolean isHeaderRow = true;
+                        String cellRef = null;
+                        String cellType = null;
+                        String cellValue = null;
+                        XSSFDataFormatter dataFormatter = new XSSFDataFormatter();
+
+                        while (parser.hasNext()) {
+                            int event = parser.next();
+                            switch (event) {
+                                case XMLStreamConstants.START_ELEMENT -> {
+                                    String name = parser.getLocalName();
+                                    if ("row".equals(name)) {
+                                        currentRow = new ArrayList<>();
+                                        currentCol = -1;
+                                    } else if ("c".equals(name)) {
+                                        cellRef = parser.getAttributeValue(null, "r");
+                                        cellType = parser.getAttributeValue(null, "t");
+                                        currentCol = colToIndex(cellRef);
+                                    } else if ("v".equals(name) || "is".equals(name)) {
+                                        cellValue = "";
+                                    }
+                                }
+                                case XMLStreamConstants.CHARACTERS -> {
+                                    if (!parser.isWhiteSpace() && cellValue != null) {
+                                        cellValue += parser.getText();
+                                    }
+                                }
+                                case XMLStreamConstants.END_ELEMENT -> {
+                                    String name = parser.getLocalName();
+                                    if ("v".equals(name) || "is".equals(name)) {
+                                        String value = getCellValue(cellType, cellValue, sst, dataFormatter);
+                                        addCellValueToRow(currentRow, currentCol, value);
+                                        cellValue = null;
+                                    } else if ("row".equals(name)) {
+                                        if (isHeaderRow) {
+                                            header = List.copyOf(currentRow);
+                                            writeRow(outSheet, outRowNum++, header);
+                                            isHeaderRow = false;
+                                        } else {
+                                            String id = getCellSafe(currentRow, RBRVS_ID_COLUMN_INDEX);
+                                            if (id != null && wantedIds.contains(id)) {
+                                                writeRow(outSheet, outRowNum++, currentRow);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // we found and processed the needed sheet — no need to look at others
+                    break;
+                } else {
+                    // not our sheet, just close stream
+                    sheetStream.close();
+                }
+            }
+
+            if (!sheetFound) {
+                System.err.println("Sheet '" + TARGET_SHEET_NAME + "' not found in " + rbrvsPath);
+            }
+        }
+    }
+
+    /**
+     * Convert Excel column letters to 0-based index.
+     */
+    private static int colToIndex(String cellRef) {
+        if (cellRef == null) return -1;
+        int i = 0;
+        while (i < cellRef.length() && !Character.isDigit(cellRef.charAt(i))) {
+            i++;
+        }
+        String colPart = cellRef.substring(0, i);
+        int col = 0;
+        for (int j = 0; j < colPart.length(); j++) {
+            col = col * 26 + (colPart.charAt(j) - 'A' + 1);
+        }
+        return col - 1;
+    }
+
+    private static void addCellValueToRow(List<String> row, int colIndex, String value) {
+        while (row.size() <= colIndex) {
+            row.add("");
+        }
+        row.set(colIndex, value == null ? "" : value);
+    }
+
+    private static String getCellValue(String cellType,
+                                       String cellValue,
+                                       ReadOnlySharedStringsTable sst,
+                                       XSSFDataFormatter formatter) {
+        if (cellValue == null) return "";
+        if ("s".equals(cellType)) {
+            int idx = Integer.parseInt(cellValue);
+            return sst.getItemAt(idx).getString();
+        }
+        return cellValue;
+    }
+
+    private static String getCellSafe(List<String> row, int index) {
+        if (index < 0 || index >= row.size()) return null;
+        String val = row.get(index);
+        return (val == null || val.isBlank()) ? null : val.trim();
+    }
+
+    private static void writeRow(SXSSFSheet sheet, int rowNum, List<String> data) {
+        org.apache.poi.ss.usermodel.Row row = sheet.createRow(rowNum);
+        for (int i = 0; i < data.size(); i++) {
+            Cell c = row.createCell(i);
+            c.setCellValue(data.get(i));
+        }
+    }
+}
