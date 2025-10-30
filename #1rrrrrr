@@ -235,3 +235,33 @@ public class RbrvsFilterSingleOutput {
         }
     }
 }
+
+
+**********************
+
+// we will skip the first row, treat the second as header
+int rowCounter = 0;
+boolean headerCaptured = false;
+
+...
+
+else if ("row".equals(name)) {
+    rowCounter++;
+
+    if (rowCounter == 1) {
+        // Row 1 – skip (not header)
+        continue;
+    } else if (rowCounter == 2) {
+        // Row 2 – header row
+        header = List.copyOf(currentRow);
+        writeRow(outSheet, outRowNum++, header);
+        headerCaptured = true;
+    } else {
+        // Data rows start from Row 3 onward
+        String id = getCellSafe(currentRow, RBRVS_ID_COLUMN_INDEX);
+        if (id != null && wantedIds.contains(id)) {
+            writeRow(outSheet, outRowNum++, currentRow);
+        }
+    }
+}
+
