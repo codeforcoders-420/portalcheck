@@ -1,0 +1,169 @@
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.streaming.SXSSFWorkbook;
+
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Converts medirvsf.dat (fixed width, length=51) to Excel.
+ */
+public class DatToExcelConverter {
+
+    // one record = 51 chars
+    private static final int RECORD_LENGTH = 51;
+
+    // describe every field in one place
+    private enum FieldDef {
+        RVS_ID(1, 3, "RVS ID", FieldType.ALPHA),
+        PROCEDURE_CODE(4, 5, "Procedure Code", FieldType.ALPHA),
+        MODIFIER(9, 2, "Modifier", FieldType.ALPHA),
+        STATUS_IND(11, 1, "Status Indicator", FieldType.ALPHA),
+        WORK_RVU(12, 6, "Work RVU (4.2)", FieldType.NUM_4_2),
+        NON_FAC_PE(18, 6, "Non-facility Practice Expense RVS (4.2)", FieldType.NUM_4_2),
+        FAC_PE(24, 6, "Facility Practice Expense (4.2)", FieldType.NUM_4_2),
+        MALP_RVU(30, 6, "Malpractice RVU (4.2)", FieldType.NUM_4_2),
+        NON_FAC_TOTAL(36, 6, "Non-facility Total RVU (4.2)", FieldType.NUM_4_2),
+        FAC_TOTAL(42, 6, "Facility Total RVU (4.2)", FieldType.NUM_4_2),
+        UPDATE_IND(48, 1, "Update Indicator", FieldType.ALPHA),
+        GLOBAL_PERIOD(49, 3, "Global Period", FieldType.ALPHA);
+
+        final int start;     // 1-based
+        final int length;
+        final String header;
+        final FieldType type;
+
+        FieldDef(int start, int length, String header, FieldType type) {
+            this.start = start;
+            this.length = length;
+            this.header = header;
+            this.type = type;
+        }
+
+        int startIndex0() {
+            return start - 1;
+        }
+    }
+
+    private enum FieldType {
+        ALPHA,
+        NUM_4_2 // 6 chars representing number with 2 decimals, e.g. 000184 -> 1.84
+    }
+
+    public static void main(String[] args) throws Exception {
+        // change these or pass as args
+        Path inputDat = Path.of("C:/temp/medirvsf.dat");
+        Path outputXlsx = Path.of("C:/temp/medirvsf.xlsx");
+
+        convertDatToExcel(inputDat, outputXlsx);
+        System.out.println("Done. Excel created at: " + outputXlsx.toAbsolutePath());
+    }
+
+    public static void convertDatToExcel(Path datFile, Path excelFile) throws IOException {
+        // streaming workbook: good for big files
+        try (SXSSFWorkbook wb = new SXSSFWorkbook(100);
+             BufferedReader reader = Files.newBufferedReader(datFile, StandardCharsets.UTF_8);
+             OutputStream os = Files.newOutputStream(excelFile)) {
+
+            Sheet sheet = wb.createSheet("RVS Data");
+            createHeaderRow(wb, sheet);
+
+            String line;
+            int rowNum = 1;
+
+            // we read line by line
+            while ((line = reader.readLine()) != null) {
+                if (line.isEmpty()) {
+                    continue;
+                }
+                // sometimes editors show long lines with CR/LF issues – enforce length
+                if (line.length() < RECORD_LENGTH) {
+                    // pad with spaces just in case
+                    line = String.format("%-" + RECORD_LENGTH + "s", line);
+                } else if (line.length() > RECORD_LENGTH) {
+                    // trim extra
+                    line = line.substring(0, RECORD_LENGTH);
+                }
+
+                List<Object> values = parseLine(line);
+
+                Row row = sheet.createRow(rowNum++);
+                for (int i = 0; i < values.size(); i++) {
+                    Cell cell = row.createCell(i);
+                    Object v = values.get(i);
+                    if (v == null) {
+                        // leave blank
+                    } else if (v instanceof Double d) {
+                        cell.setCellValue(d);
+                    } else {
+                        cell.setCellValue(v.toString());
+                    }
+                }
+
+                // periodically flush rows to keep memory low
+                if (rowNum % 5000 == 0) {
+                    ((SXSSFSheet) sheet).flushRows(3000);
+                }
+            }
+
+            // autosize small number of columns
+            for (int i = 0; i < FieldDef.values().length; i++) {
+                sheet.autoSizeColumn(i);
+            }
+
+            wb.write(os);
+            wb.dispose(); // cleanup temp files
+        }
+    }
+
+    private static void createHeaderRow(Workbook wb, Sheet sheet) {
+        Row header = sheet.createRow(0);
+        CellStyle style = wb.createCellStyle();
+        Font font = wb.createFont();
+        font.setBold(true);
+        style.setFont(font);
+
+        FieldDef[] defs = FieldDef.values();
+        for (int i = 0; i < defs.length; i++) {
+            Cell cell = header.createCell(i);
+            cell.setCellValue(defs[i].header);
+            cell.setCellStyle(style);
+        }
+    }
+
+    private static List<Object> parseLine(String line) {
+        List<Object> list = new ArrayList<>(FieldDef.values().length);
+        for (FieldDef def : FieldDef.values()) {
+            String raw = line.substring(def.startIndex0(), def.startIndex0() + def.length);
+            raw = raw == null ? "" : raw;
+            raw = raw.trim();
+
+            if (def.type == FieldType.ALPHA) {
+                list.add(raw);
+            } else {
+                // NUM_4_2: 6 chars -> xxxx.yy
+                // empty or zeros -> 0.00
+                if (raw.isEmpty()) {
+                    list.add(null);
+                } else {
+                    // e.g. "000184" -> 1.84
+                    // guard against non-numeric
+                    double val = 0.0;
+                    try {
+                        int asInt = Integer.parseInt(raw);
+                        val = asInt / 100.0;
+                    } catch (NumberFormatException e) {
+                        // if something like "XXXXXX" appears, just keep as text
+                        list.add(raw);
+                        continue;
+                    }
+                    list.add(val);
+                }
+            }
+        }
+        return list;
+    }
+}
