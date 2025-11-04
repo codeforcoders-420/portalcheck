@@ -1,169 +1,439 @@
 import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.streaming.SXSSFSheet;
 import org.apache.poi.xssf.streaming.SXSSFWorkbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
 import java.io.*;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
+import java.time.LocalDate;
+import java.time.Month;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
- * Converts medirvsf.dat (fixed width, length=51) to Excel.
+ * medirvsf.dat -> Excel workbook with 7 sheets:
+ *  Source M, Source H, Source Y, Source W, Source WF, Source Q1, Source CR
  */
-public class DatToExcelConverter {
+public class DatToExcel7Sheets {
 
-    // one record = 51 chars
+    // ---- toggles ----
+    /** Keep the 6-char numeric "4.2" fields as raw text (e.g., "000184") instead of numeric 1.84 */
+    private static final boolean KEEP_NUMERIC_AS_TEXT = false;
+
+    // ---- constants ----
     private static final int RECORD_LENGTH = 51;
+    private static final Charset INPUT_CHARSET = StandardCharsets.UTF_8; // set to Charset.forName("windows-1252") if needed
 
-    // describe every field in one place
+    private static final String COL_YEAR_APPLIED = "Year Applied";
+    private static final String COL_NBU_EFF = "NBU_Eff";
+    private static final String COL_NBU_TERM = "NBU_Term";
+    private static final String OPEN_END_DATE = "12/31/9999";
+    private static final DateTimeFormatter US_MDYYYY = DateTimeFormatter.ofPattern("MM/dd/yyyy");
+
+    // External codes file path (Proc in col A, Mod in col B)
+    private static final Path G_CODES_XLSX = Path.of("External Files", "G codes.xlsx");
+
+    // ---- field layout (from your screenshot) ----
+    private enum FieldType { ALPHA, NUM_4_2 }
+
+    private static FieldType numericType() {
+        return KEEP_NUMERIC_AS_TEXT ? FieldType.ALPHA : FieldType.NUM_4_2;
+    }
+
     private enum FieldDef {
-        RVS_ID(1, 3, "RVS ID", FieldType.ALPHA),
-        PROCEDURE_CODE(4, 5, "Procedure Code", FieldType.ALPHA),
-        MODIFIER(9, 2, "Modifier", FieldType.ALPHA),
-        STATUS_IND(11, 1, "Status Indicator", FieldType.ALPHA),
-        WORK_RVU(12, 6, "Work RVU (4.2)", FieldType.NUM_4_2),
-        NON_FAC_PE(18, 6, "Non-facility Practice Expense RVS (4.2)", FieldType.NUM_4_2),
-        FAC_PE(24, 6, "Facility Practice Expense (4.2)", FieldType.NUM_4_2),
-        MALP_RVU(30, 6, "Malpractice RVU (4.2)", FieldType.NUM_4_2),
-        NON_FAC_TOTAL(36, 6, "Non-facility Total RVU (4.2)", FieldType.NUM_4_2),
-        FAC_TOTAL(42, 6, "Facility Total RVU (4.2)", FieldType.NUM_4_2),
-        UPDATE_IND(48, 1, "Update Indicator", FieldType.ALPHA),
-        GLOBAL_PERIOD(49, 3, "Global Period", FieldType.ALPHA);
+        RVS_ID        ( 1, 3, "RVS ID", FieldType.ALPHA),
+        PROCEDURE_CODE( 4, 5, "Procedure Code", FieldType.ALPHA),
+        MODIFIER      ( 9, 2, "Modifier", FieldType.ALPHA),
+        STATUS_IND    (11, 1, "Status Indicator", FieldType.ALPHA),
 
-        final int start;     // 1-based
-        final int length;
+        WORK_RVU      (12, 6, "Work RVU (4.2)", numericType()),
+        NON_FAC_PE    (18, 6, "Non-facility Practice Expense RVS (4.2)", numericType()),
+        FAC_PE        (24, 6, "Facility Practice Expense (4.2)", numericType()),
+        MALP_RVU      (30, 6, "Malpractice RVU (4.2)", numericType()),
+        NON_FAC_TOTAL (36, 6, "Non-facility Total RVU (4.2)", numericType()),
+        FAC_TOTAL     (42, 6, "Facility Total RVU (4.2)", numericType()),
+
+        UPDATE_IND    (48, 1, "Update Indicator", FieldType.ALPHA),
+        GLOBAL_PERIOD (49, 3, "Global Period", FieldType.ALPHA);
+
+        final int start1, length;
         final String header;
         final FieldType type;
-
-        FieldDef(int start, int length, String header, FieldType type) {
-            this.start = start;
-            this.length = length;
-            this.header = header;
-            this.type = type;
+        FieldDef(int start1, int length, String header, FieldType type) {
+            this.start1 = start1; this.length = length; this.header = header; this.type = type;
         }
-
-        int startIndex0() {
-            return start - 1;
-        }
+        int start0() { return start1 - 1; }
     }
 
-    private enum FieldType {
-        ALPHA,
-        NUM_4_2 // 6 chars representing number with 2 decimals, e.g. 000184 -> 1.84
+    // ---- data model ----
+    static final class RowData {
+        String rvsId;
+        String proc;
+        String mod;
+        String statusInd;
+
+        String workRvu;           // keep original text as well
+        String nonFacPe;
+        String facPe;
+        String malpRvu;
+        String nonFacTotal;
+        String facTotal;
+
+        String updateInd;
+        String globalPeriod;
+
+        // computed columns (as strings)
+        String yearApplied;
+        String nbuEff;    // MM/dd/yyyy
+        String nbuTerm;   // MM/dd/yyyy
+
+        // numeric views (for fast comparisons, when available)
+        Double workRvuNum;
+        Double nonFacPeNum;
+        Double facPeNum;
+        Double malpRvuNum;
+        Double nonFacTotalNum;
+        Double facTotalNum;
     }
 
+    // ---------------- MAIN ----------------
     public static void main(String[] args) throws Exception {
-        // change these or pass as args
-        Path inputDat = Path.of("C:/temp/medirvsf.dat");
-        Path outputXlsx = Path.of("C:/temp/medirvsf.xlsx");
+        Path inputDat  = args.length >= 1 ? Path.of(args[0]) : Path.of("C:/temp/medirvsf.dat");
+        Path outputXlsx= args.length >= 2 ? Path.of(args[1]) : Path.of("C:/temp/medirvsf_7sheets.xlsx");
 
-        convertDatToExcel(inputDat, outputXlsx);
-        System.out.println("Done. Excel created at: " + outputXlsx.toAbsolutePath());
+        // 1) read dat -> all rows ("Source M" base)
+        List<RowData> sourceM = readDat(inputDat);
+
+        // 2) derive other sheets
+        List<RowData> sourceH = filterSourceH(sourceM);
+        Set<String> gCodeCombos = readGCodeCombos(G_CODES_XLSX); // Proc+Mod from external file
+        List<RowData> sourceY = filterSourceY(sourceM, gCodeCombos);
+        List<RowData> sourceW = filterSourceW(sourceH, gCodeCombos);
+        List<RowData> sourceWF = transformSourceWF(sourceW);
+        List<RowData> sourceQ1 = filterSourceQ1(sourceW);
+        List<RowData> sourceCR = filterSourceCR(sourceH);
+
+        // 3) write workbook with 7 sheets
+        writeWorkbook(outputXlsx, sourceM, sourceH, sourceY, sourceW, sourceWF, sourceQ1, sourceCR);
+
+        System.out.println("Created workbook: " + outputXlsx.toAbsolutePath());
     }
 
-    public static void convertDatToExcel(Path datFile, Path excelFile) throws IOException {
-        // streaming workbook: good for big files
-        try (SXSSFWorkbook wb = new SXSSFWorkbook(100);
-             BufferedReader reader = Files.newBufferedReader(datFile, StandardCharsets.UTF_8);
-             OutputStream os = Files.newOutputStream(excelFile)) {
+    // ---------------- READERS ----------------
+    private static List<RowData> readDat(Path datFile) throws IOException {
+        // precompute computed-column values once
+        LocalDate today = LocalDate.now(ZoneId.systemDefault());
+        String yearApplied = Integer.toString(today.getYear());
+        int month = today.getMonthValue();
+        int qFirstMonth = ((month - 1) / 3) * 3 + 1; // 1, 4, 7, 10
+        LocalDate quarterStart = LocalDate.of(today.getYear(), Month.of(qFirstMonth), 1);
+        String nbuEff = US_MDYYYY.format(quarterStart);
+        String nbuTerm = OPEN_END_DATE;
 
-            Sheet sheet = wb.createSheet("RVS Data");
-            createHeaderRow(wb, sheet);
-
+        List<RowData> out = new ArrayList<>(8192);
+        try (BufferedReader br = Files.newBufferedReader(datFile, INPUT_CHARSET)) {
             String line;
-            int rowNum = 1;
+            while ((line = br.readLine()) != null) {
+                if (line.isEmpty()) continue;
 
-            // we read line by line
-            while ((line = reader.readLine()) != null) {
-                if (line.isEmpty()) {
-                    continue;
-                }
-                // sometimes editors show long lines with CR/LF issues – enforce length
+                // normalize to exactly RECORD_LENGTH
                 if (line.length() < RECORD_LENGTH) {
-                    // pad with spaces just in case
                     line = String.format("%-" + RECORD_LENGTH + "s", line);
                 } else if (line.length() > RECORD_LENGTH) {
-                    // trim extra
                     line = line.substring(0, RECORD_LENGTH);
                 }
 
-                List<Object> values = parseLine(line);
+                // parse fields
+                RowData rd = new RowData();
+                for (FieldDef f : FieldDef.values()) {
+                    String raw = line.substring(f.start0(), f.start0() + f.length);
+                    String trimmed = raw.trim();
 
-                Row row = sheet.createRow(rowNum++);
-                for (int i = 0; i < values.size(); i++) {
-                    Cell cell = row.createCell(i);
-                    Object v = values.get(i);
-                    if (v == null) {
-                        // leave blank
-                    } else if (v instanceof Double d) {
-                        cell.setCellValue(d);
-                    } else {
-                        cell.setCellValue(v.toString());
+                    switch (f) {
+                        case RVS_ID -> rd.rvsId = trimmed;
+                        case PROCEDURE_CODE -> rd.proc = trimmed;
+                        case MODIFIER -> rd.mod = trimmed;
+                        case STATUS_IND -> rd.statusInd = trimmed;
+
+                        case WORK_RVU -> {
+                            rd.workRvu = KEEP_NUMERIC_AS_TEXT ? raw : trimmed;
+                            rd.workRvuNum = parseNum42(trimmed);
+                        }
+                        case NON_FAC_PE -> {
+                            rd.nonFacPe = KEEP_NUMERIC_AS_TEXT ? raw : trimmed;
+                            rd.nonFacPeNum = parseNum42(trimmed);
+                        }
+                        case FAC_PE -> {
+                            rd.facPe = KEEP_NUMERIC_AS_TEXT ? raw : trimmed;
+                            rd.facPeNum = parseNum42(trimmed);
+                        }
+                        case MALP_RVU -> {
+                            rd.malpRvu = KEEP_NUMERIC_AS_TEXT ? raw : trimmed;
+                            rd.malpRvuNum = parseNum42(trimmed);
+                        }
+                        case NON_FAC_TOTAL -> {
+                            rd.nonFacTotal = KEEP_NUMERIC_AS_TEXT ? raw : trimmed;
+                            rd.nonFacTotalNum = parseNum42(trimmed);
+                        }
+                        case FAC_TOTAL -> {
+                            rd.facTotal = KEEP_NUMERIC_AS_TEXT ? raw : trimmed;
+                            rd.facTotalNum = parseNum42(trimmed);
+                        }
+                        case UPDATE_IND -> rd.updateInd = trimmed;
+                        case GLOBAL_PERIOD -> rd.globalPeriod = trimmed;
                     }
                 }
 
-                // periodically flush rows to keep memory low
-                if (rowNum % 5000 == 0) {
-                    ((SXSSFSheet) sheet).flushRows(3000);
-                }
-            }
+                // computed columns
+                rd.yearApplied = yearApplied;
+                rd.nbuEff = nbuEff;
+                rd.nbuTerm = nbuTerm;
 
-            // autosize small number of columns
-            for (int i = 0; i < FieldDef.values().length; i++) {
-                sheet.autoSizeColumn(i);
+                out.add(rd);
             }
+        }
+        return out;
+    }
+
+    private static Double parseNum42(String sixDigitsTrimmed) {
+        if (KEEP_NUMERIC_AS_TEXT) return null;
+        if (sixDigitsTrimmed == null || sixDigitsTrimmed.isEmpty()) return null;
+        try {
+            int asInt = Integer.parseInt(sixDigitsTrimmed);
+            return asInt / 100.0;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static Set<String> readGCodeCombos(Path xlsxPath) {
+        if (!Files.exists(xlsxPath)) {
+            System.out.println("G codes file not found: " + xlsxPath.toAbsolutePath() + " (Source Y will be empty)");
+            return Collections.emptySet();
+        }
+        Set<String> combos = new HashSet<>(1024);
+        try (InputStream is = Files.newInputStream(xlsxPath);
+             Workbook wb = new XSSFWorkbook(is)) {
+            Sheet sh = wb.getSheetAt(0);
+            for (int r = sh.getFirstRowNum(); r <= sh.getLastRowNum(); r++) {
+                Row row = sh.getRow(r);
+                if (row == null) continue;
+                String proc = getStringCell(row.getCell(0));
+                String mod  = getStringCell(row.getCell(1));
+                if (proc == null || proc.isBlank()) continue;
+                if (mod == null) mod = "";
+                combos.add((proc.trim() + "|" + mod.trim()).toUpperCase(Locale.ROOT));
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Error reading G codes file: " + xlsxPath, e);
+        }
+        return combos;
+    }
+
+    private static String getStringCell(Cell c) {
+        if (c == null) return null;
+        return switch (c.getCellType()) {
+            case STRING -> c.getStringCellValue();
+            case NUMERIC -> {
+                // for codes like 99213 ensure no .0
+                double d = c.getNumericCellValue();
+                long l = (long) d;
+                yield (d == l) ? Long.toString(l) : Double.toString(d);
+            }
+            case BOOLEAN -> Boolean.toString(c.getBooleanCellValue());
+            case FORMULA -> c.getCellFormula();
+            default -> null;
+        };
+    }
+
+    // ---------------- FILTERS / TRANSFORMS ----------------
+    private static List<RowData> filterSourceH(List<RowData> sourceM) {
+        // Non-facility Total RVU (4.2) ≠ 0
+        if (KEEP_NUMERIC_AS_TEXT) {
+            return sourceM.stream()
+                    .filter(r -> r.nonFacTotal != null && !r.nonFacTotal.trim().equals("000000"))
+                    .collect(Collectors.toList());
+        } else {
+            return sourceM.stream()
+                    .filter(r -> r.nonFacTotalNum != null && Math.abs(r.nonFacTotalNum) > 0.000001)
+                    .collect(Collectors.toList());
+        }
+    }
+
+    private static List<RowData> filterSourceY(List<RowData> sourceM, Set<String> gCombos) {
+        if (gCombos.isEmpty()) return Collections.emptyList();
+
+        return sourceM.stream()
+                // Non-facility Total RVU ≠ 0
+                .filter(r -> {
+                    if (KEEP_NUMERIC_AS_TEXT) return r.nonFacTotal != null && !r.nonFacTotal.trim().equals("000000");
+                    return r.nonFacTotalNum != null && Math.abs(r.nonFacTotalNum) > 0.000001;
+                })
+                // Proc+Mod contained in external G codes list
+                .filter(r -> gCombos.contains((safe(r.proc) + "|" + safe(r.mod)).toUpperCase(Locale.ROOT)))
+                .collect(Collectors.toList());
+    }
+
+    private static List<RowData> filterSourceW(List<RowData> sourceH, Set<String> gCombos) {
+        if (gCombos.isEmpty()) return new ArrayList<>(sourceH); // if no G codes file, W == H
+        return sourceH.stream()
+                .filter(r -> !gCombos.contains((safe(r.proc) + "|" + safe(r.mod)).toUpperCase(Locale.ROOT)))
+                .collect(Collectors.toList());
+    }
+
+    private static String safe(String s) { return s == null ? "" : s; }
+
+    private static List<RowData> transformSourceWF(List<RowData> sourceW) {
+        // NBU_Eff + 365 days; NBU_Term + 365 days unless open-end
+        List<RowData> out = new ArrayList<>(sourceW.size());
+        for (RowData r : sourceW) {
+            RowData c = cloneRow(r);
+            try {
+                LocalDate eff = LocalDate.parse(c.nbuEff, US_MDYYYY);
+                eff = eff.plusDays(365);
+                c.nbuEff = US_MDYYYY.format(eff);
+            } catch (Exception ignore) { /* keep as-is */ }
+
+            if (!OPEN_END_DATE.equals(c.nbuTerm)) {
+                try {
+                    LocalDate term = LocalDate.parse(c.nbuTerm, US_MDYYYY);
+                    term = term.plusDays(365);
+                    c.nbuTerm = US_MDYYYY.format(term);
+                } catch (Exception ignore) { /* keep as-is */ }
+            }
+            out.add(c);
+        }
+        return out;
+    }
+
+    private static List<RowData> filterSourceQ1(List<RowData> sourceW) {
+        // Only if current quarter is Q1
+        Month now = LocalDate.now().getMonth();
+        boolean isQ1 = now.getValue() >= 1 && now.getValue() <= 3;
+        return isQ1 ? new ArrayList<>(sourceW) : Collections.emptyList();
+    }
+
+    private static List<RowData> filterSourceCR(List<RowData> sourceH) {
+        // Update Indicator in {C, R}
+        return sourceH.stream()
+                .filter(r -> r.updateInd != null && (r.updateInd.equalsIgnoreCase("C") || r.updateInd.equalsIgnoreCase("R")))
+                .collect(Collectors.toList());
+    }
+
+    private static RowData cloneRow(RowData r) {
+        RowData c = new RowData();
+        c.rvsId = r.rvsId; c.proc = r.proc; c.mod = r.mod; c.statusInd = r.statusInd;
+        c.workRvu = r.workRvu; c.nonFacPe = r.nonFacPe; c.facPe = r.facPe; c.malpRvu = r.malpRvu;
+        c.nonFacTotal = r.nonFacTotal; c.facTotal = r.facTotal;
+        c.updateInd = r.updateInd; c.globalPeriod = r.globalPeriod;
+
+        c.yearApplied = r.yearApplied; c.nbuEff = r.nbuEff; c.nbuTerm = r.nbuTerm;
+
+        c.workRvuNum = r.workRvuNum; c.nonFacPeNum = r.nonFacPeNum; c.facPeNum = r.facPeNum;
+        c.malpRvuNum = r.malpRvuNum; c.nonFacTotalNum = r.nonFacTotalNum; c.facTotalNum = r.facTotalNum;
+        return c;
+    }
+
+    // ---------------- WRITER ----------------
+    private static void writeWorkbook(Path outFile,
+                                      List<RowData> sourceM,
+                                      List<RowData> sourceH,
+                                      List<RowData> sourceY,
+                                      List<RowData> sourceW,
+                                      List<RowData> sourceWF,
+                                      List<RowData> sourceQ1,
+                                      List<RowData> sourceCR) throws IOException {
+
+        try (SXSSFWorkbook wb = new SXSSFWorkbook(500);
+             OutputStream os = Files.newOutputStream(outFile)) {
+
+            CellStyle headerStyle = makeHeaderStyle(wb);
+
+            writeSheet(wb, "Source M", headerStyle, sourceM);
+            writeSheet(wb, "Source H", headerStyle, sourceH);
+            writeSheet(wb, "Source Y", headerStyle, sourceY);
+            writeSheet(wb, "Source W", headerStyle, sourceW);
+            writeSheet(wb, "Source WF", headerStyle, sourceWF);
+            writeSheet(wb, "Source Q1", headerStyle, sourceQ1);
+            writeSheet(wb, "Source CR", headerStyle, sourceCR);
 
             wb.write(os);
-            wb.dispose(); // cleanup temp files
+            wb.dispose();
         }
     }
 
-    private static void createHeaderRow(Workbook wb, Sheet sheet) {
-        Row header = sheet.createRow(0);
+    private static void writeSheet(SXSSFWorkbook wb, String sheetName, CellStyle headerStyle, List<RowData> rows) {
+        Sheet sh = wb.createSheet(sheetName);
+        int r = 0;
+
+        // header
+        Row h = sh.createRow(r++);
+        int c = 0;
+        for (FieldDef f : FieldDef.values()) {
+            Cell cell = h.createCell(c++);
+            cell.setCellValue(f.header);
+            cell.setCellStyle(headerStyle);
+        }
+        Cell cell = h.createCell(c++); cell.setCellValue(COL_YEAR_APPLIED); cell.setCellStyle(headerStyle);
+        cell = h.createCell(c++); cell.setCellValue(COL_NBU_EFF); cell.setCellStyle(headerStyle);
+        cell = h.createCell(c++); cell.setCellValue(COL_NBU_TERM); cell.setCellStyle(headerStyle);
+
+        // rows
+        for (RowData rd : rows) {
+            Row row = sh.createRow(r++);
+            int col = 0;
+
+            setCell(row, col++, rd.rvsId);
+            setCell(row, col++, rd.proc);
+            setCell(row, col++, rd.mod);
+            setCell(row, col++, rd.statusInd);
+
+            setNumOrText(row, col++, rd.workRvuNum, rd.workRvu);
+            setNumOrText(row, col++, rd.nonFacPeNum, rd.nonFacPe);
+            setNumOrText(row, col++, rd.facPeNum, rd.facPe);
+            setNumOrText(row, col++, rd.malpRvuNum, rd.malpRvu);
+            setNumOrText(row, col++, rd.nonFacTotalNum, rd.nonFacTotal);
+            setNumOrText(row, col++, rd.facTotalNum, rd.facTotal);
+
+            setCell(row, col++, rd.updateInd);
+            setCell(row, col++, rd.globalPeriod);
+
+            setCell(row, col++, rd.yearApplied);
+            setCell(row, col++, rd.nbuEff);
+            setCell(row, col++, rd.nbuTerm);
+
+            if (r % 5000 == 0) ((SXSSFSheet) sh).flushRows(3000);
+        }
+
+        // make it readable
+        for (int i = 0; i < FieldDef.values().length + 3; i++) {
+            sh.autoSizeColumn(i);
+        }
+    }
+
+    private static void setCell(Row row, int col, String v) {
+        if (v == null) return;
+        row.createCell(col).setCellValue(v);
+    }
+
+    private static void setNumOrText(Row row, int col, Double num, String text) {
+        if (KEEP_NUMERIC_AS_TEXT || num == null) {
+            setCell(row, col, text);
+        } else {
+            row.createCell(col).setCellValue(num);
+        }
+    }
+
+    private static CellStyle makeHeaderStyle(Workbook wb) {
         CellStyle style = wb.createCellStyle();
-        Font font = wb.createFont();
-        font.setBold(true);
-        style.setFont(font);
-
-        FieldDef[] defs = FieldDef.values();
-        for (int i = 0; i < defs.length; i++) {
-            Cell cell = header.createCell(i);
-            cell.setCellValue(defs[i].header);
-            cell.setCellStyle(style);
-        }
-    }
-
-    private static List<Object> parseLine(String line) {
-        List<Object> list = new ArrayList<>(FieldDef.values().length);
-        for (FieldDef def : FieldDef.values()) {
-            String raw = line.substring(def.startIndex0(), def.startIndex0() + def.length);
-            raw = raw == null ? "" : raw;
-            raw = raw.trim();
-
-            if (def.type == FieldType.ALPHA) {
-                list.add(raw);
-            } else {
-                // NUM_4_2: 6 chars -> xxxx.yy
-                // empty or zeros -> 0.00
-                if (raw.isEmpty()) {
-                    list.add(null);
-                } else {
-                    // e.g. "000184" -> 1.84
-                    // guard against non-numeric
-                    double val = 0.0;
-                    try {
-                        int asInt = Integer.parseInt(raw);
-                        val = asInt / 100.0;
-                    } catch (NumberFormatException e) {
-                        // if something like "XXXXXX" appears, just keep as text
-                        list.add(raw);
-                        continue;
-                    }
-                    list.add(val);
-                }
-            }
-        }
-        return list;
+        Font f = wb.createFont();
+        f.setBold(true);
+        style.setFont(f);
+        return style;
     }
 }
