@@ -1,3 +1,62 @@
+private static void writeSheet(SXSSFWorkbook wb, String sheetName, CellStyle headerStyle, List<RowData> rows) {
+    Sheet sh = wb.createSheet(sheetName);
+    int r = 0;
+
+    // ---- HEADER ----
+    Row h = sh.createRow(r++);
+    int c = 0;
+    // first our 3 new columns
+    Cell cell = h.createCell(c++); cell.setCellValue(COL_YEAR_APPLIED); cell.setCellStyle(headerStyle);
+    cell = h.createCell(c++); cell.setCellValue(COL_NBU_EFF); cell.setCellStyle(headerStyle);
+    cell = h.createCell(c++); cell.setCellValue(COL_NBU_TERM); cell.setCellStyle(headerStyle);
+
+    // then all DAT-file columns
+    for (FieldDef f : FieldDef.values()) {
+        cell = h.createCell(c++);
+        cell.setCellValue(f.header);
+        cell.setCellStyle(headerStyle);
+    }
+
+    // ---- DATA ROWS ----
+    for (RowData rd : rows) {
+        Row row = sh.createRow(r++);
+        int col = 0;
+
+        // A-C : computed columns first
+        setCell(row, col++, rd.yearApplied);
+        setCell(row, col++, rd.nbuEff);
+        setCell(row, col++, rd.nbuTerm);
+
+        // then DAT-file fields
+        setCell(row, col++, rd.rvsId);
+        setCell(row, col++, rd.proc);
+        setCell(row, col++, rd.mod);
+        setCell(row, col++, rd.statusInd);
+
+        setNumOrText(row, col++, rd.workRvuNum, rd.workRvu);
+        setNumOrText(row, col++, rd.nonFacPeNum, rd.nonFacPe);
+        setNumOrText(row, col++, rd.facPeNum, rd.facPe);
+        setNumOrText(row, col++, rd.malpRvuNum, rd.malpRvu);
+        setNumOrText(row, col++, rd.nonFacTotalNum, rd.nonFacTotal);
+        setNumOrText(row, col++, rd.facTotalNum, rd.facTotal);
+
+        setCell(row, col++, rd.updateInd);
+        setCell(row, col++, rd.globalPeriod);
+
+        if (r % 5000 == 0) ((SXSSFSheet) sh).flushRows(3000);
+    }
+
+    for (int i = 0; i < FieldDef.values().length + 3; i++) {
+        sh.autoSizeColumn(i);
+    }
+}
+
+
+********************************
+
+
+
+
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.streaming.SXSSFSheet;
 import org.apache.poi.xssf.streaming.SXSSFWorkbook;
