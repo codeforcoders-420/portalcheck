@@ -14,89 +14,95 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
-public class MedinatDatToExcel {
+public class MedifctDatToExcel {
 
-    // ---- File characteristics ----
-    private static final int RECORD_LENGTH = 8;
-    private static final Charset INPUT_CHARSET = StandardCharsets.UTF_8; // use Charset.forName("windows-1252") if needed
+    /* ---------- Settings ---------- */
+    private static final boolean KEEP_NUMERIC_AS_TEXT = false;   // true -> keep "01017"; false -> 1.017
+    private static final Charset INPUT_CHARSET = StandardCharsets.UTF_8;
+    private static final int RECORD_LENGTH = 53;
 
-    // ---- Computed columns ----
+    /* ---------- Computed columns ---------- */
     private static final String COL_YEAR_APPLIED = "Year Applied";
     private static final String COL_NBU_START   = "NBU start date";
     private static final String COL_NBU_TERM    = "NBU term date";
     private static final String OPEN_END_DATE   = "12/31/9999";
     private static final DateTimeFormatter US_MDYYYY = DateTimeFormatter.ofPattern("MM/dd/yyyy");
 
-    // ---- Layout (from your screenshot) ----
+    /* ---------- Layout (from your image) ---------- */
+    private enum FieldType { ALPHA, NUM_2_3 } // 5 chars, 2.3 implied decimals
+
     private enum FieldDef {
-        UPDATE_IND(1, 1, "Update Indicator"),                // A
-        NCF       (2, 7, "National Conversion Factor");      // A (decimal included)
-        final int start1, length;
-        final String header;
-        FieldDef(int start1, int length, String header) {
-            this.start1 = start1; this.length = length; this.header = header;
+        CARRIER_NUM   ( 1, 5, "Carrier Number", FieldType.ALPHA),
+        LOCALITY_NUM  ( 6, 2, "Locality Number", FieldType.ALPHA),
+        LOCALITY_NAME ( 8,31, "Locality Name",  FieldType.ALPHA),
+        WORK_GPCI     (39, 5, "Work GPCI (2.3)", FieldType.NUM_2_3),
+        PE_GPCI       (44, 5, "Practice Expense GPCI (2.3)", FieldType.NUM_2_3),
+        MP_GPCI       (49, 5, "Malpractice GPCI (2.3)", FieldType.NUM_2_3);
+
+        final int start1, length; final String header; final FieldType type;
+        FieldDef(int start1, int length, String header, FieldType type) {
+            this.start1 = start1; this.length = length; this.header = header; this.type = type;
         }
         int start0() { return start1 - 1; }
     }
 
-    // ---- Row model ----
-    static final class RowCF {
-        String updateInd;
-        String ncf;         // keep as text (e.g., "32.3463")
-        String yearApplied; // computed A
-        String nbuStart;    // computed B
-        String nbuTerm;     // computed C
+    /* ---------- Row model ---------- */
+    static final class RowGpci {
+        String carrierNum, localityNum, localityName;
+        String workGpciTxt, peGpciTxt, mpGpciTxt; // raw text
+        Double workGpci, peGpci, mpGpci;          // numeric if converted
+
+        String yearApplied, nbuStart, nbuTerm;    // computed
     }
 
+    /* ---------- Main ---------- */
     public static void main(String[] args) throws Exception {
-        Path inputDat   = args.length >= 1 ? Path.of(args[0]) : Path.of("C:/temp/Medinat.dat");
-        Path outputXlsx = args.length >= 2 ? Path.of(args[1]) : Path.of("C:/temp/Medinat_out.xlsx");
+        Path in  = args.length > 0 ? Path.of(args[0]) : Path.of("C:/temp/Medifct.dat");
+        Path out = args.length > 1 ? Path.of(args[1]) : Path.of("C:/temp/Medifct_out.xlsx");
 
-        // 1) Read Source M (with computed columns)
-        List<RowCF> sourceM = readDat(inputDat);
+        List<RowGpci> sourceM  = readDat(in);
+        List<RowGpci> sourceWF = buildWF(sourceM);
+        List<RowGpci> sourceQ1 = buildQ1(sourceM);
 
-        // 2) Build Source WF
-        List<RowCF> sourceWF = buildWF(sourceM);
-
-        // 3) Write workbook
-        writeWorkbook(outputXlsx, sourceM, sourceWF);
-
-        System.out.println("Created: " + outputXlsx.toAbsolutePath());
+        writeWorkbook(out, sourceM, sourceWF, sourceQ1);
+        System.out.println("Created: " + out.toAbsolutePath());
     }
 
-    // Reads dat → rows for Source M
-    private static List<RowCF> readDat(Path datFile) throws IOException {
-        // Rule for Source M effective/term:
-        //   NBU start = current quarter start; NBU term = open-end; Year applied = year(start)
+    /* ---------- Readers ---------- */
+    private static List<RowGpci> readDat(Path datFile) throws IOException {
+        // Use current quarter start for M; Year Applied = year(start); Term = open-end
         LocalDate today = LocalDate.now(ZoneId.systemDefault());
-        int month = today.getMonthValue();
-        int qFirstMonth = ((month - 1) / 3) * 3 + 1; // 1,4,7,10
+        int qFirstMonth = ((today.getMonthValue() - 1) / 3) * 3 + 1; // 1,4,7,10
         LocalDate qStart = LocalDate.of(today.getYear(), Month.of(qFirstMonth), 1);
-        String nbuStartCommon = US_MDYYYY.format(qStart);
-        String yearAppliedCommon = Integer.toString(qStart.getYear());
-        String nbuTermCommon = OPEN_END_DATE;
+        String eff = US_MDYYYY.format(qStart), year = Integer.toString(qStart.getYear());
 
-        List<RowCF> out = new ArrayList<>(1024);
+        List<RowGpci> out = new ArrayList<>(4096);
         try (BufferedReader br = Files.newBufferedReader(datFile, INPUT_CHARSET)) {
             String line;
             while ((line = br.readLine()) != null) {
                 if (line.isEmpty()) continue;
+                if (line.length() < RECORD_LENGTH) line = String.format("%-" + RECORD_LENGTH + "s", line);
+                else if (line.length() > RECORD_LENGTH) line = line.substring(0, RECORD_LENGTH);
 
-                // Normalize to exactly 8 chars
-                if (line.length() < RECORD_LENGTH) {
-                    line = String.format("%-" + RECORD_LENGTH + "s", line);
-                } else if (line.length() > RECORD_LENGTH) {
-                    line = line.substring(0, RECORD_LENGTH);
+                RowGpci r = new RowGpci();
+                r.carrierNum   = slice(line, FieldDef.CARRIER_NUM).trim();
+                r.localityNum  = slice(line, FieldDef.LOCALITY_NUM).trim();
+                r.localityName = slice(line, FieldDef.LOCALITY_NAME).trim();
+
+                String w = slice(line, FieldDef.WORK_GPCI).trim();
+                String p = slice(line, FieldDef.PE_GPCI).trim();
+                String m = slice(line, FieldDef.MP_GPCI).trim();
+
+                r.workGpciTxt = w; r.peGpciTxt = p; r.mpGpciTxt = m;
+                if (!KEEP_NUMERIC_AS_TEXT) {
+                    r.workGpci = parse23(w);
+                    r.peGpci   = parse23(p);
+                    r.mpGpci   = parse23(m);
                 }
 
-                RowCF r = new RowCF();
-                r.updateInd = line.substring(FieldDef.UPDATE_IND.start0(), FieldDef.UPDATE_IND.start0() + FieldDef.UPDATE_IND.length).trim();
-                r.ncf       = line.substring(FieldDef.NCF.start0(),        FieldDef.NCF.start0()        + FieldDef.NCF.length).trim();
-
-                // computed
-                r.nbuStart = nbuStartCommon;
-                r.nbuTerm = nbuTermCommon;
-                r.yearApplied = yearAppliedCommon;
+                r.nbuStart = eff;
+                r.nbuTerm  = OPEN_END_DATE;
+                r.yearApplied = year;
 
                 out.add(r);
             }
@@ -104,49 +110,70 @@ public class MedinatDatToExcel {
         return out;
     }
 
-    // Source WF: NBU start + 365 days; NBU term = open end; Year applied = year(NBU start + 365)
-    private static List<RowCF> buildWF(List<RowCF> sourceM) {
-        List<RowCF> out = new ArrayList<>(sourceM.size());
-        for (RowCF r : sourceM) {
-            RowCF c = new RowCF();
-            c.updateInd = r.updateInd;
-            c.ncf = r.ncf;
+    private static String slice(String line, FieldDef f) {
+        return line.substring(f.start0(), f.start0() + f.length);
+    }
+    private static Double parse23(String fiveDigits) {
+        if (fiveDigits == null || fiveDigits.isBlank()) return null;
+        try {
+            int i = Integer.parseInt(fiveDigits);
+            return i / 1000.0; // 2.3 format -> divide by 1000
+        } catch (NumberFormatException e) { return null; }
+    }
 
+    /* ---------- Transforms ---------- */
+    private static List<RowGpci> buildWF(List<RowGpci> m) {
+        List<RowGpci> out = new ArrayList<>(m.size());
+        for (RowGpci r : m) {
+            RowGpci c = cloneRow(r);
             try {
                 LocalDate eff = LocalDate.parse(r.nbuStart, US_MDYYYY).plusDays(365);
                 c.nbuStart = US_MDYYYY.format(eff);
                 c.yearApplied = Integer.toString(eff.getYear());
-            } catch (Exception e) {
-                // fallback: keep same values if parsing fails
-                c.nbuStart = r.nbuStart;
-                c.yearApplied = r.yearApplied;
-            }
-            c.nbuTerm = OPEN_END_DATE; // always open end for WF
-
+            } catch (Exception ignore) {}
+            c.nbuTerm = OPEN_END_DATE;
             out.add(c);
         }
         return out;
     }
 
-    private static void writeWorkbook(Path outFile, List<RowCF> sourceM, List<RowCF> sourceWF) throws IOException {
-        try (SXSSFWorkbook wb = new SXSSFWorkbook(500);
-             OutputStream os = Files.newOutputStream(outFile)) {
+    private static List<RowGpci> buildQ1(List<RowGpci> m) {
+        Month now = LocalDate.now().getMonth();
+        boolean isQ1 = now.getValue() >= 1 && now.getValue() <= 3;
+        return isQ1 ? new ArrayList<>(m) : new ArrayList<>();
+    }
 
-            CellStyle header = makeHeaderStyle(wb);
+    private static RowGpci cloneRow(RowGpci r) {
+        RowGpci c = new RowGpci();
+        c.carrierNum = r.carrierNum; c.localityNum = r.localityNum; c.localityName = r.localityName;
+        c.workGpciTxt = r.workGpciTxt; c.peGpciTxt = r.peGpciTxt; c.mpGpciTxt = r.mpGpciTxt;
+        c.workGpci = r.workGpci; c.peGpci = r.peGpci; c.mpGpci = r.mpGpci;
+        c.yearApplied = r.yearApplied; c.nbuStart = r.nbuStart; c.nbuTerm = r.nbuTerm;
+        return c;
+    }
+
+    /* ---------- Writer ---------- */
+    private static void writeWorkbook(Path out,
+                                      List<RowGpci> sourceM,
+                                      List<RowGpci> sourceWF,
+                                      List<RowGpci> sourceQ1) throws IOException {
+
+        try (SXSSFWorkbook wb = new SXSSFWorkbook(500); OutputStream os = Files.newOutputStream(out)) {
+            CellStyle header = headerStyle(wb);
 
             writeSheet(wb, "Source M", header, sourceM);
             writeSheet(wb, "Source WF", header, sourceWF);
+            writeSheet(wb, "Source Q1", header, sourceQ1);
 
             wb.write(os);
             wb.dispose();
         }
     }
 
-    private static void writeSheet(SXSSFWorkbook wb, String name, CellStyle header, List<RowCF> rows) {
+    private static void writeSheet(SXSSFWorkbook wb, String name, CellStyle header, List<RowGpci> rows) {
         Sheet sh = wb.createSheet(name);
         int r = 0;
 
-        // Header: computed cols first (A-C), then data fields
         Row h = sh.createRow(r++);
         int c = 0;
         Cell cell = h.createCell(c++); cell.setCellValue(COL_YEAR_APPLIED); cell.setCellStyle(header);
@@ -159,8 +186,7 @@ public class MedinatDatToExcel {
             cell.setCellStyle(header);
         }
 
-        // Rows
-        for (RowCF rd : rows) {
+        for (RowGpci rd : rows) {
             Row row = sh.createRow(r++);
             int col = 0;
 
@@ -168,27 +194,37 @@ public class MedinatDatToExcel {
             setText(row, col++, rd.nbuStart);
             setText(row, col++, rd.nbuTerm);
 
-            setText(row, col++, rd.updateInd);
-            setText(row, col++, rd.ncf);
+            setText(row, col++, rd.carrierNum);
+            setText(row, col++, rd.localityNum);
+            setText(row, col++, rd.localityName);
+
+            if (KEEP_NUMERIC_AS_TEXT) {
+                setText(row, col++, rd.workGpciTxt);
+                setText(row, col++, rd.peGpciTxt);
+                setText(row, col++, rd.mpGpciTxt);
+            } else {
+                setNumberOrBlank(row, col++, rd.workGpci, rd.workGpciTxt);
+                setNumberOrBlank(row, col++, rd.peGpci,   rd.peGpciTxt);
+                setNumberOrBlank(row, col++, rd.mpGpci,   rd.mpGpciTxt);
+            }
 
             if (r % 5000 == 0) ((SXSSFSheet) sh).flushRows(3000);
         }
 
-        for (int i = 0; i < 3 + FieldDef.values().length; i++) {
-            sh.autoSizeColumn(i);
-        }
+        for (int i = 0; i < 3 + FieldDef.values().length; i++) sh.autoSizeColumn(i);
     }
 
     private static void setText(Row row, int col, String v) {
-        if (v == null) return;
-        row.createCell(col).setCellValue(v);
+        if (v == null) return; row.createCell(col).setCellValue(v);
+    }
+    private static void setNumberOrBlank(Row row, int col, Double num, String fallbackTxt) {
+        if (num != null) row.createCell(col).setCellValue(num);
+        else if (fallbackTxt != null) row.createCell(col).setCellValue(fallbackTxt);
     }
 
-    private static CellStyle makeHeaderStyle(Workbook wb) {
+    private static CellStyle headerStyle(Workbook wb) {
         CellStyle style = wb.createCellStyle();
-        Font f = wb.createFont();
-        f.setBold(true);
-        style.setFont(f);
+        Font f = wb.createFont(); f.setBold(true); style.setFont(f);
         return style;
     }
 }
