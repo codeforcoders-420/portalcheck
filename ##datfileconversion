@@ -1,3 +1,29 @@
+/* ===================== HELPERS (append this) ===================== */
+private static String safeForDiff(String s) {
+    // Normalize for readable “Excel=…, DB=…” output
+    if (s == null) return "<NULL>";
+    String v = s.trim();
+    if (v.isEmpty()) return "<EMPTY>";
+    // If numeric, normalize (remove trailing zeros; keep plain string)
+    try {
+        BigDecimal bd = new BigDecimal(v);
+        v = bd.stripTrailingZeros().toPlainString();
+    } catch (NumberFormatException ignore) {
+        // not numeric; keep as-is
+    }
+    // Optionally cap very long values
+    if (v.length() > 200) v = v.substring(0, 200) + "…";
+    return v;
+}
+
+
+// add at top with imports
+import java.math.BigDecimal;
+
+########################################################
+
+
+
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
