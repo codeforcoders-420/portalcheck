@@ -1,66 +1,6 @@
-private static void writeSheet(SXSSFWorkbook wb, String sheetName, CellStyle headerStyle, List<RowData> rows) {
-    Sheet sh = wb.createSheet(sheetName);
-    int r = 0;
-
-    // ---- HEADER ----
-    Row h = sh.createRow(r++);
-    int c = 0;
-    // first our 3 new columns
-    Cell cell = h.createCell(c++); cell.setCellValue(COL_YEAR_APPLIED); cell.setCellStyle(headerStyle);
-    cell = h.createCell(c++); cell.setCellValue(COL_NBU_EFF); cell.setCellStyle(headerStyle);
-    cell = h.createCell(c++); cell.setCellValue(COL_NBU_TERM); cell.setCellStyle(headerStyle);
-
-    // then all DAT-file columns
-    for (FieldDef f : FieldDef.values()) {
-        cell = h.createCell(c++);
-        cell.setCellValue(f.header);
-        cell.setCellStyle(headerStyle);
-    }
-
-    // ---- DATA ROWS ----
-    for (RowData rd : rows) {
-        Row row = sh.createRow(r++);
-        int col = 0;
-
-        // A-C : computed columns first
-        setCell(row, col++, rd.yearApplied);
-        setCell(row, col++, rd.nbuEff);
-        setCell(row, col++, rd.nbuTerm);
-
-        // then DAT-file fields
-        setCell(row, col++, rd.rvsId);
-        setCell(row, col++, rd.proc);
-        setCell(row, col++, rd.mod);
-        setCell(row, col++, rd.statusInd);
-
-        setNumOrText(row, col++, rd.workRvuNum, rd.workRvu);
-        setNumOrText(row, col++, rd.nonFacPeNum, rd.nonFacPe);
-        setNumOrText(row, col++, rd.facPeNum, rd.facPe);
-        setNumOrText(row, col++, rd.malpRvuNum, rd.malpRvu);
-        setNumOrText(row, col++, rd.nonFacTotalNum, rd.nonFacTotal);
-        setNumOrText(row, col++, rd.facTotalNum, rd.facTotal);
-
-        setCell(row, col++, rd.updateInd);
-        setCell(row, col++, rd.globalPeriod);
-
-        if (r % 5000 == 0) ((SXSSFSheet) sh).flushRows(3000);
-    }
-
-    for (int i = 0; i < FieldDef.values().length + 3; i++) {
-        sh.autoSizeColumn(i);
-    }
-}
-
-
-********************************
-
-
-
-
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.streaming.SXSSFSheet;
 import org.apache.poi.xssf.streaming.SXSSFWorkbook;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
 import java.io.*;
 import java.nio.charset.Charset;
@@ -71,421 +11,190 @@ import java.time.LocalDate;
 import java.time.Month;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.ArrayList;
+import java.util.List;
 
-/**
- * medirvsf.dat -> Excel workbook with 7 sheets:
- *  Source M, Source H, Source Y, Source W, Source WF, Source Q1, Source CR
- */
-public class DatToExcel7Sheets {
+public class MedizipDatToExcel {
 
-    // ---- toggles ----
-    /** Keep the 6-char numeric "4.2" fields as raw text (e.g., "000184") instead of numeric 1.84 */
-    private static final boolean KEEP_NUMERIC_AS_TEXT = false;
-
-    // ---- constants ----
-    private static final int RECORD_LENGTH = 51;
+    // ----- file + encoding -----
+    private static final int RECORD_LENGTH = 16;
     private static final Charset INPUT_CHARSET = StandardCharsets.UTF_8; // set to Charset.forName("windows-1252") if needed
 
+    // ----- computed columns -----
     private static final String COL_YEAR_APPLIED = "Year Applied";
-    private static final String COL_NBU_EFF = "NBU_Eff";
-    private static final String COL_NBU_TERM = "NBU_Term";
+    private static final String COL_NBU_START = "NBU start date";
+    private static final String COL_NBU_TERM = "NBU term date";
     private static final String OPEN_END_DATE = "12/31/9999";
     private static final DateTimeFormatter US_MDYYYY = DateTimeFormatter.ofPattern("MM/dd/yyyy");
 
-    // External codes file path (Proc in col A, Mod in col B)
-    private static final Path G_CODES_XLSX = Path.of("External Files", "G codes.xlsx");
-
-    // ---- field layout (from your screenshot) ----
-    private enum FieldType { ALPHA, NUM_4_2 }
-
-    private static FieldType numericType() {
-        return KEEP_NUMERIC_AS_TEXT ? FieldType.ALPHA : FieldType.NUM_4_2;
-    }
-
+    // ----- layout (all alpha) -----
     private enum FieldDef {
-        RVS_ID        ( 1, 3, "RVS ID", FieldType.ALPHA),
-        PROCEDURE_CODE( 4, 5, "Procedure Code", FieldType.ALPHA),
-        MODIFIER      ( 9, 2, "Modifier", FieldType.ALPHA),
-        STATUS_IND    (11, 1, "Status Indicator", FieldType.ALPHA),
-
-        WORK_RVU      (12, 6, "Work RVU (4.2)", numericType()),
-        NON_FAC_PE    (18, 6, "Non-facility Practice Expense RVS (4.2)", numericType()),
-        FAC_PE        (24, 6, "Facility Practice Expense (4.2)", numericType()),
-        MALP_RVU      (30, 6, "Malpractice RVU (4.2)", numericType()),
-        NON_FAC_TOTAL (36, 6, "Non-facility Total RVU (4.2)", numericType()),
-        FAC_TOTAL     (42, 6, "Facility Total RVU (4.2)", numericType()),
-
-        UPDATE_IND    (48, 1, "Update Indicator", FieldType.ALPHA),
-        GLOBAL_PERIOD (49, 3, "Global Period", FieldType.ALPHA);
+        CARRIER_NO ( 1, 5, "Carrier Number"),
+        LOCALITY_NO( 6, 2, "Locality Number"),
+        ZIP_BEGIN  ( 8, 3, "Beginning Zip Code (3-digit)"),
+        ZIP_END    (11, 3, "Ending Zip Code (3-digit)"),
+        RVS_ID     (14, 3, "RVS ID");
 
         final int start1, length;
         final String header;
-        final FieldType type;
-        FieldDef(int start1, int length, String header, FieldType type) {
-            this.start1 = start1; this.length = length; this.header = header; this.type = type;
+        FieldDef(int start1, int length, String header) {
+            this.start1 = start1; this.length = length; this.header = header;
         }
         int start0() { return start1 - 1; }
     }
 
-    // ---- data model ----
-    static final class RowData {
+    // ----- data model -----
+    static final class RowZip {
+        String carrierNo;
+        String localityNo;
+        String zipBegin;
+        String zipEnd;
         String rvsId;
-        String proc;
-        String mod;
-        String statusInd;
 
-        String workRvu;           // keep original text as well
-        String nonFacPe;
-        String facPe;
-        String malpRvu;
-        String nonFacTotal;
-        String facTotal;
-
-        String updateInd;
-        String globalPeriod;
-
-        // computed columns (as strings)
-        String yearApplied;
-        String nbuEff;    // MM/dd/yyyy
-        String nbuTerm;   // MM/dd/yyyy
-
-        // numeric views (for fast comparisons, when available)
-        Double workRvuNum;
-        Double nonFacPeNum;
-        Double facPeNum;
-        Double malpRvuNum;
-        Double nonFacTotalNum;
-        Double facTotalNum;
+        String yearApplied; // A
+        String nbuStart;    // B
+        String nbuTerm;     // C
     }
 
-    // ---------------- MAIN ----------------
     public static void main(String[] args) throws Exception {
-        Path inputDat  = args.length >= 1 ? Path.of(args[0]) : Path.of("C:/temp/medirvsf.dat");
-        Path outputXlsx= args.length >= 2 ? Path.of(args[1]) : Path.of("C:/temp/medirvsf_7sheets.xlsx");
+        Path inputDat   = args.length >= 1 ? Path.of(args[0]) : Path.of("C:/temp/Medizip.dat");
+        Path outputXlsx = args.length >= 2 ? Path.of(args[1]) : Path.of("C:/temp/Medizip_out.xlsx");
 
-        // 1) read dat -> all rows ("Source M" base)
-        List<RowData> sourceM = readDat(inputDat);
+        // 1) read Source M
+        List<RowZip> sourceM = readDat(inputDat);
 
-        // 2) derive other sheets
-        List<RowData> sourceH = filterSourceH(sourceM);
-        Set<String> gCodeCombos = readGCodeCombos(G_CODES_XLSX); // Proc+Mod from external file
-        List<RowData> sourceY = filterSourceY(sourceM, gCodeCombos);
-        List<RowData> sourceW = filterSourceW(sourceH, gCodeCombos);
-        List<RowData> sourceWF = transformSourceWF(sourceW);
-        List<RowData> sourceQ1 = filterSourceQ1(sourceW);
-        List<RowData> sourceCR = filterSourceCR(sourceH);
+        // 2) build Source WF
+        List<RowZip> sourceWF = buildWF(sourceM);
 
-        // 3) write workbook with 7 sheets
-        writeWorkbook(outputXlsx, sourceM, sourceH, sourceY, sourceW, sourceWF, sourceQ1, sourceCR);
+        // 3) write workbook
+        writeWorkbook(outputXlsx, sourceM, sourceWF);
 
-        System.out.println("Created workbook: " + outputXlsx.toAbsolutePath());
+        System.out.println("Created: " + outputXlsx.toAbsolutePath());
     }
 
-    // ---------------- READERS ----------------
-    private static List<RowData> readDat(Path datFile) throws IOException {
-        // precompute computed-column values once
+    // Read dat -> Source M, with computed columns
+    private static List<RowZip> readDat(Path datFile) throws IOException {
+        // NBU start date = current quarter start; term = open end; year = year(eff)
         LocalDate today = LocalDate.now(ZoneId.systemDefault());
-        String yearApplied = Integer.toString(today.getYear());
         int month = today.getMonthValue();
-        int qFirstMonth = ((month - 1) / 3) * 3 + 1; // 1, 4, 7, 10
-        LocalDate quarterStart = LocalDate.of(today.getYear(), Month.of(qFirstMonth), 1);
-        String nbuEff = US_MDYYYY.format(quarterStart);
-        String nbuTerm = OPEN_END_DATE;
+        int qFirstMonth = ((month - 1) / 3) * 3 + 1; // 1,4,7,10
+        LocalDate qStart = LocalDate.of(today.getYear(), Month.of(qFirstMonth), 1);
+        String nbuStartCommon = US_MDYYYY.format(qStart);
+        String yearAppliedCommon = String.valueOf(qStart.getYear());
+        String nbuTermCommon = OPEN_END_DATE;
 
-        List<RowData> out = new ArrayList<>(8192);
+        List<RowZip> out = new ArrayList<>(4096);
         try (BufferedReader br = Files.newBufferedReader(datFile, INPUT_CHARSET)) {
             String line;
             while ((line = br.readLine()) != null) {
                 if (line.isEmpty()) continue;
 
-                // normalize to exactly RECORD_LENGTH
                 if (line.length() < RECORD_LENGTH) {
                     line = String.format("%-" + RECORD_LENGTH + "s", line);
                 } else if (line.length() > RECORD_LENGTH) {
                     line = line.substring(0, RECORD_LENGTH);
                 }
 
-                // parse fields
-                RowData rd = new RowData();
-                for (FieldDef f : FieldDef.values()) {
-                    String raw = line.substring(f.start0(), f.start0() + f.length);
-                    String trimmed = raw.trim();
+                RowZip r = new RowZip();
+                r.carrierNo  = line.substring(FieldDef.CARRIER_NO.start0(),  FieldDef.CARRIER_NO.start0()  + FieldDef.CARRIER_NO.length).trim();
+                r.localityNo = line.substring(FieldDef.LOCALITY_NO.start0(), FieldDef.LOCALITY_NO.start0() + FieldDef.LOCALITY_NO.length).trim();
+                r.zipBegin   = line.substring(FieldDef.ZIP_BEGIN.start0(),   FieldDef.ZIP_BEGIN.start0()   + FieldDef.ZIP_BEGIN.length).trim();
+                r.zipEnd     = line.substring(FieldDef.ZIP_END.start0(),     FieldDef.ZIP_END.start0()     + FieldDef.ZIP_END.length).trim();
+                r.rvsId      = line.substring(FieldDef.RVS_ID.start0(),      FieldDef.RVS_ID.start0()      + FieldDef.RVS_ID.length).trim();
 
-                    switch (f) {
-                        case RVS_ID -> rd.rvsId = trimmed;
-                        case PROCEDURE_CODE -> rd.proc = trimmed;
-                        case MODIFIER -> rd.mod = trimmed;
-                        case STATUS_IND -> rd.statusInd = trimmed;
+                r.nbuStart = nbuStartCommon;
+                r.nbuTerm = nbuTermCommon;
+                r.yearApplied = yearAppliedCommon;
 
-                        case WORK_RVU -> {
-                            rd.workRvu = KEEP_NUMERIC_AS_TEXT ? raw : trimmed;
-                            rd.workRvuNum = parseNum42(trimmed);
-                        }
-                        case NON_FAC_PE -> {
-                            rd.nonFacPe = KEEP_NUMERIC_AS_TEXT ? raw : trimmed;
-                            rd.nonFacPeNum = parseNum42(trimmed);
-                        }
-                        case FAC_PE -> {
-                            rd.facPe = KEEP_NUMERIC_AS_TEXT ? raw : trimmed;
-                            rd.facPeNum = parseNum42(trimmed);
-                        }
-                        case MALP_RVU -> {
-                            rd.malpRvu = KEEP_NUMERIC_AS_TEXT ? raw : trimmed;
-                            rd.malpRvuNum = parseNum42(trimmed);
-                        }
-                        case NON_FAC_TOTAL -> {
-                            rd.nonFacTotal = KEEP_NUMERIC_AS_TEXT ? raw : trimmed;
-                            rd.nonFacTotalNum = parseNum42(trimmed);
-                        }
-                        case FAC_TOTAL -> {
-                            rd.facTotal = KEEP_NUMERIC_AS_TEXT ? raw : trimmed;
-                            rd.facTotalNum = parseNum42(trimmed);
-                        }
-                        case UPDATE_IND -> rd.updateInd = trimmed;
-                        case GLOBAL_PERIOD -> rd.globalPeriod = trimmed;
-                    }
-                }
-
-                // computed columns
-                rd.yearApplied = yearApplied;
-                rd.nbuEff = nbuEff;
-                rd.nbuTerm = nbuTerm;
-
-                out.add(rd);
+                out.add(r);
             }
         }
         return out;
     }
 
-    private static Double parseNum42(String sixDigitsTrimmed) {
-        if (KEEP_NUMERIC_AS_TEXT) return null;
-        if (sixDigitsTrimmed == null || sixDigitsTrimmed.isEmpty()) return null;
-        try {
-            int asInt = Integer.parseInt(sixDigitsTrimmed);
-            return asInt / 100.0;
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
+    // Build Source WF: effective = Source M nbuStart + 365 days, term = open end, year = year(effective)
+    private static List<RowZip> buildWF(List<RowZip> sourceM) {
+        List<RowZip> out = new ArrayList<>(sourceM.size());
+        for (RowZip r : sourceM) {
+            RowZip c = new RowZip();
+            c.carrierNo = r.carrierNo;
+            c.localityNo = r.localityNo;
+            c.zipBegin = r.zipBegin;
+            c.zipEnd = r.zipEnd;
+            c.rvsId = r.rvsId;
 
-    private static Set<String> readGCodeCombos(Path xlsxPath) {
-        if (!Files.exists(xlsxPath)) {
-            System.out.println("G codes file not found: " + xlsxPath.toAbsolutePath() + " (Source Y will be empty)");
-            return Collections.emptySet();
-        }
-        Set<String> combos = new HashSet<>(1024);
-        try (InputStream is = Files.newInputStream(xlsxPath);
-             Workbook wb = new XSSFWorkbook(is)) {
-            Sheet sh = wb.getSheetAt(0);
-            for (int r = sh.getFirstRowNum(); r <= sh.getLastRowNum(); r++) {
-                Row row = sh.getRow(r);
-                if (row == null) continue;
-                String proc = getStringCell(row.getCell(0));
-                String mod  = getStringCell(row.getCell(1));
-                if (proc == null || proc.isBlank()) continue;
-                if (mod == null) mod = "";
-                combos.add((proc.trim() + "|" + mod.trim()).toUpperCase(Locale.ROOT));
-            }
-        } catch (IOException e) {
-            throw new RuntimeException("Error reading G codes file: " + xlsxPath, e);
-        }
-        return combos;
-    }
-
-    private static String getStringCell(Cell c) {
-        if (c == null) return null;
-        return switch (c.getCellType()) {
-            case STRING -> c.getStringCellValue();
-            case NUMERIC -> {
-                // for codes like 99213 ensure no .0
-                double d = c.getNumericCellValue();
-                long l = (long) d;
-                yield (d == l) ? Long.toString(l) : Double.toString(d);
-            }
-            case BOOLEAN -> Boolean.toString(c.getBooleanCellValue());
-            case FORMULA -> c.getCellFormula();
-            default -> null;
-        };
-    }
-
-    // ---------------- FILTERS / TRANSFORMS ----------------
-    private static List<RowData> filterSourceH(List<RowData> sourceM) {
-        // Non-facility Total RVU (4.2) ≠ 0
-        if (KEEP_NUMERIC_AS_TEXT) {
-            return sourceM.stream()
-                    .filter(r -> r.nonFacTotal != null && !r.nonFacTotal.trim().equals("000000"))
-                    .collect(Collectors.toList());
-        } else {
-            return sourceM.stream()
-                    .filter(r -> r.nonFacTotalNum != null && Math.abs(r.nonFacTotalNum) > 0.000001)
-                    .collect(Collectors.toList());
-        }
-    }
-
-    private static List<RowData> filterSourceY(List<RowData> sourceM, Set<String> gCombos) {
-        if (gCombos.isEmpty()) return Collections.emptyList();
-
-        return sourceM.stream()
-                // Non-facility Total RVU ≠ 0
-                .filter(r -> {
-                    if (KEEP_NUMERIC_AS_TEXT) return r.nonFacTotal != null && !r.nonFacTotal.trim().equals("000000");
-                    return r.nonFacTotalNum != null && Math.abs(r.nonFacTotalNum) > 0.000001;
-                })
-                // Proc+Mod contained in external G codes list
-                .filter(r -> gCombos.contains((safe(r.proc) + "|" + safe(r.mod)).toUpperCase(Locale.ROOT)))
-                .collect(Collectors.toList());
-    }
-
-    private static List<RowData> filterSourceW(List<RowData> sourceH, Set<String> gCombos) {
-        if (gCombos.isEmpty()) return new ArrayList<>(sourceH); // if no G codes file, W == H
-        return sourceH.stream()
-                .filter(r -> !gCombos.contains((safe(r.proc) + "|" + safe(r.mod)).toUpperCase(Locale.ROOT)))
-                .collect(Collectors.toList());
-    }
-
-    private static String safe(String s) { return s == null ? "" : s; }
-
-    private static List<RowData> transformSourceWF(List<RowData> sourceW) {
-        // NBU_Eff + 365 days; NBU_Term + 365 days unless open-end
-        List<RowData> out = new ArrayList<>(sourceW.size());
-        for (RowData r : sourceW) {
-            RowData c = cloneRow(r);
             try {
-                LocalDate eff = LocalDate.parse(c.nbuEff, US_MDYYYY);
-                eff = eff.plusDays(365);
-                c.nbuEff = US_MDYYYY.format(eff);
-            } catch (Exception ignore) { /* keep as-is */ }
-
-            if (!OPEN_END_DATE.equals(c.nbuTerm)) {
-                try {
-                    LocalDate term = LocalDate.parse(c.nbuTerm, US_MDYYYY);
-                    term = term.plusDays(365);
-                    c.nbuTerm = US_MDYYYY.format(term);
-                } catch (Exception ignore) { /* keep as-is */ }
+                LocalDate eff = LocalDate.parse(r.nbuStart, US_MDYYYY).plusDays(365);
+                c.nbuStart = US_MDYYYY.format(eff);
+                c.yearApplied = String.valueOf(eff.getYear());
+            } catch (Exception e) {
+                // fallback: keep same values if parsing fails
+                c.nbuStart = r.nbuStart;
+                c.yearApplied = r.yearApplied;
             }
+            c.nbuTerm = OPEN_END_DATE; // always open end for WF
             out.add(c);
         }
         return out;
     }
 
-    private static List<RowData> filterSourceQ1(List<RowData> sourceW) {
-        // Only if current quarter is Q1
-        Month now = LocalDate.now().getMonth();
-        boolean isQ1 = now.getValue() >= 1 && now.getValue() <= 3;
-        return isQ1 ? new ArrayList<>(sourceW) : Collections.emptyList();
-    }
-
-    private static List<RowData> filterSourceCR(List<RowData> sourceH) {
-        // Update Indicator in {C, R}
-        return sourceH.stream()
-                .filter(r -> r.updateInd != null && (r.updateInd.equalsIgnoreCase("C") || r.updateInd.equalsIgnoreCase("R")))
-                .collect(Collectors.toList());
-    }
-
-    private static RowData cloneRow(RowData r) {
-        RowData c = new RowData();
-        c.rvsId = r.rvsId; c.proc = r.proc; c.mod = r.mod; c.statusInd = r.statusInd;
-        c.workRvu = r.workRvu; c.nonFacPe = r.nonFacPe; c.facPe = r.facPe; c.malpRvu = r.malpRvu;
-        c.nonFacTotal = r.nonFacTotal; c.facTotal = r.facTotal;
-        c.updateInd = r.updateInd; c.globalPeriod = r.globalPeriod;
-
-        c.yearApplied = r.yearApplied; c.nbuEff = r.nbuEff; c.nbuTerm = r.nbuTerm;
-
-        c.workRvuNum = r.workRvuNum; c.nonFacPeNum = r.nonFacPeNum; c.facPeNum = r.facPeNum;
-        c.malpRvuNum = r.malpRvuNum; c.nonFacTotalNum = r.nonFacTotalNum; c.facTotalNum = r.facTotalNum;
-        return c;
-    }
-
-    // ---------------- WRITER ----------------
-    private static void writeWorkbook(Path outFile,
-                                      List<RowData> sourceM,
-                                      List<RowData> sourceH,
-                                      List<RowData> sourceY,
-                                      List<RowData> sourceW,
-                                      List<RowData> sourceWF,
-                                      List<RowData> sourceQ1,
-                                      List<RowData> sourceCR) throws IOException {
-
+    private static void writeWorkbook(Path outFile, List<RowZip> sourceM, List<RowZip> sourceWF) throws IOException {
         try (SXSSFWorkbook wb = new SXSSFWorkbook(500);
              OutputStream os = Files.newOutputStream(outFile)) {
 
-            CellStyle headerStyle = makeHeaderStyle(wb);
+            CellStyle header = makeHeaderStyle(wb);
 
-            writeSheet(wb, "Source M", headerStyle, sourceM);
-            writeSheet(wb, "Source H", headerStyle, sourceH);
-            writeSheet(wb, "Source Y", headerStyle, sourceY);
-            writeSheet(wb, "Source W", headerStyle, sourceW);
-            writeSheet(wb, "Source WF", headerStyle, sourceWF);
-            writeSheet(wb, "Source Q1", headerStyle, sourceQ1);
-            writeSheet(wb, "Source CR", headerStyle, sourceCR);
+            writeSheet(wb, "Source M", header, sourceM);
+            writeSheet(wb, "Source WF", header, sourceWF);
 
             wb.write(os);
             wb.dispose();
         }
     }
 
-    private static void writeSheet(SXSSFWorkbook wb, String sheetName, CellStyle headerStyle, List<RowData> rows) {
-        Sheet sh = wb.createSheet(sheetName);
+    private static void writeSheet(SXSSFWorkbook wb, String name, CellStyle header, List<RowZip> rows) {
+        Sheet sh = wb.createSheet(name);
         int r = 0;
 
-        // header
+        // header (A..)
         Row h = sh.createRow(r++);
         int c = 0;
+        Cell cell = h.createCell(c++); cell.setCellValue(COL_YEAR_APPLIED); cell.setCellStyle(header);
+        cell = h.createCell(c++); cell.setCellValue(COL_NBU_START); cell.setCellStyle(header);
+        cell = h.createCell(c++); cell.setCellValue(COL_NBU_TERM); cell.setCellStyle(header);
+
         for (FieldDef f : FieldDef.values()) {
-            Cell cell = h.createCell(c++);
+            cell = h.createCell(c++);
             cell.setCellValue(f.header);
-            cell.setCellStyle(headerStyle);
+            cell.setCellStyle(header);
         }
-        Cell cell = h.createCell(c++); cell.setCellValue(COL_YEAR_APPLIED); cell.setCellStyle(headerStyle);
-        cell = h.createCell(c++); cell.setCellValue(COL_NBU_EFF); cell.setCellStyle(headerStyle);
-        cell = h.createCell(c++); cell.setCellValue(COL_NBU_TERM); cell.setCellStyle(headerStyle);
 
         // rows
-        for (RowData rd : rows) {
+        for (RowZip rd : rows) {
             Row row = sh.createRow(r++);
             int col = 0;
 
-            setCell(row, col++, rd.rvsId);
-            setCell(row, col++, rd.proc);
-            setCell(row, col++, rd.mod);
-            setCell(row, col++, rd.statusInd);
+            setText(row, col++, rd.yearApplied);
+            setText(row, col++, rd.nbuStart);
+            setText(row, col++, rd.nbuTerm);
 
-            setNumOrText(row, col++, rd.workRvuNum, rd.workRvu);
-            setNumOrText(row, col++, rd.nonFacPeNum, rd.nonFacPe);
-            setNumOrText(row, col++, rd.facPeNum, rd.facPe);
-            setNumOrText(row, col++, rd.malpRvuNum, rd.malpRvu);
-            setNumOrText(row, col++, rd.nonFacTotalNum, rd.nonFacTotal);
-            setNumOrText(row, col++, rd.facTotalNum, rd.facTotal);
-
-            setCell(row, col++, rd.updateInd);
-            setCell(row, col++, rd.globalPeriod);
-
-            setCell(row, col++, rd.yearApplied);
-            setCell(row, col++, rd.nbuEff);
-            setCell(row, col++, rd.nbuTerm);
+            setText(row, col++, rd.carrierNo);
+            setText(row, col++, rd.localityNo);
+            setText(row, col++, rd.zipBegin);
+            setText(row, col++, rd.zipEnd);
+            setText(row, col++, rd.rvsId);
 
             if (r % 5000 == 0) ((SXSSFSheet) sh).flushRows(3000);
         }
 
-        // make it readable
-        for (int i = 0; i < FieldDef.values().length + 3; i++) {
+        for (int i = 0; i < 3 + FieldDef.values().length; i++) {
             sh.autoSizeColumn(i);
         }
     }
 
-    private static void setCell(Row row, int col, String v) {
+    private static void setText(Row row, int col, String v) {
         if (v == null) return;
         row.createCell(col).setCellValue(v);
-    }
-
-    private static void setNumOrText(Row row, int col, Double num, String text) {
-        if (KEEP_NUMERIC_AS_TEXT || num == null) {
-            setCell(row, col, text);
-        } else {
-            row.createCell(col).setCellValue(num);
-        }
     }
 
     private static CellStyle makeHeaderStyle(Workbook wb) {
