@@ -8,26 +8,27 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * Compares an Excel sheet against a SQL Server SELECT query.
- * Produces "MissingInDB" = rows in Excel not returned by the query.
+ * Compare an Excel sheet to a SQL Server SELECT query result.
  *
- * How to use:
- *  1) Set EXCEL_PATH, SHEET_NAME.
- *  2) Paste your SELECT into TARGET_SOURCE_SQL and alias columns to match Excel headers.
- *  3) Set JDBC_URL (pick one of the provided URLs).
- *  4) (Optional) set KEY_COLUMNS to match on a subset; leave empty to match on ALL columns.
- *  5) Run. Output file: C:/temp/ExcelVsDB_Check.xlsx
+ * Outputs:
+ *  - Summary
+ *  - MissingInDB: rows in Excel absent from DB (join on KEY_COLUMNS)
+ *  - Mismatches: rows where keys match but one or more non-key columns differ.
+ *
+ * Notes:
+ *  - KEY_COLUMNS must define how to match Excel rows to DB rows.
+ *  - Your SQL (TARGET_SOURCE_SQL) must return the same column names as the Excel headers.
+ *  - Uses Windows authentication (pick the proper JDBC URL).
  */
-public class ExcelVsSqlQueryCompare {
+public class ExcelVsSqlQueryCompareWithMismatches {
 
     /* ===================== USER SETTINGS ===================== */
 
-    // 1) Excel input
+    // Excel input
     private static final Path EXCEL_PATH = Path.of("C:/temp/input.xlsx");
-    private static final String SHEET_NAME = "Source M"; // change as needed
+    private static final String SHEET_NAME = "Source M";  // change as needed
 
-    // 2) Your SQL SELECT (must be a single SELECT) — alias columns to match Excel headers 1:1.
-    // Example shown; replace with your actual query.
+    // Your SQL SELECT (alias columns to match Excel headers)
     private static final String TARGET_SOURCE_SQL = """
         SELECT
             [Year Applied],
@@ -37,38 +38,35 @@ public class ExcelVsSqlQueryCompare {
             [Procedure Code],
             [Modifier],
             [Status Indicator],
-            [Work RVU (4.2)],
-            [Non-facility Practice Expense RVS (4.2)],
-            [Facility Practice Expense (4.2)],
-            [Malpractice RVU (4.2)],
-            [Non-facility Total RVU (4.2)],
-            [Facility Total RVU (4.2)],
-            [Update Indicator],
-            [Global Period]
+            [Work GPCI (2.3)],
+            [Practice Expense GPCI (2.3)],
+            [Malpractice GPCI (2.3)]
         FROM dbo.YourTargetTable
         WHERE SomeFilter = 1
         """;
 
-    // 3) SQL Server connection (choose ONE URL; comment out the other)
-    // (A) Native Integrated Security (requires sqljdbc_auth.dll on PATH; matches your JDK arch)
+    // SQL Server connection (choose ONE)
+    // (A) Native Integrated Security (requires sqljdbc_auth.dll on PATH; arch must match JVM)
     private static final String JDBC_URL =
         "jdbc:sqlserver://YOUR_SERVER;databaseName=YOUR_DB;" +
         "encrypt=true;trustServerCertificate=true;" +
         "integratedSecurity=true;authenticationScheme=NativeAuthentication";
 
-    // (B) Or Azure AD / domain-joined Integrated (no dll):
+    // (B) Azure AD Integrated (no DLL)
     // private static final String JDBC_URL =
     //     "jdbc:sqlserver://YOUR_SERVER;databaseName=YOUR_DB;" +
     //     "encrypt=true;trustServerCertificate=true;authentication=ActiveDirectoryIntegrated";
 
-    // 4) Matching behavior
-    // If empty => compare on ALL columns; otherwise only on these (case-insensitive, must exist in Excel headers & your SQL).
-    private static final Set<String> KEY_COLUMNS = Set.of(); // e.g., Set.of("Procedure Code","Modifier","Status Indicator")
+    // Match behavior: set the columns that uniquely identify a row.
+    // If left empty -> ALL columns are used as keys -> no mismatch rows by design.
+    private static final Set<String> KEY_COLUMNS = Set.of(
+        "RVS ID", "Procedure Code", "Modifier"  // <-- change to your real keys
+    );
 
-    // 5) Output
+    // Output file
     private static final String OUTPUT_XLSX = "C:/temp/ExcelVsDB_Check.xlsx";
 
-    // 6) Insert batch size
+    // Insert batch size
     private static final int BATCH = 2000;
 
     /* ===================== MAIN ===================== */
@@ -79,7 +77,7 @@ public class ExcelVsSqlQueryCompare {
             System.err.println("No headers found in Excel. Aborting.");
             return;
         }
-        System.out.println("Loaded Excel: " + excel.rows.size() + " rows, " + excel.headers.size() + " columns");
+        System.out.printf("Loaded Excel: %,d rows, %,d columns%n", excel.rows.size(), excel.headers.size());
 
         try (Connection con = DriverManager.getConnection(JDBC_URL)) {
             con.setAutoCommit(false);
@@ -90,15 +88,17 @@ public class ExcelVsSqlQueryCompare {
             con.commit();
 
             List<Map<String,String>> missing = findMissing(con, stage, excel.headers);
+            List<MismatchRow> mismatches = findMismatches(con, stage, excel.headers);
 
-            writeOutput(excel.headers, missing, OUTPUT_XLSX);
+            writeOutput(excel.headers, missing, mismatches, OUTPUT_XLSX);
 
-            System.out.println("Missing rows (present in Excel but not in DB result): " + missing.size());
+            System.out.println("Missing rows: " + missing.size());
+            System.out.println("Mismatch rows: " + mismatches.size());
             System.out.println("Result written to: " + OUTPUT_XLSX);
         }
     }
 
-    /* ===================== EXCEL ===================== */
+    /* ===================== EXCEL READ ===================== */
 
     private record ExcelData(List<String> headers, List<List<String>> rows) {}
 
@@ -155,29 +155,25 @@ public class ExcelVsSqlQueryCompare {
         };
     }
 
-    /* ===================== SQL: STAGE & INSERT ===================== */
+    /* ===================== SQL STAGE ===================== */
 
     private static void createStageTable(Connection con, String stage, List<String> headers) throws SQLException {
         String cols = headers.stream()
-                .map(ExcelVsSqlQueryCompare::sqlCol)
+                .map(ExcelVsSqlQueryCompareWithMismatches::sqlCol)
                 .map(c -> c + " NVARCHAR(4000) NULL")
                 .collect(Collectors.joining(","));
         String sql = "CREATE TABLE " + stage + " (" + cols + ")";
-        try (Statement st = con.createStatement()) {
-            st.execute(sql);
-        }
+        try (Statement st = con.createStatement()) { st.execute(sql); }
     }
 
     private static void insertStage(Connection con, String stage, List<String> headers, List<List<String>> rows) throws SQLException {
         String placeholders = headers.stream().map(h -> "?").collect(Collectors.joining(","));
-        String colList = headers.stream().map(ExcelVsSqlQueryCompare::sqlCol).collect(Collectors.joining(","));
+        String colList = headers.stream().map(ExcelVsSqlQueryCompareWithMismatches::sqlCol).collect(Collectors.joining(","));
         String sql = "INSERT INTO " + stage + " (" + colList + ") VALUES (" + placeholders + ")";
         try (PreparedStatement ps = con.prepareStatement(sql)) {
             int count = 0;
             for (List<String> r : rows) {
-                for (int i = 0; i < headers.size(); i++) {
-                    ps.setString(i + 1, r.get(i));
-                }
+                for (int i = 0; i < headers.size(); i++) ps.setString(i + 1, r.get(i));
                 ps.addBatch();
                 if (++count % BATCH == 0) ps.executeBatch();
             }
@@ -185,31 +181,21 @@ public class ExcelVsSqlQueryCompare {
         }
     }
 
-    /* ===================== COMPARISON ===================== */
+    /* ===================== EXISTENCE CHECK ===================== */
 
     private static List<Map<String,String>> findMissing(Connection con, String stage, List<String> headers) throws SQLException {
-        // Determine the join columns: either all headers or the subset specified in KEY_COLUMNS
-        Set<String> joinCols = KEY_COLUMNS.isEmpty()
-                ? new LinkedHashSet<>(headers)
-                : headers.stream()
-                         .filter(h -> KEY_COLUMNS.stream().anyMatch(k -> k.equalsIgnoreCase(h)))
-                         .collect(Collectors.toCollection(LinkedHashSet::new));
-        if (joinCols.isEmpty())
-            throw new IllegalStateException("No columns to join on. Check KEY_COLUMNS vs Excel headers.");
+        Set<String> joinCols = resolveJoinCols(headers);
 
-        // ON clause: compare trimmed strings with NULL-safe equality
         String on = joinCols.stream()
                 .map(h -> "ISNULL(LTRIM(RTRIM(t." + sqlCol(h) + ")), '') = ISNULL(LTRIM(RTRIM(s." + sqlCol(h) + ")), '')")
                 .collect(Collectors.joining(" AND "));
 
-        // We need one column to check NULL on the right side; pick the first join column
-        String firstJoinCol = joinCols.iterator().next();
+        String firstJoin = joinCols.iterator().next();
 
         String selectCols = headers.stream()
                 .map(h -> "s." + sqlCol(h) + " AS " + sqlCol(h))
                 .collect(Collectors.joining(", "));
 
-        // Join stage (Excel) to YOUR SELECT as a derived table "t"
         String sql = """
             SELECT %s
             FROM %s s
@@ -217,17 +203,85 @@ public class ExcelVsSqlQueryCompare {
                 %s
             ) t ON %s
             WHERE t.%s IS NULL
-            """.formatted(selectCols, stage, TARGET_SOURCE_SQL, on, sqlCol(firstJoinCol));
+            """.formatted(selectCols, stage, TARGET_SOURCE_SQL, on, sqlCol(firstJoin));
 
         List<Map<String,String>> out = new ArrayList<>();
-        try (Statement st = con.createStatement();
-             ResultSet rs = st.executeQuery(sql)) {
+        try (Statement st = con.createStatement(); ResultSet rs = st.executeQuery(sql)) {
             while (rs.next()) {
                 Map<String,String> row = new LinkedHashMap<>();
-                for (String h : headers) {
-                    row.put(h, rs.getString(h));
-                }
+                for (String h : headers) row.put(h, rs.getString(h));
                 out.add(row);
+            }
+        }
+        return out;
+    }
+
+    /* ===================== MISMATCH CHECK ===================== */
+
+    private static class MismatchRow {
+        String mismatchedColumns;                 // comma-separated list
+        Map<String,String> excelValues = new LinkedHashMap<>(); // s.*
+        Map<String,String> dbValues    = new LinkedHashMap<>(); // t.*
+    }
+
+    private static List<MismatchRow> findMismatches(Connection con, String stage, List<String> headers) throws SQLException {
+        Set<String> joinCols = resolveJoinCols(headers);
+        // Non-key columns to compare for mismatches
+        List<String> compareCols = headers.stream()
+                .filter(h -> joinCols.stream().noneMatch(k -> k.equalsIgnoreCase(h)))
+                .collect(Collectors.toList());
+
+        if (compareCols.isEmpty()) {
+            // If you join on all columns, there can't be mismatches by definition.
+            return List.of();
+        }
+
+        String on = joinCols.stream()
+                .map(h -> "ISNULL(LTRIM(RTRIM(t." + sqlCol(h) + ")), '') = ISNULL(LTRIM(RTRIM(s." + sqlCol(h) + ")), '')")
+                .collect(Collectors.joining(" AND "));
+
+        // Any difference across non-key columns
+        String anyDiff = compareCols.stream()
+                .map(h -> "ISNULL(LTRIM(RTRIM(s." + sqlCol(h) + ")), '') <> ISNULL(LTRIM(RTRIM(t." + sqlCol(h) + ")), '')")
+                .collect(Collectors.joining(" OR "));
+
+        // Select stage and db copies with aliases
+        String selectStage = headers.stream()
+                .map(h -> "s." + sqlCol(h) + " AS " + bracket("s_" + h))
+                .collect(Collectors.joining(", "));
+        String selectDb = headers.stream()
+                .map(h -> "t." + sqlCol(h) + " AS " + bracket("t_" + h))
+                .collect(Collectors.joining(", "));
+
+        String sql = """
+            SELECT %s, %s
+            FROM %s s
+            INNER JOIN (
+                %s
+            ) t ON %s
+            WHERE %s
+            """.formatted(selectStage, selectDb, stage, TARGET_SOURCE_SQL, on, anyDiff);
+
+        List<MismatchRow> out = new ArrayList<>();
+        try (Statement st = con.createStatement(); ResultSet rs = st.executeQuery(sql)) {
+            while (rs.next()) {
+                MismatchRow mr = new MismatchRow();
+
+                // Build maps and mismatched list (using the same normalization)
+                List<String> mismCols = new ArrayList<>();
+                for (String h : headers) {
+                    String sVal = rs.getString("s_" + h);
+                    String tVal = rs.getString("t_" + h);
+                    mr.excelValues.put(h, sVal);
+                    mr.dbValues.put(h, tVal);
+                }
+                for (String h : compareCols) {
+                    String sv = norm(mr.excelValues.get(h));
+                    String tv = norm(mr.dbValues.get(h));
+                    if (!Objects.equals(sv, tv)) mismCols.add(h);
+                }
+                mr.mismatchedColumns = String.join(", ", mismCols);
+                out.add(mr);
             }
         }
         return out;
@@ -235,43 +289,73 @@ public class ExcelVsSqlQueryCompare {
 
     /* ===================== OUTPUT ===================== */
 
-    private static void writeOutput(List<String> headers, List<Map<String,String>> missing, String outPath) throws IOException {
-        try (Workbook wb = new XSSFWorkbook()) {
+    private static void writeOutput(List<String> headers,
+                                    List<Map<String,String>> missing,
+                                    List<MismatchRow> mismatches,
+                                    String outPath) throws IOException {
 
+        try (Workbook wb = new XSSFWorkbook()) {
             // Summary
             Sheet sum = wb.createSheet("Summary");
-            Row r0 = sum.createRow(0);
-            r0.createCell(0).setCellValue("Metric");
-            r0.createCell(1).setCellValue("Count");
+            Row h = sum.createRow(0);
+            h.createCell(0).setCellValue("Metric"); h.createCell(1).setCellValue("Count");
             Row r1 = sum.createRow(1);
-            r1.createCell(0).setCellValue("Excel rows");
-            r1.createCell(1).setCellValue(missing.size() + " missing (see tab)");
+            r1.createCell(0).setCellValue("MissingInDB");
+            r1.createCell(1).setCellValue(missing.size());
+            Row r2 = sum.createRow(2);
+            r2.createCell(0).setCellValue("Mismatches");
+            r2.createCell(1).setCellValue(mismatches.size());
             sum.autoSizeColumn(0); sum.autoSizeColumn(1);
 
             // MissingInDB
             Sheet miss = wb.createSheet("MissingInDB");
-            Row head = miss.createRow(0);
-            for (int c = 0; c < headers.size(); c++) head.createCell(c).setCellValue(headers.get(c));
-
-            int rr = 1;
+            Row mh = miss.createRow(0);
+            for (int c = 0; c < headers.size(); c++) mh.createCell(c).setCellValue(headers.get(c));
+            int r = 1;
             for (Map<String,String> row : missing) {
-                Row x = miss.createRow(rr++);
+                Row x = miss.createRow(r++);
                 int c = 0;
-                for (String h : headers) x.createCell(c++).setCellValue(safe(row.get(h)));
+                for (String hname : headers) x.createCell(c++).setCellValue(safe(row.get(hname)));
             }
             for (int c = 0; c < headers.size(); c++) miss.autoSizeColumn(c);
 
-            try (OutputStream os = new FileOutputStream(outPath)) {
-                wb.write(os);
+            // Mismatches
+            Sheet diff = wb.createSheet("Mismatches");
+            // Header: Mismatched Columns | (Excel.<col> ...) | (DB.<col> ...)
+            Row dh = diff.createRow(0);
+            int c = 0;
+            dh.createCell(c++).setCellValue("Mismatched Columns");
+            for (String hname : headers) dh.createCell(c++).setCellValue("Excel." + hname);
+            for (String hname : headers) dh.createCell(c++).setCellValue("DB." + hname);
+
+            int rr = 1;
+            for (MismatchRow mr : mismatches) {
+                Row row = diff.createRow(rr++);
+                int cc = 0;
+                row.createCell(cc++).setCellValue(mr.mismatchedColumns);
+                for (String hname : headers) row.createCell(cc++).setCellValue(safe(mr.excelValues.get(hname)));
+                for (String hname : headers) row.createCell(cc++).setCellValue(safe(mr.dbValues.get(hname)));
+                if (rr % 2000 == 0) System.gc(); // tiny guard for very wide sheets
             }
+            for (int i = 0; i < 1 + headers.size() * 2; i++) diff.autoSizeColumn(i);
+
+            // Save
+            try (OutputStream os = new FileOutputStream(outPath)) { wb.write(os); }
         }
     }
 
     /* ===================== HELPERS ===================== */
 
-    private static String sqlCol(String header) {
-        // safe bracketed name, supports spaces and special chars
-        return "[" + header.replace("]", "]]") + "]";
+    private static Set<String> resolveJoinCols(List<String> headers) {
+        return KEY_COLUMNS.isEmpty()
+                ? new LinkedHashSet<>(headers) // all columns -> no mismatches possible
+                : headers.stream()
+                         .filter(h -> KEY_COLUMNS.stream().anyMatch(k -> k.equalsIgnoreCase(h)))
+                         .collect(Collectors.toCollection(LinkedHashSet::new));
     }
+
+    private static String sqlCol(String header) { return "[" + header.replace("]", "]]") + "]"; }
+    private static String bracket(String alias)  { return "[" + alias.replace("]", "]]") + "]"; }
     private static String safe(String s) { return s == null ? "" : s; }
+    private static String norm(String s) { return s == null ? "" : s.trim(); }
 }
