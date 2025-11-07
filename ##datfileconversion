@@ -14,27 +14,23 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
-public class MedizipDatToExcel {
+public class MedinatDatToExcel {
 
-    // ----- file + encoding -----
-    private static final int RECORD_LENGTH = 16;
-    private static final Charset INPUT_CHARSET = StandardCharsets.UTF_8; // set to Charset.forName("windows-1252") if needed
+    // ---- File characteristics ----
+    private static final int RECORD_LENGTH = 8;
+    private static final Charset INPUT_CHARSET = StandardCharsets.UTF_8; // use Charset.forName("windows-1252") if needed
 
-    // ----- computed columns -----
+    // ---- Computed columns ----
     private static final String COL_YEAR_APPLIED = "Year Applied";
-    private static final String COL_NBU_START = "NBU start date";
-    private static final String COL_NBU_TERM = "NBU term date";
-    private static final String OPEN_END_DATE = "12/31/9999";
+    private static final String COL_NBU_START   = "NBU start date";
+    private static final String COL_NBU_TERM    = "NBU term date";
+    private static final String OPEN_END_DATE   = "12/31/9999";
     private static final DateTimeFormatter US_MDYYYY = DateTimeFormatter.ofPattern("MM/dd/yyyy");
 
-    // ----- layout (all alpha) -----
+    // ---- Layout (from your screenshot) ----
     private enum FieldDef {
-        CARRIER_NO ( 1, 5, "Carrier Number"),
-        LOCALITY_NO( 6, 2, "Locality Number"),
-        ZIP_BEGIN  ( 8, 3, "Beginning Zip Code (3-digit)"),
-        ZIP_END    (11, 3, "Ending Zip Code (3-digit)"),
-        RVS_ID     (14, 3, "RVS ID");
-
+        UPDATE_IND(1, 1, "Update Indicator"),                // A
+        NCF       (2, 7, "National Conversion Factor");      // A (decimal included)
         final int start1, length;
         final String header;
         FieldDef(int start1, int length, String header) {
@@ -43,65 +39,61 @@ public class MedizipDatToExcel {
         int start0() { return start1 - 1; }
     }
 
-    // ----- data model -----
-    static final class RowZip {
-        String carrierNo;
-        String localityNo;
-        String zipBegin;
-        String zipEnd;
-        String rvsId;
-
-        String yearApplied; // A
-        String nbuStart;    // B
-        String nbuTerm;     // C
+    // ---- Row model ----
+    static final class RowCF {
+        String updateInd;
+        String ncf;         // keep as text (e.g., "32.3463")
+        String yearApplied; // computed A
+        String nbuStart;    // computed B
+        String nbuTerm;     // computed C
     }
 
     public static void main(String[] args) throws Exception {
-        Path inputDat   = args.length >= 1 ? Path.of(args[0]) : Path.of("C:/temp/Medizip.dat");
-        Path outputXlsx = args.length >= 2 ? Path.of(args[1]) : Path.of("C:/temp/Medizip_out.xlsx");
+        Path inputDat   = args.length >= 1 ? Path.of(args[0]) : Path.of("C:/temp/Medinat.dat");
+        Path outputXlsx = args.length >= 2 ? Path.of(args[1]) : Path.of("C:/temp/Medinat_out.xlsx");
 
-        // 1) read Source M
-        List<RowZip> sourceM = readDat(inputDat);
+        // 1) Read Source M (with computed columns)
+        List<RowCF> sourceM = readDat(inputDat);
 
-        // 2) build Source WF
-        List<RowZip> sourceWF = buildWF(sourceM);
+        // 2) Build Source WF
+        List<RowCF> sourceWF = buildWF(sourceM);
 
-        // 3) write workbook
+        // 3) Write workbook
         writeWorkbook(outputXlsx, sourceM, sourceWF);
 
         System.out.println("Created: " + outputXlsx.toAbsolutePath());
     }
 
-    // Read dat -> Source M, with computed columns
-    private static List<RowZip> readDat(Path datFile) throws IOException {
-        // NBU start date = current quarter start; term = open end; year = year(eff)
+    // Reads dat → rows for Source M
+    private static List<RowCF> readDat(Path datFile) throws IOException {
+        // Rule for Source M effective/term:
+        //   NBU start = current quarter start; NBU term = open-end; Year applied = year(start)
         LocalDate today = LocalDate.now(ZoneId.systemDefault());
         int month = today.getMonthValue();
         int qFirstMonth = ((month - 1) / 3) * 3 + 1; // 1,4,7,10
         LocalDate qStart = LocalDate.of(today.getYear(), Month.of(qFirstMonth), 1);
         String nbuStartCommon = US_MDYYYY.format(qStart);
-        String yearAppliedCommon = String.valueOf(qStart.getYear());
+        String yearAppliedCommon = Integer.toString(qStart.getYear());
         String nbuTermCommon = OPEN_END_DATE;
 
-        List<RowZip> out = new ArrayList<>(4096);
+        List<RowCF> out = new ArrayList<>(1024);
         try (BufferedReader br = Files.newBufferedReader(datFile, INPUT_CHARSET)) {
             String line;
             while ((line = br.readLine()) != null) {
                 if (line.isEmpty()) continue;
 
+                // Normalize to exactly 8 chars
                 if (line.length() < RECORD_LENGTH) {
                     line = String.format("%-" + RECORD_LENGTH + "s", line);
                 } else if (line.length() > RECORD_LENGTH) {
                     line = line.substring(0, RECORD_LENGTH);
                 }
 
-                RowZip r = new RowZip();
-                r.carrierNo  = line.substring(FieldDef.CARRIER_NO.start0(),  FieldDef.CARRIER_NO.start0()  + FieldDef.CARRIER_NO.length).trim();
-                r.localityNo = line.substring(FieldDef.LOCALITY_NO.start0(), FieldDef.LOCALITY_NO.start0() + FieldDef.LOCALITY_NO.length).trim();
-                r.zipBegin   = line.substring(FieldDef.ZIP_BEGIN.start0(),   FieldDef.ZIP_BEGIN.start0()   + FieldDef.ZIP_BEGIN.length).trim();
-                r.zipEnd     = line.substring(FieldDef.ZIP_END.start0(),     FieldDef.ZIP_END.start0()     + FieldDef.ZIP_END.length).trim();
-                r.rvsId      = line.substring(FieldDef.RVS_ID.start0(),      FieldDef.RVS_ID.start0()      + FieldDef.RVS_ID.length).trim();
+                RowCF r = new RowCF();
+                r.updateInd = line.substring(FieldDef.UPDATE_IND.start0(), FieldDef.UPDATE_IND.start0() + FieldDef.UPDATE_IND.length).trim();
+                r.ncf       = line.substring(FieldDef.NCF.start0(),        FieldDef.NCF.start0()        + FieldDef.NCF.length).trim();
 
+                // computed
                 r.nbuStart = nbuStartCommon;
                 r.nbuTerm = nbuTermCommon;
                 r.yearApplied = yearAppliedCommon;
@@ -112,33 +104,31 @@ public class MedizipDatToExcel {
         return out;
     }
 
-    // Build Source WF: effective = Source M nbuStart + 365 days, term = open end, year = year(effective)
-    private static List<RowZip> buildWF(List<RowZip> sourceM) {
-        List<RowZip> out = new ArrayList<>(sourceM.size());
-        for (RowZip r : sourceM) {
-            RowZip c = new RowZip();
-            c.carrierNo = r.carrierNo;
-            c.localityNo = r.localityNo;
-            c.zipBegin = r.zipBegin;
-            c.zipEnd = r.zipEnd;
-            c.rvsId = r.rvsId;
+    // Source WF: NBU start + 365 days; NBU term = open end; Year applied = year(NBU start + 365)
+    private static List<RowCF> buildWF(List<RowCF> sourceM) {
+        List<RowCF> out = new ArrayList<>(sourceM.size());
+        for (RowCF r : sourceM) {
+            RowCF c = new RowCF();
+            c.updateInd = r.updateInd;
+            c.ncf = r.ncf;
 
             try {
                 LocalDate eff = LocalDate.parse(r.nbuStart, US_MDYYYY).plusDays(365);
                 c.nbuStart = US_MDYYYY.format(eff);
-                c.yearApplied = String.valueOf(eff.getYear());
+                c.yearApplied = Integer.toString(eff.getYear());
             } catch (Exception e) {
                 // fallback: keep same values if parsing fails
                 c.nbuStart = r.nbuStart;
                 c.yearApplied = r.yearApplied;
             }
             c.nbuTerm = OPEN_END_DATE; // always open end for WF
+
             out.add(c);
         }
         return out;
     }
 
-    private static void writeWorkbook(Path outFile, List<RowZip> sourceM, List<RowZip> sourceWF) throws IOException {
+    private static void writeWorkbook(Path outFile, List<RowCF> sourceM, List<RowCF> sourceWF) throws IOException {
         try (SXSSFWorkbook wb = new SXSSFWorkbook(500);
              OutputStream os = Files.newOutputStream(outFile)) {
 
@@ -152,11 +142,11 @@ public class MedizipDatToExcel {
         }
     }
 
-    private static void writeSheet(SXSSFWorkbook wb, String name, CellStyle header, List<RowZip> rows) {
+    private static void writeSheet(SXSSFWorkbook wb, String name, CellStyle header, List<RowCF> rows) {
         Sheet sh = wb.createSheet(name);
         int r = 0;
 
-        // header (A..)
+        // Header: computed cols first (A-C), then data fields
         Row h = sh.createRow(r++);
         int c = 0;
         Cell cell = h.createCell(c++); cell.setCellValue(COL_YEAR_APPLIED); cell.setCellStyle(header);
@@ -169,8 +159,8 @@ public class MedizipDatToExcel {
             cell.setCellStyle(header);
         }
 
-        // rows
-        for (RowZip rd : rows) {
+        // Rows
+        for (RowCF rd : rows) {
             Row row = sh.createRow(r++);
             int col = 0;
 
@@ -178,11 +168,8 @@ public class MedizipDatToExcel {
             setText(row, col++, rd.nbuStart);
             setText(row, col++, rd.nbuTerm);
 
-            setText(row, col++, rd.carrierNo);
-            setText(row, col++, rd.localityNo);
-            setText(row, col++, rd.zipBegin);
-            setText(row, col++, rd.zipEnd);
-            setText(row, col++, rd.rvsId);
+            setText(row, col++, rd.updateInd);
+            setText(row, col++, rd.ncf);
 
             if (r % 5000 == 0) ((SXSSFSheet) sh).flushRows(3000);
         }
