@@ -1,3 +1,23 @@
+/* ===================== DATA CLASS ===================== */
+private static class MismatchRow {
+    // The base row’s values (Excel or DB, depending on logic)
+    Map<String, String> base = new LinkedHashMap<>();
+
+    // Classification type (e.g., "New Code", "Rate Change", "Terminate")
+    String type;
+
+    // Differences text (like: "Rate1: Excel=25.00, DB=26.00; Rate2: Excel=15.0, DB=18.0")
+    String differences;
+}
+
+
+
+
+
+
+
+
+
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
