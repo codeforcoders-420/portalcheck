@@ -1,0 +1,257 @@
+py -m pip install requests beautifulsoup4 pandas openpyxl
+py -m pip install requests beautifulsoup4
+
+##########################################
+
+import os, re, time, glob, shutil
+from datetime import datetime, timedelta
+from urllib.parse import urljoin, urlparse, unquote
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+
+# --------------------- CONFIG ---------------------
+BASE_URL = "https://dhcfp.nv.gov/resources/rates/feeschedules/"
+ROOT_DIR = r"C:\Users\rajas\Desktop\Nevada"   # parent folder
+EXCEL_EXTS = (".xlsx", ".xls", ".xlsm", ".csv")
+HEADER_ROW_INDEX = 9  # Row 10 in Excel (0-based index)
+REPORTS_SUBFOLDER = "_reports"
+# --------------------------------------------------
+
+def now_str():
+    return time.strftime("%Y%m%d_%H%M%S")
+
+def today_folder_name():
+    return datetime.now().strftime("%m%d%Y")
+
+def yesterday_folder_name():
+    return (datetime.now() - timedelta(days=1)).strftime("%m%d%Y")
+
+def ensure_dir(p):
+    os.makedirs(p, exist_ok=True)
+    return p
+
+def get_session():
+    s = requests.Session()
+    s.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Python downloader"})
+    return s
+
+def filename_from_response(resp, url_fallback):
+    cd = resp.headers.get("Content-Disposition", "")
+    m = re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";]+)"?', cd, flags=re.I)
+    if m:
+        return unquote(m.group(1)).strip()
+    name = os.path.basename(urlparse(url_fallback).path)
+    return name or f"download_{int(time.time()*1000)}.xlsx"
+
+def ensure_excel_ext(name):
+    return name if name.lower().endswith(EXCEL_EXTS) else name + ".xlsx"
+
+def stamp_name(original_name):
+    stem, ext = os.path.splitext(original_name)
+    return f"{stem}__{now_str()}{ext}"
+
+def is_excel_link(href):
+    if not href:
+        return False
+    href = href.lower()
+    return href.endswith(EXCEL_EXTS)
+
+def collect_excel_links(session):
+    r = session.get(BASE_URL, timeout=60)
+    r.raise_for_status()
+    soup = BeautifulSoup(r.text, "html.parser")
+    links = []
+    for a in soup.find_all("a", href=True):
+        href = a["href"].strip()
+        abs_url = urljoin(BASE_URL, href)
+        if is_excel_link(href) or is_excel_link(abs_url):
+            links.append(abs_url)
+    # dedupe but keep order
+    deduped = []
+    seen = set()
+    for u in links:
+        if u not in seen:
+            seen.add(u)
+            deduped.append(u)
+    return deduped
+
+def download_file(session, url, dest_folder):
+    try:
+        with session.get(url, stream=True, timeout=120) as resp:
+            resp.raise_for_status()
+            original = ensure_excel_ext(filename_from_response(resp, url))
+            stamped = stamp_name(original)
+            out_path = os.path.join(dest_folder, stamped)
+
+            # avoid accidental overwrite within same second
+            base, ext = os.path.splitext(out_path)
+            c = 1
+            while os.path.exists(out_path):
+                out_path = f"{base}_{c}{ext}"
+                c += 1
+
+            size = 0
+            with open(out_path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=1024 * 64):
+                    if chunk:
+                        f.write(chunk)
+                        size += len(chunk)
+            print(f"Saved: {out_path} ({size/1024:.1f} KB)")
+            return out_path
+    except Exception as e:
+        print(f"Failed: {url} -> {e}")
+        return None
+
+def clean_df_for_compare(df: pd.DataFrame) -> pd.DataFrame:
+    # Normalize to strings, trim whitespace, unify NaNs
+    df = df.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+    for c in df.columns:
+        df[c] = df[c].astype(str).str.strip()
+    df = df.fillna("")
+    # Sort columns alphabetically so column order changes don't look like diffs
+    df = df.reindex(sorted(df.columns), axis=1)
+    # Drop completely empty rows
+    if df.shape[1] > 0:
+        df = df[~(df.apply(lambda r: ''.join(r.values.astype(str)).strip(), axis=1) == "")]
+    return df.reset_index(drop=True)
+
+def read_excel_any(path: str) -> pd.DataFrame:
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".csv":
+        df = pd.read_csv(path)
+    else:
+        # by default read first sheet; header on row 10 -> header=9
+        df = pd.read_excel(path, engine="openpyxl", header=HEADER_ROW_INDEX)
+    return clean_df_for_compare(df)
+
+def base_name_without_stamp(fname: str) -> str:
+    """
+    Given 'Provider_Type_64_FFY_26.xlsx' or 'Provider_Type_64_FFY_26__20251112_102000.xlsx'
+    return a stable base for mapping between days.
+    """
+    name = os.path.basename(fname)
+    stem, ext = os.path.splitext(name)
+    # Our convention uses double underscore before timestamp
+    if "__" in stem:
+        stem = stem.split("__", 1)[0]
+    return f"{stem}{ext}"
+
+def compare_two_files(y_path: str, t_path: str) -> dict:
+    """
+    Returns dict with DataFrames of differences.
+    - added_or_changed: rows present in TODAY but not in YESTERDAY
+    - removed_or_changed: rows present in YESTERDAY but not in TODAY
+    Also attempts a cell-by-cell comparison when possible (optional).
+    """
+    y_df = read_excel_any(y_path)
+    t_df = read_excel_any(t_path)
+
+    # Set-diff on full rows (robust, no assumed key)
+    # Represent each row as a tuple across all columns (sorted)
+    y_cols = list(y_df.columns)
+    t_cols = list(t_df.columns)
+
+    # Align to union of columns to be fair
+    all_cols = sorted(set(y_cols) | set(t_cols))
+    y_aligned = y_df.reindex(columns=all_cols, fill_value="")
+    t_aligned = t_df.reindex(columns=all_cols, fill_value="")
+
+    # Mark source so we can concat and find symmetric differences
+    y_aligned["_source"] = "yesterday"
+    t_aligned["_source"] = "today"
+
+    # Identify additions/changes vs removals/changes by row-wise tuple
+    y_set = set(tuple(r) for r in y_aligned.drop(columns=["_source"]).itertuples(index=False, name=None))
+    t_set = set(tuple(r) for r in t_aligned.drop(columns=["_source"]).itertuples(index=False, name=None))
+
+    added_or_changed_rows = t_set - y_set
+    removed_or_changed_rows = y_set - t_set
+
+    added_or_changed = pd.DataFrame(list(added_or_changed_rows), columns=all_cols)
+    removed_or_changed = pd.DataFrame(list(removed_or_changed_rows), columns=all_cols)
+
+    result = {
+        "added_or_changed": added_or_changed.sort_values(by=all_cols).reset_index(drop=True),
+        "removed_or_changed": removed_or_changed.sort_values(by=all_cols).reset_index(drop=True),
+    }
+    return result
+
+def write_report(report_path: str, file_title: str, diffs: dict):
+    ensure_dir(os.path.dirname(report_path))
+    with pd.ExcelWriter(report_path, engine="openpyxl") as xlw:
+        # Summary sheet
+        summary = pd.DataFrame({
+            "File Compared": [file_title],
+            "Rows Added/Changed (today - yesterday)": [len(diffs["added_or_changed"])],
+            "Rows Removed/Changed (yesterday - today)": [len(diffs["removed_or_changed"])],
+            "Generated At": [datetime.now().strftime("%Y-%m-%d %H:%M:%S")]
+        })
+        summary.to_excel(xlw, index=False, sheet_name="Summary")
+
+        # Detail sheets
+        diffs["added_or_changed"].to_excel(xlw, index=False, sheet_name="Added_or_Changed")
+        diffs["removed_or_changed"].to_excel(xlw, index=False, sheet_name="Removed_or_Changed")
+
+def compare_today_vs_yesterday(today_dir: str):
+    y_dir = os.path.join(ROOT_DIR, yesterday_folder_name())
+    if not os.path.isdir(y_dir):
+        print(f"No yesterday folder found at: {y_dir} — skipping comparison.")
+        return
+
+    # Build maps: base_name_without_stamp -> latest file path (if multiple)
+    def map_files(folder):
+        mapping = {}
+        for path in glob.glob(os.path.join(folder, "*")):
+            if os.path.isfile(path) and path.lower().endswith(EXCEL_EXTS):
+                base = base_name_without_stamp(path)
+                # Keep the newest instance if multiple downloads of same file exist
+                prev = mapping.get(base)
+                if not prev or os.path.getmtime(path) > os.path.getmtime(prev):
+                    mapping[base] = path
+        return mapping
+
+    y_map = map_files(y_dir)
+    t_map = map_files(today_dir)
+
+    report_dir = ensure_dir(os.path.join(today_dir, REPORTS_SUBFOLDER))
+    any_reports = False
+
+    for base_name, today_path in t_map.items():
+        if base_name in y_map:
+            yesterday_path = y_map[base_name]
+            print(f"Comparing: {base_name}\n  Yesterday: {yesterday_path}\n  Today    : {today_path}")
+            try:
+                diffs = compare_two_files(yesterday_path, today_path)
+                if len(diffs["added_or_changed"]) or len(diffs["removed_or_changed"]):
+                    any_reports = True
+                    report_name = os.path.splitext(base_name)[0] + f"__diff_{now_str()}.xlsx"
+                    report_path = os.path.join(report_dir, report_name)
+                    write_report(report_path, base_name, diffs)
+                    print(f"  -> Differences FOUND. Report saved: {report_path}")
+                else:
+                    print("  -> No differences.")
+            except Exception as e:
+                print(f"  -> Compare failed: {e}")
+
+    if not any_reports:
+        print("No differences found across matching files.")
+
+def main():
+    # 1) Create today's folder (MMDDYYYY)
+    today_dir = ensure_dir(os.path.join(ROOT_DIR, today_folder_name()))
+    print(f"Download folder: {today_dir}")
+
+    # 2) Collect & download
+    session = get_session()
+    urls = collect_excel_links(session)
+    print(f"Found {len(urls)} Excel link(s).")
+    for u in urls:
+        download_file(session, u, today_dir)
+
+    # 3) Compare with yesterday if available
+    compare_today_vs_yesterday(today_dir)
+
+if __name__ == "__main__":
+    main()
