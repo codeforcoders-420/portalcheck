@@ -1,54 +1,52 @@
-@RestController
-@RequestMapping("/nevada")
-public class NevadaPythonController {
+Test-Path "C:\Users\cs920074\Desktop\Backup\Python\venv\Scripts\python.exe"
 
-    private final NevadaPythonService service;
+"C:\Users\cs920074\Desktop\Backup\Python\venv\Scripts\python.exe" --version
 
-    public NevadaPythonController(NevadaPythonService service) { this.service = service; }
+@Value("${nevada.py.path}") String pythonExe;
+@PostConstruct
+void logPaths() { System.out.println("PYTHON EXE = " + pythonExe); }
 
-    @PostMapping("/run-python")
-    public ResponseEntity<?> runPython() {
-        try {
-            return ResponseEntity.ok(service.runOnce());
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(e.getMessage());
-        }
-    }
 
-    // temporary test to verify mapping
-    @GetMapping("/ping")
-    public String ping() { return "nevada ok"; }
-}
 
-#################
+cd C:\Users\cs920074\Desktop\Backup\Python
+rmdir -Recurse -Force .\venv  # if you want to recreate
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install requests beautifulsoup4 pandas openpyxl
 
-<button id="nvBtn" class="btn">Open</button>
-<pre id="nvOut"></pre>
-<script>
-document.getElementById('nvBtn').onclick = async () => {
-  const res = await fetch('/nevada/run-python', { method: 'POST' });
-  const text = await res.text();
-  try { document.getElementById('nvOut').textContent = JSON.stringify(JSON.parse(text), null, 2); }
-  catch { document.getElementById('nvOut').textContent = text; }
-};
-</script>
 
-################
 
-@Configuration
-@EnableWebSecurity
-public class SecurityConfig {
-
-  @Bean
-  SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-    http
-      .csrf(csrf -> csrf.ignoringRequestMatchers("/nevada/run-python"))  // disable CSRF for this endpoint
-      .authorizeHttpRequests(auth -> auth
-        .requestMatchers("/nevada/run-python","/nevada/ping").permitAll()
-        .anyRequest().authenticated()
-      );
-    return http.build();
-  }
+@GetMapping("/nevada/diag")
+public Map<String,Object> diag(
+    @Value("${nevada.py.path}") String py,
+    @Value("${nevada.script}") String script) {
+  Map<String,Object> m = new LinkedHashMap<>();
+  m.put("pythonPath", py);
+  m.put("pythonExists", new java.io.File(py).exists());
+  m.put("scriptPath", script);
+  m.put("scriptExists", new java.io.File(script).exists());
+  return m;
 }
 
 
+
+nevada.py.path=C:/Windows/py.exe
+
+
+public JsonNode runOnce() throws Exception {
+  // Sanity checks
+  File py = new File(pythonExe);
+  File sc = new File(scriptPath);
+  if (!py.exists()) throw new RuntimeException("python.exe not found at: " + pythonExe);
+  if (!sc.exists()) throw new RuntimeException("script not found at: " + scriptPath);
+
+  List<String> cmd = List.of(
+      pythonExe,
+      scriptPath,
+      "--base-url", baseUrl,
+      "--root-dir", rootDir,
+      "--header-row-index", Integer.toString(headerRowIndex)
+  );
+  System.out.println("Executing: " + String.join(" | ", cmd));
+  return runner.runAndParseJson(new ArrayList<>(cmd), Duration.ofSeconds(timeoutSeconds));
+}
