@@ -365,3 +365,9 @@ document.getElementById('runNevada').onclick = async () => {
 
 
 ##################################
+
+requests
+beautifulsoup4
+pandas
+openpyxl
+
