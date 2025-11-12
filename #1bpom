@@ -1,47 +1,54 @@
-<dependencies>
-  <!-- Spring Web (already in your project most likely) -->
-  <dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-web</artifactId>
-  </dependency>
+@RestController
+@RequestMapping("/nevada")
+public class NevadaPythonController {
 
-  <!-- HTML parsing -->
-  <dependency>
-    <groupId>org.jsoup</groupId>
-    <artifactId>jsoup</artifactId>
-    <version>1.17.2</version>
-  </dependency>
+    private final NevadaPythonService service;
 
-  <!-- HTTP client for downloads -->
-  <dependency>
-    <groupId>com.squareup.okhttp3</groupId>
-    <artifactId>okhttp</artifactId>
-    <version>4.12.0</version>
-  </dependency>
+    public NevadaPythonController(NevadaPythonService service) { this.service = service; }
 
-  <!-- Apache POI for Excel -->
-  <dependency>
-    <groupId>org.apache.poi</groupId>
-    <artifactId>poi</artifactId>
-    <version>5.2.5</version>
-  </dependency>
-  <dependency>
-    <groupId>org.apache.poi</groupId>
-    <artifactId>poi-ooxml</artifactId>
-    <version>5.2.5</version>
-  </dependency>
+    @PostMapping("/run-python")
+    public ResponseEntity<?> runPython() {
+        try {
+            return ResponseEntity.ok(service.runOnce());
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(e.getMessage());
+        }
+    }
 
-  <!-- CSV support -->
-  <dependency>
-    <groupId>com.opencsv</groupId>
-    <artifactId>opencsv</artifactId>
-    <version>5.9</version>
-  </dependency>
+    // temporary test to verify mapping
+    @GetMapping("/ping")
+    public String ping() { return "nevada ok"; }
+}
 
-  <!-- Utils -->
-  <dependency>
-    <groupId>commons-io</groupId>
-    <artifactId>commons-io</artifactId>
-    <version>2.16.1</version>
-  </dependency>
-</dependencies>
+#################
+
+<button id="nvBtn" class="btn">Open</button>
+<pre id="nvOut"></pre>
+<script>
+document.getElementById('nvBtn').onclick = async () => {
+  const res = await fetch('/nevada/run-python', { method: 'POST' });
+  const text = await res.text();
+  try { document.getElementById('nvOut').textContent = JSON.stringify(JSON.parse(text), null, 2); }
+  catch { document.getElementById('nvOut').textContent = text; }
+};
+</script>
+
+################
+
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
+
+  @Bean
+  SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    http
+      .csrf(csrf -> csrf.ignoringRequestMatchers("/nevada/run-python"))  // disable CSRF for this endpoint
+      .authorizeHttpRequests(auth -> auth
+        .requestMatchers("/nevada/run-python","/nevada/ping").permitAll()
+        .anyRequest().authenticated()
+      );
+    return http.build();
+  }
+}
+
+
