@@ -1,52 +1,22 @@
-Test-Path "C:\Users\cs920074\Desktop\Backup\Python\venv\Scripts\python.exe"
+<button id="nvRun" class="btn">Download & Compare</button>
+<ul id="nvList" style="margin-top:10px"></ul>
 
-"C:\Users\cs920074\Desktop\Backup\Python\venv\Scripts\python.exe" --version
+<script>
+document.getElementById('nvRun').onclick = async () => {
+  const res = await fetch('/nevada/run-python', { method: 'POST' });
+  const data = await res.json();               // current JSON
+  const dl = Array.isArray(data.downloaded) ? data.downloaded : [];
 
-@Value("${nevada.py.path}") String pythonExe;
-@PostConstruct
-void logPaths() { System.out.println("PYTHON EXE = " + pythonExe); }
-
-
-
-cd C:\Users\cs920074\Desktop\Backup\Python
-rmdir -Recurse -Force .\venv  # if you want to recreate
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-pip install requests beautifulsoup4 pandas openpyxl
-
-
-
-@GetMapping("/nevada/diag")
-public Map<String,Object> diag(
-    @Value("${nevada.py.path}") String py,
-    @Value("${nevada.script}") String script) {
-  Map<String,Object> m = new LinkedHashMap<>();
-  m.put("pythonPath", py);
-  m.put("pythonExists", new java.io.File(py).exists());
-  m.put("scriptPath", script);
-  m.put("scriptExists", new java.io.File(script).exists());
-  return m;
-}
-
-
-
-nevada.py.path=C:/Windows/py.exe
-
-
-public JsonNode runOnce() throws Exception {
-  // Sanity checks
-  File py = new File(pythonExe);
-  File sc = new File(scriptPath);
-  if (!py.exists()) throw new RuntimeException("python.exe not found at: " + pythonExe);
-  if (!sc.exists()) throw new RuntimeException("script not found at: " + scriptPath);
-
-  List<String> cmd = List.of(
-      pythonExe,
-      scriptPath,
-      "--base-url", baseUrl,
-      "--root-dir", rootDir,
-      "--header-row-index", Integer.toString(headerRowIndex)
-  );
-  System.out.println("Executing: " + String.join(" | ", cmd));
-  return runner.runAndParseJson(new ArrayList<>(cmd), Duration.ofSeconds(timeoutSeconds));
-}
+  const ul = document.getElementById('nvList');
+  ul.innerHTML = '';
+  dl.forEach(item => {
+    const ok = item.ok === true;
+    // filename: prefer "path", else derive from url
+    const p = item.path || '';
+    const file = p ? p.split(/[\\/]/).pop() : (item.url ? item.url.split('/').pop() : 'unknown');
+    const li = document.createElement('li');
+    li.textContent = `${ok ? '✅' : '❌'} ${file} — ${ok ? 'Downloaded' : (item.error || 'Failed')}`;
+    ul.appendChild(li);
+  });
+};
+</script>
