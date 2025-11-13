@@ -1,22 +1,166 @@
-<button id="nvRun" class="btn">Download & Compare</button>
-<ul id="nvList" style="margin-top:10px"></ul>
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
-<script>
-document.getElementById('nvRun').onclick = async () => {
-  const res = await fetch('/nevada/run-python', { method: 'POST' });
-  const data = await res.json();               // current JSON
-  const dl = Array.isArray(data.downloaded) ? data.downloaded : [];
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Objects;
+import java.util.stream.IntStream;
 
-  const ul = document.getElementById('nvList');
-  ul.innerHTML = '';
-  dl.forEach(item => {
-    const ok = item.ok === true;
-    // filename: prefer "path", else derive from url
-    const p = item.path || '';
-    const file = p ? p.split(/[\\/]/).pop() : (item.url ? item.url.split('/').pop() : 'unknown');
-    const li = document.createElement('li');
-    li.textContent = `${ok ? '✅' : '❌'} ${file} — ${ok ? 'Downloaded' : (item.error || 'Failed')}`;
-    ul.appendChild(li);
-  });
-};
-</script>
+public class ExcelToDatConverter {
+
+    // Column indexes (0-based)
+    private static final int COL_A = 0;
+    private static final int COL_B = 1;
+    private static final int COL_D = 3;
+    private static final int COL_F = 5;
+    private static final int COL_G = 6;
+    private static final int COL_I = 8;
+    private static final int COL_K = 10;
+    private static final int COL_L = 11;
+    private static final int COL_M = 12;
+    private static final int COL_N = 13;
+    private static final int COL_O = 14;
+
+    // Start from row 11 (Excel) = index 10 (0-based)
+    private static final int START_ROW_INDEX = 10;
+
+    public static void main(String[] args) {
+        Path inputExcel = Path.of("PPRRVU2025_Oct.xlsx");
+        Path outputDat  = Path.of("PPRRVU2025_Oct.dat");
+
+        try {
+            convertExcelToDat(inputExcel, outputDat);
+            System.out.println("Conversion completed. Output: " + outputDat.toAbsolutePath());
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static void convertExcelToDat(Path excelPath, Path datPath) throws IOException {
+        Objects.requireNonNull(excelPath);
+        Objects.requireNonNull(datPath);
+
+        try (Workbook workbook = new XSSFWorkbook(Files.newInputStream(excelPath));
+             var writer = Files.newBufferedWriter(datPath,
+                     StandardCharsets.UTF_8,
+                     java.nio.file.StandardOpenOption.CREATE,
+                     java.nio.file.StandardOpenOption.TRUNCATE_EXISTING)) {
+
+            Sheet sheet = workbook.getSheetAt(0);
+            DataFormatter formatter = new DataFormatter();
+
+            int lastRowNum = sheet.getLastRowNum();
+
+            IntStream.rangeClosed(START_ROW_INDEX, lastRowNum)
+                    .mapToObj(sheet::getRow)
+                    .takeWhile(r -> r != null && !isRowEmpty(r))
+                    .map(r -> buildDatLine(r, formatter))
+                    .forEach(line -> {
+                        try {
+                            writer.write(line);
+                            writer.newLine();
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
+        }
+    }
+
+    private static boolean isRowEmpty(Row row) {
+        if (row == null) return true;
+
+        int[] columns = { COL_A, COL_B, COL_D, COL_F, COL_G, COL_I, COL_K, COL_L, COL_M, COL_N, COL_O };
+        DataFormatter df = new DataFormatter();
+
+        for (int col : columns) {
+            Cell cell = row.getCell(col, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
+            if (cell != null) {
+                String v = df.formatCellValue(cell);
+                if (v != null && !v.isBlank()) return false;
+            }
+        }
+        return true;
+    }
+
+    private static String buildDatLine(Row row, DataFormatter formatter) {
+        StringBuilder sb = new StringBuilder(51);
+
+        String colA = get(row, COL_A, formatter);
+        String colB = get(row, COL_B, formatter);
+        String colD = get(row, COL_D, formatter);
+
+        String colF = get(row, COL_F, formatter);
+        String colG = get(row, COL_G, formatter);
+        String colI = get(row, COL_I, formatter);
+        String colK = get(row, COL_K, formatter);
+        String colL = get(row, COL_L, formatter);
+        String colM = get(row, COL_M, formatter);
+
+        String colN = get(row, COL_N, formatter);
+        String colO = get(row, COL_O, formatter);
+
+        sb.append(fit("MCR", 3));      // 1-3
+        sb.append(fit(colA, 5));       // 4-8
+        sb.append(fit(colB, 2));       // 9-10
+        sb.append(fit(colD, 1));       // 11
+
+        sb.append(formatRate(colF));   // 12-17
+        sb.append(formatRate(colG));   // 18-23
+        sb.append(formatRate(colI));   // 24-29
+        sb.append(formatRate(colK));   // 30-35
+        sb.append(formatRate(colL));   // 36-41
+        sb.append(formatRate(colM));   // 42-47
+
+        sb.append(fit(colN, 1));       // 48
+        sb.append(fit(colO, 3));       // 49-51
+
+        // Ensure exactly 51 characters
+        if (sb.length() < 51) return padRight(sb.toString(), 51);
+        if (sb.length() > 51) return sb.substring(0, 51);
+
+        return sb.toString();
+    }
+
+    private static String get(Row row, int col, DataFormatter formatter) {
+        Cell cell = row.getCell(col, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
+        if (cell == null) return "";
+        return formatter.formatCellValue(cell).trim();
+    }
+
+    private static String fit(String val, int len) {
+        if (val == null) val = "";
+        val = val.trim();
+        if (val.length() > len) return val.substring(0, len);
+        return padRight(val, len);
+    }
+
+    private static String padRight(String s, int len) {
+        StringBuilder sb = new StringBuilder(s);
+        while (sb.length() < len) sb.append(' ');
+        return sb.toString();
+    }
+
+    /**
+     * NEW RULE:
+     * If numeric → convert decimal (0.01 → 000001)
+     * If empty → return SPACES
+     */
+    private static String formatRate(String value) {
+        if (value == null || value.isBlank())
+            return "      "; // 6 spaces
+
+        String cleaned = value.replace(",", "").replace("$", "").trim();
+        if (cleaned.isEmpty())
+            return "      ";
+
+        try {
+            double d = Double.parseDouble(cleaned);
+            int scaled = (int) Math.round(d * 100);
+            return String.format("%06d", scaled);
+        } catch (Exception e) {
+            return "      "; // non-numeric → spaces
+        }
+    }
+}
