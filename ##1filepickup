@@ -1,352 +1,101 @@
-# === Standard Change File auto-select ===
-
-# UNC root share:  \\day04\cmb\private\maint
-scf.networkRoot=\\\\day04\\cmb\\private\\maint
-
-# Folder under each TFS that actually contains the Standard Change File
-# So final path: \\day04\cmb\private\maint\<Year>\<LOB>\<FS>\<TFS>\05. Standard Change File
-scf.standardSubfolder=05. Standard Change File
-
-# Allowed file extensions to auto-pick
-scf.allowedExtensions=xlsx,xlsm
-
-######################
-
-package com.example.e2e.config;
-
-import org.springframework.boot.context.properties.ConfigurationProperties;
-
-@ConfigurationProperties(prefix = "scf")
-public record ScfProperties(
-        String networkRoot,
-        String standardSubfolder,
-        String allowedExtensions
-) {}
-
-
-#########################
-
-package com.example.e2e.config;
-
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
-import org.springframework.context.annotation.Configuration;
-
-@Configuration
-@EnableConfigurationProperties(ScfProperties.class)
-public class AppConfig {
-}
-
-################
-
-package com.example.e2e.scf;
-
-import com.example.e2e.config.ScfProperties;
-import org.springframework.stereotype.Service;
-
-import java.io.IOException;
-import java.nio.file.*;
-import java.nio.file.attribute.BasicFileAttributes;
-import java.time.Instant;
-import java.util.*;
-import java.util.stream.Collectors;
-
-@Service
-public class DynamicScfService {
-
-    private final ScfProperties props;
-    private final Set<String> allowed;
-
-    public DynamicScfService(ScfProperties props) {
-        this.props = props;
-        this.allowed = Arrays.stream(props.allowedExtensions().split(","))
-                .map(s -> s.trim().toLowerCase(Locale.ROOT))
-                .collect(Collectors.toUnmodifiableSet());
-    }
-
-    /**
-     * Build UNC folder:
-     * \\day04\cmb\private\maint\<Year>\<LOB>\<FeeSchedule>\<TFS>\05. Standard Change File
-     */
-    public Path resolveScfFolder(String year, String lob, String fs, String tfs) {
-        String root = props.networkRoot();  // \\day04\cmb\private\maint
-
-        String safeYear = folderSegment(year);
-        String safeLob  = folderSegment(lob);
-        String safeFs   = folderSegment(fs);
-        String safeTfs  = folderSegment(tfs);
-
-        return Paths.get(root, safeYear, safeLob, safeFs, safeTfs, props.standardSubfolder())
-                    .toAbsolutePath()
-                    .normalize();
-    }
-
-    /** List allowed files in that SCF folder */
-    public List<ScfFile> listFiles(Path scfFolder) throws IOException {
-        if (!Files.exists(scfFolder)) return List.of();
-
-        List<ScfFile> out = new ArrayList<>();
-        try (DirectoryStream<Path> ds = Files.newDirectoryStream(scfFolder)) {
-            for (Path p : ds) {
-                if (Files.isRegularFile(p) && isAllowed(p)) {
-                    BasicFileAttributes at = Files.readAttributes(p, BasicFileAttributes.class);
-                    out.add(new ScfFile(
-                            p.getFileName().toString(),
-                            p.toString(),
-                            Files.size(p),
-                            Instant.ofEpochMilli(at.lastModifiedTime().toMillis())
-                    ));
-                }
-            }
-        }
-        return out;
-    }
-
-    /** Latest by lastModified */
-    public Optional<ScfFile> latest(Path scfFolder) throws IOException {
-        return listFiles(scfFolder).stream()
-                .max(Comparator.comparing(ScfFile::lastModified));
-    }
-
-    // ---------- helpers ----------
-
-    private boolean isAllowed(Path p) {
-        String fn = p.getFileName().toString().toLowerCase(Locale.ROOT);
-        int dot = fn.lastIndexOf('.');
-        return dot > 0 && allowed.contains(fn.substring(dot + 1));
-    }
-
-    /** Make a safe folder segment from UI/URL text */
-    private String folderSegment(String raw) {
-        if (raw == null) return "";
-        String s = raw.trim();
-        // remove illegal path characters
-        s = s.replaceAll("[\\\\/:*?\"<>|]", " ");
-        // collapse multiple spaces
-        s = s.replaceAll("\\s+", " ").trim();
-        return s;
-    }
-
-    public record ScfFile(String name, String absolutePath, long sizeBytes, Instant lastModified) {}
-}
-
-##########################
-
-package com.example.e2e.scf;
-
-import org.springframework.web.bind.annotation.*;
-
-import java.io.IOException;
-import java.nio.file.Path;
-import java.util.Map;
-
-@RestController
-@RequestMapping("/api/scf")
-public class ScfProbeController {
-
-    private final DynamicScfService svc;
-
-    public ScfProbeController(DynamicScfService svc) {
-        this.svc = svc;
-    }
-
-    @GetMapping("/probe")
-    public Map<String,Object> probe(
-            @RequestParam String year,
-            @RequestParam String lob,
-            @RequestParam("fs") String feeSchedule,
-            @RequestParam("storyNumber") String tfs   // ⚠ matches your URL
-    ) throws IOException {
-
-        Path folder = svc.resolveScfFolder(year, lob, feeSchedule, tfs);
-        var files = svc.listFiles(folder);
-        var latest = svc.latest(folder).orElse(null);
-
-        return Map.of(
-                "folder", folder.toString(),
-                "hasAny", !files.isEmpty(),
-                "count", files.size(),
-                "latest", latest,
-                "files", files
-        );
-    }
-}
-
-#################################
-
-package com.example.e2e.pr;
-
-import org.springframework.http.ResponseEntity;
-import org.springframework.stereotype.Controller;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
-
-import java.nio.file.*;
-
-@Controller
-@RequestMapping("/pr")
-public class PrValidatorController {
-
-    @PostMapping("/validate")
-    @ResponseBody
-    public ResponseEntity<String> validate(
-            @RequestParam("env") String env,
-            @RequestParam(value = "scfSelectedAbsolute", required = false) String absolutePath,
-            @RequestParam(value = "scfFile", required = false) MultipartFile upload
-    ) throws Exception {
-
-        Path workingFile;
-
-        if (absolutePath != null && !absolutePath.isBlank()) {
-            // use auto-selected file from UNC
-            workingFile = Paths.get(absolutePath).toAbsolutePath().normalize();
-            if (!Files.exists(workingFile)) {
-                return ResponseEntity.badRequest()
-                        .body("Auto-selected change file not found: " + workingFile);
-            }
-        } else if (upload != null && !upload.isEmpty()) {
-            // fall back to uploaded file
-            Path tmp = Files.createTempFile("scf-upload-", ".xlsx");
-            Files.write(tmp, upload.getBytes());
-            workingFile = tmp;
-        } else {
-            return ResponseEntity.badRequest().body("No change file provided.");
-        }
-
-        // TODO: plug in your existing validation logic here
-        // prValidatorService.run(env, workingFile);
-
-        return ResponseEntity.ok("Validation started with file: " + workingFile);
-    }
-}
-
-
-##################################
-
-<!-- hidden holds auto-selected UNC path -->
-<input type="hidden" id="scfSelectedAbsolute" name="scfSelectedAbsolute"/>
-
-<div class="mb-2">
-  <label class="form-label">Select Change File:</label>
-  <input type="file" id="scfFileInput" name="scfFile" accept=".xlsx,.xlsm">
-  <div id="scfHint" style="font-size:.9rem; opacity:.8;"></div>
-</div>
-
-<!-- Modal for "Use latest file?" -->
-<div id="scfModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.35);">
-  <div style="max-width:520px; margin:10% auto; background:#fff; padding:16px; border-radius:12px;">
-    <h3>Use latest Standard Change File?</h3>
-    <p id="scfModalText" style="margin:.5rem 0 1rem;"></p>
-    <div style="display:flex; gap:8px; justify-content:flex-end;">
-      <button type="button" id="scfUseBtn" class="btn btn-primary">Use This File</button>
-      <button type="button" id="scfBrowseBtn" class="btn btn-outline-secondary">Browse Manually</button>
-    </div>
-  </div>
-</div>
-
-
-####################
-
 <script>
 (function() {
-  // Extract context from the current URL
-  function ctxFromUrl() {
-    const url = new URL(window.location.href);
-
-    // 1) query string
-    let year = url.searchParams.get('year');
-    let lob  = url.searchParams.get('lob');
-    let fs   = url.searchParams.get('feeSchedule') || url.searchParams.get('fs');
-    let tfs  = url.searchParams.get('tfs')
-            || url.searchParams.get('story')
-            || url.searchParams.get('storyNumber')   // <-- important for your URL
-            || url.searchParams.get('tfsId');
-
-    // 2) hash as backup (if you ever use #year=... etc.)
-    if (!year || !lob || !fs || !tfs) {
-      const hash = new URLSearchParams(url.hash.startsWith('#') ? url.hash.slice(1) : url.hash);
-      year = year || hash.get('year');
-      lob  = lob  || hash.get('lob');
-      fs   = fs   || hash.get('feeSchedule') || hash.get('fs');
-      tfs  = tfs  || hash.get('tfs') || hash.get('storyNumber') || hash.get('story') || hash.get('tfsId');
-    }
-
-    // 3) path-based pattern (optional; safe to leave)
-    if (!year || !lob || !fs || !tfs) {
-      const parts = url.pathname.split('/').filter(Boolean);
-      if (parts.length >= 4) {
-        const candYear = parts.at(-4);
-        const candLob  = parts.at(-3);
-        const candFs   = decodeURIComponent(parts.at(-2));
-        const candTfs  = parts.at(-1);
-        if (/^\d{4}$/.test(candYear)) {
-          year = year || candYear;
-          lob  = lob  || candLob;
-          fs   = fs   || candFs;
-          tfs  = tfs  || candTfs;
-        }
-      }
-    }
-
-    return { year, lob, fs, tfs };
-  }
-
-  const ctx = ctxFromUrl();
-
-  const fileInput = document.getElementById('scfFileInput');
-  const hidden    = document.getElementById('scfSelectedAbsolute');
-  const hint      = document.getElementById('scfHint');
-  const modal     = document.getElementById('scfModal');
-  const modalText = document.getElementById('scfModalText');
-  const useBtn    = document.getElementById('scfUseBtn');
-  const browseBtn = document.getElementById('scfBrowseBtn');
-
-  // If missing URL pieces → just allow manual browse
-  if (!ctx.year || !ctx.lob || !ctx.fs || !ctx.tfs) {
-    hidden.value = '';
-    fileInput.disabled = false;
-    hint.textContent = 'Missing Year/LOB/FS/TFS in URL—please choose a file manually.';
+  // prevent double-init if script is included twice
+  if (window.__scfAutoInitDone) {
     return;
   }
+  window.__scfAutoInitDone = true;
 
-  // Call backend to probe the UNC folder
-  fetch(`/api/scf/probe?year=${encodeURIComponent(ctx.year)}&lob=${encodeURIComponent(ctx.lob)}&fs=${encodeURIComponent(ctx.fs)}&storyNumber=${encodeURIComponent(ctx.tfs)}`)
-    .then(r => r.json())
-    .then(data => {
-      if (!data.hasAny) {
-        hidden.value = '';
-        fileInput.disabled = false;
-        hint.textContent = `No Standard Change File found in: ${data.folder}. Please browse manually.`;
-        return;
+  window.addEventListener('DOMContentLoaded', function() {
+    // --- DOM elements ---
+    const fileInput = document.getElementById('scfFileInput');
+    const hidden    = document.getElementById('scfSelectedAbsolute');
+    const hint      = document.getElementById('scfHint');
+    const modal     = document.getElementById('scfModal');
+    const modalText = document.getElementById('scfModalText');
+    const useBtn    = document.getElementById('scfUseBtn');
+    const browseBtn = document.getElementById('scfBrowseBtn');
+
+    // If this page doesn't have these elements, bail out quietly
+    if (!fileInput || !hidden || !hint || !modal || !modalText || !useBtn || !browseBtn) {
+      return;
+    }
+
+    function ctxFromUrl() {
+      const url = new URL(window.location.href);
+
+      let year = url.searchParams.get('year');
+      let lob  = url.searchParams.get('lob');
+      let fs   = url.searchParams.get('feeSchedule') || url.searchParams.get('fs');
+      let tfs  = url.searchParams.get('tfs')
+              || url.searchParams.get('story')
+              || url.searchParams.get('storyNumber')   // your param
+              || url.searchParams.get('tfsId');
+
+      // hash fallback
+      if (!year || !lob || !fs || !tfs) {
+        const hash = new URLSearchParams(url.hash.startsWith('#') ? url.hash.slice(1) : url.hash);
+        year = year || hash.get('year');
+        lob  = lob  || hash.get('lob');
+        fs   = fs   || hash.get('feeSchedule') || hash.get('fs');
+        tfs  = tfs  || hash.get('tfs') || hash.get('storyNumber') || hash.get('story') || hash.get('tfsId');
       }
 
-      const latest = data.latest;
-      const lm = new Date(latest.lastModified).toLocaleString();
-      modalText.textContent = `${latest.name} (modified ${lm}) in ${data.folder}`;
-      modal.style.display = 'block';
+      return { year, lob, fs, tfs };
+    }
 
-      useBtn.onclick = () => {
-        hidden.value = latest.absolutePath;   // UNC path
-        fileInput.value = '';
-        fileInput.disabled = true;
-        hint.textContent = `Using (auto-selected): ${latest.name}`;
-        modal.style.display = 'none';
-      };
+    const ctx = ctxFromUrl();
 
-      browseBtn.onclick = () => {
-        hidden.value = '';
-        fileInput.disabled = false;
-        hint.textContent = 'Choose a file manually.';
-        modal.style.display = 'none';
-      };
-    })
-    .catch(err => {
-      console.error(err);
+    // If missing URL pieces → no auto-select
+    if (!ctx.year || !ctx.lob || !ctx.fs || !ctx.tfs) {
       hidden.value = '';
       fileInput.disabled = false;
-      hint.textContent = 'Could not probe the Standard Change File folder. Please browse manually.';
-    });
+      hint.textContent = 'Missing Year/LOB/FS/TFS in URL—please choose a file manually.';
+      return;
+    }
+
+    // Show a subtle “checking…” message but DO NOT show modal yet
+    hint.textContent = 'Checking for Standard Change File…';
+
+    // Probe backend once
+    fetch(`/api/scf/probe?year=${encodeURIComponent(ctx.year)}&lob=${encodeURIComponent(ctx.lob)}&fs=${encodeURIComponent(ctx.fs)}&storyNumber=${encodeURIComponent(ctx.tfs)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (!data.hasAny) {
+          hidden.value = '';
+          fileInput.disabled = false;
+          hint.textContent = `No Standard Change File found in: ${data.folder}. Please browse manually.`;
+          return;
+        }
+
+        const latest = data.latest;
+        const lm = new Date(latest.lastModified).toLocaleString();
+        modalText.textContent = `${latest.name} (modified ${lm}) in ${data.folder}`;
+
+        // Only now show modal ONCE
+        modal.style.display = 'block';
+
+        useBtn.onclick = () => {
+          hidden.value = latest.absolutePath;
+          fileInput.value = '';
+          fileInput.disabled = true;
+          hint.textContent = `Using (auto-selected): ${latest.name}`;
+          modal.style.display = 'none';
+        };
+
+        browseBtn.onclick = () => {
+          hidden.value = '';
+          fileInput.disabled = false;
+          hint.textContent = 'Choose a file manually.';
+          modal.style.display = 'none';
+        };
+      })
+      .catch(err => {
+        console.error(err);
+        hidden.value = '';
+        fileInput.disabled = false;
+        hint.textContent = 'Could not probe the Standard Change File folder. Please browse manually.';
+      });
+  });
 })();
 </script>
-
-######################################
-
