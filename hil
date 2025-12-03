@@ -1,0 +1,83 @@
+from pathlib import Path
+import sys
+
+try:
+    from playwright.sync_api import sync_playwright
+except Exception as e:
+    msg = (
+        "Playwright is not available in this Python environment.\n"
+        "Install it and the browser binaries with the following commands:\n"
+        "    python -m pip install --upgrade pip\n"
+        "    python -m pip install playwright\n"
+        "    python -m playwright install\n"
+        "After installing, re-run this script.\n"
+    )
+    # Print a helpful message and raise a clear ImportError so IDEs/runners see the problem
+    print(msg, file=sys.stderr)
+    raise ImportError(msg) from e
+import re
+
+URL = (
+    "https://www.health.mil/Military-Health-Topics/Access-Cost-Quality-and-Safety/"
+    "TRICARE-Health-Plan/Rates-and-Reimbursement/CMAC-Rates/Downloads"
+)
+
+# Change this to where you want the file stored
+DOWNLOAD_DIR = Path(r"C:\Users\rajas\Downloads")
+DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def main():
+    with sync_playwright() as p:
+        # You can change to p.firefox or p.webkit if you like
+        browser = p.chromium.launch(headless=False)  # set True to run headless
+        context = browser.new_context(accept_downloads=True)
+        page = context.new_page()
+
+        # 1. Navigate to the CMAC downloads page
+        page.goto(URL, wait_until="networkidle")
+
+        # 2. Click the "Accept" button on the license page
+        # If you've already accepted in this session, this may not appear
+        try:
+            page.get_by_role("button", name=re.compile(r"Accept", re.IGNORECASE)).click()
+        except Exception:
+            print("Accept button not found (maybe already accepted).")
+
+        # 3–4. Select "CMAC, Component, and Injectables for all Localities"
+        # Use label text for the radio button
+        page.get_by_label(
+            "CMAC, Component, and Injectables for all Localities"
+        ).check()
+
+        # 5. Select "Current" for Effective Period
+        # This assumes the label 'Effective Period' is tied to the <select>
+        page.get_by_label("Effective Period").select_option(label="Current")
+
+        # 6. Click Download and capture the file
+        with page.expect_download() as dl_info:
+            page.get_by_role("button", name=re.compile(r"Download", re.IGNORECASE)).click()
+
+        download = dl_info.value
+
+        # Let Playwright choose a filename, but save it in our folder
+        suggested_name = download.suggested_filename
+        target_path = DOWNLOAD_DIR / suggested_name
+
+        download.save_as(str(target_path))
+        print(f"Download completed: {target_path}")
+
+        browser.close()
+
+
+if __name__ == "__main__":
+    main()
+
+
+############################
+
+C:/Users/rajas/AppData/Local/Programs/Python/Python313/python.exe -m pip install --upgrade pip
+C:/Users/rajas/AppData/Local/Programs/Python/Python313/python.exe -m pip install playwright
+C:/Users/rajas/AppData/Local/Programs/Python/Python313/python.exe -m playwright install
+C:/Users/rajas/AppData/Local/Programs/Python/Python313/python.exe -m pip show playwright
+##############################
