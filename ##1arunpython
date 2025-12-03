@@ -1,249 +1,209 @@
-import org.apache.poi.ss.usermodel.Cell;
-import org.apache.poi.ss.usermodel.Row;
-import org.apache.poi.ss.usermodel.Sheet;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+<!-- Standard Queries card -->
+<div class="card tool-card">
+    <div class="card-body text-center">
+        <h5 class="card-title">Standard Queries</h5>
+        <p class="card-text">Run standard query checks.</p>
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.sql.*;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.*;
+        <!-- Open modal instead of navigating -->
+        <button type="button"
+                class="btn btn-primary"
+                data-bs-toggle="modal"
+                data-bs-target="#standardQueriesModal">
+            Open
+        </button>
+    </div>
+</div>
 
-public class RbrvZipComparator {
+########################
 
-    // Adjust your environment JDBC URLs and DB name here.
-    // These assume Windows Integrated Security.
-    private static final Map<Environment, String> CONNECTION_URLS = Map.of(
-            Environment.DEV,  "jdbc:sqlserver://DEV-SERVER;databaseName=RBRVS;integratedSecurity=true;encrypt=false",
-            Environment.SIT,  "jdbc:sqlserver://SIT-SERVER;databaseName=RBRVS;integratedSecurity=true;encrypt=false",
-            Environment.UAT,  "jdbc:sqlserver://UAT-SERVER;databaseName=RBRVS;integratedSecurity=true;encrypt=false",
-            Environment.PROD, "jdbc:sqlserver://PROD-SERVER;databaseName=RBRVS;integratedSecurity=true;encrypt=false"
-    );
+<!-- Standard Queries Modal -->
+<div class="modal fade" id="standardQueriesModal" tabindex="-1"
+     aria-labelledby="standardQueriesModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
 
-    private static final String QUERY =
-            "SELECT Year, Eff, Term, Carrier_no, Locality_no, Zip_Low, Zip_High, RVS_ID " +
-            "FROM RBRV_ZIP WHERE Year = ?";
+            <div class="modal-header">
+                <h5 class="modal-title" id="standardQueriesModalLabel">Standard Queries</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"
+                        aria-label="Close"></button>
+            </div>
 
-    private static final int TARGET_YEAR = 2025;
+            <div class="modal-body">
+                <form th:action="@{/standard-queries/run}" method="post" id="standardQueriesForm">
 
-    // Where to place the Excel files (change if you want a specific folder)
-    private static final Path OUTPUT_DIR = Path.of("."); // current directory
+                    <!-- Source environment -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Source environment</label>
+                        <select class="form-select" name="sourceEnv" required>
+                            <option value="" disabled selected>Select source</option>
+                            <option value="DEV">DEV</option>
+                            <option value="SIT">SIT</option>
+                            <option value="UAT">UAT</option>
+                            <option value="PROD">PROD</option>
+                        </select>
+                    </div>
 
-    // Timestamp format for file name: ddMMyyyyHHmmss
-    private static final DateTimeFormatter FILE_TS_FORMAT =
-            DateTimeFormatter.ofPattern("ddMMyyyyHHmmss");
+                    <!-- Target environments -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Target environments</label>
 
-    public static void main(String[] args) {
+                        <div class="form-check">
+                            <input class="form-check-input target-env-checkbox" type="checkbox"
+                                   name="targetEnvs" id="targetSit" value="SIT">
+                            <label class="form-check-label" for="targetSit">SIT</label>
+                        </div>
+
+                        <div class="form-check">
+                            <input class="form-check-input target-env-checkbox" type="checkbox"
+                                   name="targetEnvs" id="targetUat" value="UAT">
+                            <label class="form-check-label" for="targetUat">UAT</label>
+                        </div>
+
+                        <div class="form-check">
+                            <input class="form-check-input target-env-checkbox" type="checkbox"
+                                   name="targetEnvs" id="targetProd" value="PROD">
+                            <label class="form-check-label" for="targetProd">PROD</label>
+                        </div>
+
+                        <small class="text-muted">
+                            Select at least one target environment.
+                        </small>
+                    </div>
+
+                    <!-- Spinner (hidden by default) -->
+                    <div id="standardQueriesSpinner" class="text-center mb-2 d-none">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Running...</span>
+                        </div>
+                        <div class="mt-2 small text-muted">Running standard queries…</div>
+                    </div>
+
+                    <!-- Footer buttons -->
+                    <div class="modal-footer px-0">
+                        <button type="button" class="btn btn-secondary"
+                                data-bs-dismiss="modal">
+                            Cancel
+                        </button>
+
+                        <!-- Execute button starts disabled -->
+                        <button type="submit"
+                                class="btn btn-primary"
+                                id="standardQueriesExecuteBtn"
+                                disabled>
+                            Execute Standard Queries
+                        </button>
+                    </div>
+
+                </form>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+
+#############################
+
+package com.yourcompany.yourapp.controller;
+
+import com.yourcompany.yourapp.service.StandardQueryService;
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
+
+import java.util.List;
+
+@Controller
+public class StandardQueriesController {
+
+    private final StandardQueryService standardQueryService;
+
+    public StandardQueriesController(StandardQueryService standardQueryService) {
+        this.standardQueryService = standardQueryService;
+    }
+
+    @GetMapping("/standard-queries")
+    public String showStandardQueriesPage() {
+        // Just return the Thymeleaf view
+        return "standard-queries";
+    }
+
+    @PostMapping("/standard-queries/run")
+    public String runStandardQueries(@RequestParam("sourceEnv") String sourceEnv,
+                                     @RequestParam(value = "targetEnvs", required = false) List<String> targetEnvs,
+                                     RedirectAttributes redirectAttributes) {
+
+        if (targetEnvs == null || targetEnvs.isEmpty()) {
+            redirectAttributes.addFlashAttribute("error", "Please select at least one target environment.");
+            return "redirect:/standard-queries";
+        }
+
         try {
-            // 1) Load DEV as reference (source)
-            Environment sourceEnv = Environment.DEV;
-            Set<RecordKey> devData = loadEnvironmentData(sourceEnv);
+            // Call your generic comparator code here
+            standardQueryService.runStandardQueries(sourceEnv, targetEnvs);
 
-            // 2) Compare DEV vs each target env and create separate Excel for each
-            for (Environment targetEnv : List.of(Environment.SIT, Environment.UAT, Environment.PROD)) {
-                Set<RecordKey> targetData = loadEnvironmentData(targetEnv);
-                List<DifferenceRow> diffs = compare(devData, targetData, targetEnv);
-
-                // Generate file name: Zipdata_<Source>_<Dest>_ddMMyyyyHHmmss.xlsx
-                String timestamp = LocalDateTime.now().format(FILE_TS_FORMAT);
-                String fileName = "Zipdata_" + sourceEnv + "_" + targetEnv + "_" + timestamp + ".xlsx";
-                Path outputPath = OUTPUT_DIR.resolve(fileName);
-
-                writeDifferencesToExcel(sourceEnv, targetEnv, diffs, outputPath);
-
-                System.out.println("Created Excel for " + sourceEnv + " → " + targetEnv +
-                        ": " + outputPath.toAbsolutePath());
-            }
-
-            System.out.println("All comparisons completed.");
+            redirectAttributes.addFlashAttribute(
+                    "message",
+                    "Standard queries executed for source " + sourceEnv +
+                    " against " + String.join(", ", targetEnvs) + ". " +
+                    "Output Excel files have been generated."
+            );
         } catch (Exception e) {
             e.printStackTrace();
-        }
-    }
-
-    // ---- DATA STRUCTURES ----
-
-    /**
-     * Key is ALL columns: Year, Eff, Term, Carrier_no, Locality_no, Zip_Low, Zip_High, RVS_ID
-     */
-    public record RecordKey(
-            int year,
-            LocalDate eff,
-            LocalDate term,
-            String carrierNo,
-            String localityNo,
-            String zipLow,
-            String zipHigh,
-            String rvsId
-    ) {}
-
-    public enum DifferenceType {
-        MISSING_IN_ENV, // Present in DEV (source), missing in target env
-        NEW_IN_ENV      // Present in target env, missing in DEV (source)
-    }
-
-    public enum Environment {
-        DEV, SIT, UAT, PROD
-    }
-
-    public record DifferenceRow(
-            Environment environment,    // target env (SIT/UAT/PROD)
-            DifferenceType differenceType,
-            RecordKey key
-    ) {}
-
-    // ---- DB LOADING ----
-
-    /**
-     * Loads all rows for the given environment for the target year and stores them
-     * as a Set<RecordKey> where RecordKey contains all columns (including RVS_ID).
-     */
-    private static Set<RecordKey> loadEnvironmentData(Environment env) throws SQLException {
-        String url = CONNECTION_URLS.get(env);
-        if (url == null) {
-            throw new IllegalArgumentException("No connection URL configured for environment: " + env);
+            redirectAttributes.addFlashAttribute(
+                    "error",
+                    "Failed to execute standard queries: " + e.getMessage()
+            );
         }
 
-        System.out.println("Loading data for environment: " + env);
-
-        try (Connection conn = DriverManager.getConnection(url);
-             PreparedStatement ps = conn.prepareStatement(QUERY)) {
-
-            ps.setInt(1, TARGET_YEAR);
-
-            try (ResultSet rs = ps.executeQuery()) {
-                Set<RecordKey> result = new HashSet<>();
-
-                while (rs.next()) {
-                    int year = rs.getInt("Year");
-                    LocalDate eff = toLocalDate(rs.getDate("Eff"));
-                    LocalDate term = toLocalDate(rs.getDate("Term"));
-                    String carrier = rs.getString("Carrier_no");
-                    String locality = rs.getString("Locality_no");
-                    String zipLow = rs.getString("Zip_Low");
-                    String zipHigh = rs.getString("Zip_High");
-                    String rvsId = rs.getString("RVS_ID");
-
-                    RecordKey key = new RecordKey(year, eff, term, carrier, locality, zipLow, zipHigh, rvsId);
-                    result.add(key); // Set ensures uniqueness of full row
-                }
-
-                System.out.println("Loaded " + result.size() + " row(s) for " + env);
-                return result;
-            }
-        }
-    }
-
-    private static LocalDate toLocalDate(Date date) {
-        return (date == null) ? null : date.toLocalDate();
-    }
-
-    // ---- COMPARISON LOGIC ----
-
-    /**
-     * Compares DEV (source) vs env (target) using full-row key:
-     *  - Row in DEV but not in env => MISSING_IN_ENV
-     *  - Row in env but not in DEV => NEW_IN_ENV
-     */
-    private static List<DifferenceRow> compare(Set<RecordKey> devData,
-                                               Set<RecordKey> envData,
-                                               Environment env) {
-
-        List<DifferenceRow> differences = new ArrayList<>();
-
-        // 1) In DEV but not in env -> MISSING_IN_ENV
-        for (RecordKey key : devData) {
-            if (!envData.contains(key)) {
-                differences.add(new DifferenceRow(env, DifferenceType.MISSING_IN_ENV, key));
-            }
-        }
-
-        // 2) In env but not in DEV -> NEW_IN_ENV
-        for (RecordKey key : envData) {
-            if (!devData.contains(key)) {
-                differences.add(new DifferenceRow(env, DifferenceType.NEW_IN_ENV, key));
-            }
-        }
-
-        System.out.println("Found " + differences.size() + " difference(s) for " + env);
-        return differences;
-    }
-
-    // ---- EXCEL OUTPUT (one file per env) ----
-
-    private static void writeDifferencesToExcel(Environment sourceEnv,
-                                                Environment targetEnv,
-                                                List<DifferenceRow> diffs,
-                                                Path outputPath) throws IOException {
-
-        try (XSSFWorkbook workbook = new XSSFWorkbook()) {
-
-            // Single sheet per file, named after target env
-            Sheet sheet = workbook.createSheet(targetEnv.name());
-
-            // Header
-            Row header = sheet.createRow(0);
-            int col = 0;
-            header.createCell(col++).setCellValue("Source_Env");
-            header.createCell(col++).setCellValue("Target_Env");
-            header.createCell(col++).setCellValue("Difference_Type");
-            header.createCell(col++).setCellValue("Year");
-            header.createCell(col++).setCellValue("Eff");
-            header.createCell(col++).setCellValue("Term");
-            header.createCell(col++).setCellValue("Carrier_no");
-            header.createCell(col++).setCellValue("Locality_no");
-            header.createCell(col++).setCellValue("Zip_Low");
-            header.createCell(col++).setCellValue("Zip_High");
-            header.createCell(col++).setCellValue("RVS_ID");
-
-            // Data rows
-            int rowIndex = 1;
-            for (DifferenceRow diff : diffs) {
-                Row row = sheet.createRow(rowIndex++);
-                col = 0;
-
-                RecordKey k = diff.key();
-
-                setCell(row, col++, sourceEnv.name());
-                setCell(row, col++, targetEnv.name());
-                setCell(row, col++, diff.differenceType().name());
-                setCell(row, col++, k.year());
-                setCell(row, col++, k.eff());
-                setCell(row, col++, k.term());
-                setCell(row, col++, k.carrierNo());
-                setCell(row, col++, k.localityNo());
-                setCell(row, col++, k.zipLow());
-                setCell(row, col++, k.zipHigh());
-                setCell(row, col++, k.rvsId());
-            }
-
-            // Auto-size columns (optional; skip for very large data to save time)
-            for (int c = 0; c < 11; c++) {
-                sheet.autoSizeColumn(c);
-            }
-
-            // Ensure output directory exists
-            Files.createDirectories(outputPath.getParent());
-
-            try (var out = Files.newOutputStream(outputPath)) {
-                workbook.write(out);
-            }
-        }
-    }
-
-    private static void setCell(Row row, int columnIndex, Object value) {
-        Cell cell = row.createCell(columnIndex);
-        if (value == null) {
-            cell.setBlank();
-        } else if (value instanceof Number n) {
-            cell.setCellValue(n.doubleValue());
-        } else if (value instanceof LocalDate d) {
-            cell.setCellValue(d.toString());
-        } else {
-            cell.setCellValue(value.toString());
-        }
+        return "redirect:/standard-queries";
     }
 }
+
+##################################
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+      rel="stylesheet">
+
+##################################
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const form          = document.getElementById('standardQueriesForm');
+    const targetChecks  = document.querySelectorAll('.target-env-checkbox');
+    const executeBtn    = document.getElementById('standardQueriesExecuteBtn');
+    const spinnerBlock  = document.getElementById('standardQueriesSpinner');
+
+    function updateExecuteButtonState() {
+        // Enable button only if at least one target env is selected
+        const anyChecked = Array.from(targetChecks).some(cb => cb.checked);
+        executeBtn.disabled = !anyChecked;
+    }
+
+    // Listen for changes on target checkboxes
+    targetChecks.forEach(cb => {
+        cb.addEventListener('change', updateExecuteButtonState);
+    });
+
+    // On form submit: show spinner + lock button
+    if (form) {
+        form.addEventListener('submit', function () {
+            // show spinner
+            spinnerBlock.classList.remove('d-none');
+
+            // disable button & change text to avoid double-submit
+            executeBtn.disabled = true;
+            executeBtn.textContent = 'Running...';
+
+            // Optionally also disable all inputs while submitting
+            Array.from(form.elements).forEach(el => el.disabled = true);
+
+            // DO NOT call event.preventDefault() – we want normal POST to backend
+        });
+    }
+});
+</script>
+
+
