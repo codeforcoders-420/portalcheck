@@ -80,4 +80,7 @@ C:/Users/rajas/AppData/Local/Programs/Python/Python313/python.exe -m pip install
 C:/Users/rajas/AppData/Local/Programs/Python/Python313/python.exe -m pip install playwright
 C:/Users/rajas/AppData/Local/Programs/Python/Python313/python.exe -m playwright install
 C:/Users/rajas/AppData/Local/Programs/Python/Python313/python.exe -m pip show playwright
+C:/Users/rajas/AppData/Local/Programs/Python/Python313/python.exe c:/Users/rajas/Desktop/python/cmac_download_playwright.py
+
+
 ##############################
