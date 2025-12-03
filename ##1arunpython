@@ -1,373 +1,249 @@
-# nv_downloader_compare.py
-import os, re, time, glob, json
-from datetime import datetime, timedelta
-from urllib.parse import urljoin, urlparse, unquote
-import argparse
-import requests
-from bs4 import BeautifulSoup
-import pandas as pd
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
-def now_str(): return time.strftime("%Y%m%d_%H%M%S")
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.sql.*;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
 
-# ---------------- CONFIG VIA ARGS ----------------
-def parse_args():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--base-url", default="https://dhcfp.nv.gov/resources/rates/feeschedules/")
-    ap.add_argument("--root-dir", required=True, help=r"e.g. C:\Users\rajas\Desktop\Nevada")
-    ap.add_argument("--header-row-index", type=int, default=9)  # row 10
-    return ap.parse_args()
+public class RbrvZipComparator {
 
-EXCEL_EXTS = (".xlsx",".xls",".xlsm",".csv")
+    // Adjust your environment JDBC URLs and DB name here.
+    // These assume Windows Integrated Security.
+    private static final Map<Environment, String> CONNECTION_URLS = Map.of(
+            Environment.DEV,  "jdbc:sqlserver://DEV-SERVER;databaseName=RBRVS;integratedSecurity=true;encrypt=false",
+            Environment.SIT,  "jdbc:sqlserver://SIT-SERVER;databaseName=RBRVS;integratedSecurity=true;encrypt=false",
+            Environment.UAT,  "jdbc:sqlserver://UAT-SERVER;databaseName=RBRVS;integratedSecurity=true;encrypt=false",
+            Environment.PROD, "jdbc:sqlserver://PROD-SERVER;databaseName=RBRVS;integratedSecurity=true;encrypt=false"
+    );
 
-def today_folder_name(): return datetime.now().strftime("%m%d%Y")
-def yday_folder_name():  return (datetime.now()-timedelta(days=1)).strftime("%m%d%Y")
-def ensure_dir(p): os.makedirs(p, exist_ok=True); return p
+    private static final String QUERY =
+            "SELECT Year, Eff, Term, Carrier_no, Locality_no, Zip_Low, Zip_High, RVS_ID " +
+            "FROM RBRV_ZIP WHERE Year = ?";
 
-def get_session():
-    s = requests.Session()
-    s.headers.update({"User-Agent":"Mozilla/5.0 Python downloader"})
-    return s
+    private static final int TARGET_YEAR = 2025;
 
-def filename_from_response(resp, url_fallback):
-    cd = resp.headers.get("Content-Disposition","")
-    m = re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";]+)"?', cd, flags=re.I)
-    if m: return unquote(m.group(1)).strip()
-    name = os.path.basename(urlparse(url_fallback).path)
-    return name or f"download_{int(time.time()*1000)}.xlsx"
+    // Where to place the Excel files (change if you want a specific folder)
+    private static final Path OUTPUT_DIR = Path.of("."); // current directory
 
-def ensure_excel_ext(name): 
-    return name if name.lower().endswith(EXCEL_EXTS) else name + ".xlsx"
+    // Timestamp format for file name: ddMMyyyyHHmmss
+    private static final DateTimeFormatter FILE_TS_FORMAT =
+            DateTimeFormatter.ofPattern("ddMMyyyyHHmmss");
 
-def stamp_name(original): 
-    stem, ext = os.path.splitext(original); return f"{stem}__{now_str()}{ext}"
-
-def is_excel_link(href):
-    if not href: return False
-    href = href.lower()
-    return href.endswith(EXCEL_EXTS)
-
-def collect_excel_links(session, base_url):
-    r = session.get(base_url, timeout=60); r.raise_for_status()
-    soup = BeautifulSoup(r.text, "html.parser")
-    links = []
-    for a in soup.find_all("a", href=True):
-        href = a["href"].strip()
-        absu = urljoin(base_url, href)
-        if is_excel_link(href) or is_excel_link(absu):
-            links.append(absu)
-    dedup, seen = [], set()
-    for u in links:
-        if u not in seen:
-            seen.add(u); dedup.append(u)
-    return dedup
-
-def download_file(session, url, dest_folder):
-    try:
-        with session.get(url, stream=True, timeout=180) as resp:
-            resp.raise_for_status()
-            original = ensure_excel_ext(filename_from_response(resp, url))
-            stamped  = stamp_name(original)
-            out_path = os.path.join(dest_folder, stamped)
-            base, ext = os.path.splitext(out_path); c = 1
-            while os.path.exists(out_path):
-                out_path = f"{base}_{c}{ext}"; c += 1
-            size = 0
-            with open(out_path, "wb") as f:
-                for chunk in resp.iter_content(1024*64):
-                    if chunk: f.write(chunk); size += len(chunk)
-            return {"ok":True, "path":out_path, "size":size, "url":url}
-    except Exception as e:
-        return {"ok":False, "error":str(e), "url":url}
-
-def clean_df(df):
-    df = df.copy()
-    df.columns = [str(c).strip() for c in df.columns]
-    for c in df.columns:
-        df[c] = df[c].astype(str).str.strip()
-    df = df.fillna("")
-    df = df.reindex(sorted(df.columns), axis=1)
-    if df.shape[1] > 0:
-        df = df[~(df.apply(lambda r: ''.join(r.values.astype(str)).strip(), axis=1)=="")]
-    return df.reset_index(drop=True)
-
-def read_any(path, header_row_index):
-    ext = os.path.splitext(path)[1].lower()
-    if ext == ".csv":
-        df = pd.read_csv(path)
-    else:
-        df = pd.read_excel(path, engine="openpyxl", header=header_row_index)
-    return clean_df(df)
-
-def base_without_stamp(fname):
-    name = os.path.basename(fname)
-    stem, ext = os.path.splitext(name)
-    if "__" in stem: stem = stem.split("__",1)[0]
-    return f"{stem}{ext}"
-
-def compare_two(y_path, t_path, header_row_index):
-    y_df = read_any(y_path, header_row_index)
-    t_df = read_any(t_path, header_row_index)
-    all_cols = sorted(set(y_df.columns)|set(t_df.columns))
-    yA = y_df.reindex(columns=all_cols, fill_value="")
-    tA = t_df.reindex(columns=all_cols, fill_value="")
-    y_set = set(tuple(r) for r in yA.itertuples(index=False, name=None))
-    t_set = set(tuple(r) for r in tA.itertuples(index=False, name=None))
-    add_or_change = [dict(zip(all_cols, row)) for row in (t_set - y_set)]
-    rem_or_change = [dict(zip(all_cols, row)) for row in (y_set - t_set)]
-    return all_cols, add_or_change, rem_or_change
-
-def write_report(report_dir, base_name, all_cols, add_or_change, rem_or_change):
-    import openpyxl
-    from openpyxl import Workbook
-    ts = now_str()
-    out = os.path.join(report_dir, f"{os.path.splitext(base_name)[0]}__diff_{ts}.xlsx")
-    wb = Workbook()
-
-    # Summary
-    ws = wb.active; ws.title = "Summary"
-    ws.append(["File Compared", base_name])
-    ws.append(["Rows Added/Changed (today - yesterday)", len(add_or_change)])
-    ws.append(["Rows Removed/Changed (yesterday - today)", len(rem_or_change)])
-    ws.append(["Generated At", datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
-
-    def write_table(title, rows):
-        ws2 = wb.create_sheet(title)
-        if not rows:
-            ws2.append(["No differences"]); return
-        ws2.append(all_cols)
-        for r in rows:
-            ws2.append([r.get(c,"") for c in all_cols])
-
-    write_table("Added_or_Changed", add_or_change)
-    write_table("Removed_or_Changed", rem_or_change)
-
-    wb.save(out)
-    return out
-
-def run_once(base_url, root_dir, header_row_index):
-    today_dir = ensure_dir(os.path.join(root_dir, today_folder_name()))
-    session   = get_session()
-    urls      = collect_excel_links(session, base_url)
-    downloads = []
-    for u in urls:
-        downloads.append(download_file(session, u, today_dir))
-
-    # Compare
-    y_dir = os.path.join(root_dir, yday_folder_name())
-    reports = []
-    if os.path.isdir(y_dir):
-        # map by base
-        def map_files(folder):
-            m = {}
-            for p in glob.glob(os.path.join(folder, "*")):
-                if os.path.isfile(p) and p.lower().endswith(EXCEL_EXTS):
-                    base = base_without_stamp(p)
-                    prev = m.get(base)
-                    if (not prev) or (os.path.getmtime(p) > os.path.getmtime(prev)):
-                        m[base] = p
-            return m
-
-        y_map = map_files(y_dir)
-        t_map = map_files(today_dir)
-        report_dir = ensure_dir(os.path.join(today_dir, "_reports"))
-
-        for base, t_path in t_map.items():
-            if base in y_map:
-                y_path = y_map[base]
-                all_cols, addC, remC = compare_two(y_path, t_path, header_row_index)
-                changed = (len(addC)+len(remC))>0
-                report_path = None
-                if changed:
-                    report_path = write_report(report_dir, base, all_cols, addC, remC)
-                reports.append({
-                    "baseName": base,
-                    "yesterdayPath": y_path,
-                    "todayPath": t_path,
-                    "changed": changed,
-                    "addedOrChangedCount": len(addC),
-                    "removedOrChangedCount": len(remC),
-                    "reportPath": report_path
-                })
-    return {
-        "todayFolder": today_dir,
-        "foundLinks": len(urls),
-        "downloaded": downloads,
-        "reports": reports
-    }
-
-if __name__ == "__main__":
-    args = parse_args()
-    result = run_once(args.base_url, args.root_dir, args.header_row_index)
-    print(json.dumps(result, ensure_ascii=False))
-
-
-###############################
-
-# one-time (where the script lives)
-python -m venv venv
-.\venv\Scripts\activate
-pip install requests beautifulsoup4 pandas openpyxl
-# freeze (optional)
-pip freeze > requirements.txt
-
-
-####################################
-
-nevada.py.path=C:/apps/nevada/venv/Scripts/python.exe
-nevada.script=C:/apps/nevada/nv_downloader_compare.py
-nevada.root-dir=C:/Users/rajas/Desktop/Nevada
-nevada.base-url=https://dhcfp.nv.gov/resources/rates/feeschedules/
-nevada.header-row-index=9
-nevada.exec.timeout-seconds=900
-
-###################################
-
-package com.yourapp.nevada;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.stereotype.Component;
-
-import java.io.*;
-import java.nio.charset.StandardCharsets;
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
-
-@Component
-public class PythonRunner {
-    private final ObjectMapper om = new ObjectMapper();
-
-    public JsonNode runAndParseJson(List<String> cmd, Duration timeout) throws Exception {
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        pb.redirectErrorStream(true); // merge stderr into stdout
-        Process p = pb.start();
-
-        // Capture output
-        StringBuilder out = new StringBuilder();
-        try (BufferedReader br = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = br.readLine()) != null) {
-                out.append(line).append("\n");
-            }
-        }
-
-        boolean finished = p.waitFor(timeout.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
-        if (!finished) {
-            p.destroyForcibly();
-            throw new RuntimeException("Python process timed out");
-        }
-        int exit = p.exitValue();
-        if (exit != 0) {
-            // best-effort: try to parse JSON anyway
-            try { return om.readTree(out.toString()); } 
-            catch (Exception ignore) {
-                throw new RuntimeException("Python failed with exit " + exit + ":\n" + out);
-            }
-        }
-        return om.readTree(out.toString());
-    }
-}
-
-
-#########################################
-
-package com.yourapp.nevada;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
-
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
-
-@Service
-public class NevadaPythonService {
-
-    @Value("${nevada.py.path}")
-    private String pythonExe;
-
-    @Value("${nevada.script}")
-    private String scriptPath;
-
-    @Value("${nevada.root-dir}")
-    private String rootDir;
-
-    @Value("${nevada.base-url}")
-    private String baseUrl;
-
-    @Value("${nevada.header-row-index:9}")
-    private int headerRowIndex;
-
-    @Value("${nevada.exec.timeout-seconds:900}")
-    private int timeoutSeconds;
-
-    private final PythonRunner runner;
-
-    public NevadaPythonService(PythonRunner runner) {
-        this.runner = runner;
-    }
-
-    public JsonNode runOnce() throws Exception {
-        List<String> cmd = new ArrayList<>();
-        cmd.add(pythonExe);
-        cmd.add(scriptPath);
-        cmd.add("--base-url"); cmd.add(baseUrl);
-        cmd.add("--root-dir"); cmd.add(rootDir);
-        cmd.add("--header-row-index"); cmd.add(Integer.toString(headerRowIndex));
-
-        return runner.runAndParseJson(cmd, Duration.ofSeconds(timeoutSeconds));
-    }
-}
-
-###############################################
-
-package com.yourapp.nevada;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-
-@RestController
-@RequestMapping("/nevada")
-public class NevadaPythonController {
-
-    private final NevadaPythonService service;
-
-    public NevadaPythonController(NevadaPythonService service) {
-        this.service = service;
-    }
-
-    @PostMapping("/run-python")
-    public ResponseEntity<?> runPython() {
+    public static void main(String[] args) {
         try {
-            JsonNode result = service.runOnce();
-            return ResponseEntity.ok(result);
+            // 1) Load DEV as reference (source)
+            Environment sourceEnv = Environment.DEV;
+            Set<RecordKey> devData = loadEnvironmentData(sourceEnv);
+
+            // 2) Compare DEV vs each target env and create separate Excel for each
+            for (Environment targetEnv : List.of(Environment.SIT, Environment.UAT, Environment.PROD)) {
+                Set<RecordKey> targetData = loadEnvironmentData(targetEnv);
+                List<DifferenceRow> diffs = compare(devData, targetData, targetEnv);
+
+                // Generate file name: Zipdata_<Source>_<Dest>_ddMMyyyyHHmmss.xlsx
+                String timestamp = LocalDateTime.now().format(FILE_TS_FORMAT);
+                String fileName = "Zipdata_" + sourceEnv + "_" + targetEnv + "_" + timestamp + ".xlsx";
+                Path outputPath = OUTPUT_DIR.resolve(fileName);
+
+                writeDifferencesToExcel(sourceEnv, targetEnv, diffs, outputPath);
+
+                System.out.println("Created Excel for " + sourceEnv + " → " + targetEnv +
+                        ": " + outputPath.toAbsolutePath());
+            }
+
+            System.out.println("All comparisons completed.");
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    // ---- DATA STRUCTURES ----
+
+    /**
+     * Key is ALL columns: Year, Eff, Term, Carrier_no, Locality_no, Zip_Low, Zip_High, RVS_ID
+     */
+    public record RecordKey(
+            int year,
+            LocalDate eff,
+            LocalDate term,
+            String carrierNo,
+            String localityNo,
+            String zipLow,
+            String zipHigh,
+            String rvsId
+    ) {}
+
+    public enum DifferenceType {
+        MISSING_IN_ENV, // Present in DEV (source), missing in target env
+        NEW_IN_ENV      // Present in target env, missing in DEV (source)
+    }
+
+    public enum Environment {
+        DEV, SIT, UAT, PROD
+    }
+
+    public record DifferenceRow(
+            Environment environment,    // target env (SIT/UAT/PROD)
+            DifferenceType differenceType,
+            RecordKey key
+    ) {}
+
+    // ---- DB LOADING ----
+
+    /**
+     * Loads all rows for the given environment for the target year and stores them
+     * as a Set<RecordKey> where RecordKey contains all columns (including RVS_ID).
+     */
+    private static Set<RecordKey> loadEnvironmentData(Environment env) throws SQLException {
+        String url = CONNECTION_URLS.get(env);
+        if (url == null) {
+            throw new IllegalArgumentException("No connection URL configured for environment: " + env);
+        }
+
+        System.out.println("Loading data for environment: " + env);
+
+        try (Connection conn = DriverManager.getConnection(url);
+             PreparedStatement ps = conn.prepareStatement(QUERY)) {
+
+            ps.setInt(1, TARGET_YEAR);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                Set<RecordKey> result = new HashSet<>();
+
+                while (rs.next()) {
+                    int year = rs.getInt("Year");
+                    LocalDate eff = toLocalDate(rs.getDate("Eff"));
+                    LocalDate term = toLocalDate(rs.getDate("Term"));
+                    String carrier = rs.getString("Carrier_no");
+                    String locality = rs.getString("Locality_no");
+                    String zipLow = rs.getString("Zip_Low");
+                    String zipHigh = rs.getString("Zip_High");
+                    String rvsId = rs.getString("RVS_ID");
+
+                    RecordKey key = new RecordKey(year, eff, term, carrier, locality, zipLow, zipHigh, rvsId);
+                    result.add(key); // Set ensures uniqueness of full row
+                }
+
+                System.out.println("Loaded " + result.size() + " row(s) for " + env);
+                return result;
+            }
+        }
+    }
+
+    private static LocalDate toLocalDate(Date date) {
+        return (date == null) ? null : date.toLocalDate();
+    }
+
+    // ---- COMPARISON LOGIC ----
+
+    /**
+     * Compares DEV (source) vs env (target) using full-row key:
+     *  - Row in DEV but not in env => MISSING_IN_ENV
+     *  - Row in env but not in DEV => NEW_IN_ENV
+     */
+    private static List<DifferenceRow> compare(Set<RecordKey> devData,
+                                               Set<RecordKey> envData,
+                                               Environment env) {
+
+        List<DifferenceRow> differences = new ArrayList<>();
+
+        // 1) In DEV but not in env -> MISSING_IN_ENV
+        for (RecordKey key : devData) {
+            if (!envData.contains(key)) {
+                differences.add(new DifferenceRow(env, DifferenceType.MISSING_IN_ENV, key));
+            }
+        }
+
+        // 2) In env but not in DEV -> NEW_IN_ENV
+        for (RecordKey key : envData) {
+            if (!devData.contains(key)) {
+                differences.add(new DifferenceRow(env, DifferenceType.NEW_IN_ENV, key));
+            }
+        }
+
+        System.out.println("Found " + differences.size() + " difference(s) for " + env);
+        return differences;
+    }
+
+    // ---- EXCEL OUTPUT (one file per env) ----
+
+    private static void writeDifferencesToExcel(Environment sourceEnv,
+                                                Environment targetEnv,
+                                                List<DifferenceRow> diffs,
+                                                Path outputPath) throws IOException {
+
+        try (XSSFWorkbook workbook = new XSSFWorkbook()) {
+
+            // Single sheet per file, named after target env
+            Sheet sheet = workbook.createSheet(targetEnv.name());
+
+            // Header
+            Row header = sheet.createRow(0);
+            int col = 0;
+            header.createCell(col++).setCellValue("Source_Env");
+            header.createCell(col++).setCellValue("Target_Env");
+            header.createCell(col++).setCellValue("Difference_Type");
+            header.createCell(col++).setCellValue("Year");
+            header.createCell(col++).setCellValue("Eff");
+            header.createCell(col++).setCellValue("Term");
+            header.createCell(col++).setCellValue("Carrier_no");
+            header.createCell(col++).setCellValue("Locality_no");
+            header.createCell(col++).setCellValue("Zip_Low");
+            header.createCell(col++).setCellValue("Zip_High");
+            header.createCell(col++).setCellValue("RVS_ID");
+
+            // Data rows
+            int rowIndex = 1;
+            for (DifferenceRow diff : diffs) {
+                Row row = sheet.createRow(rowIndex++);
+                col = 0;
+
+                RecordKey k = diff.key();
+
+                setCell(row, col++, sourceEnv.name());
+                setCell(row, col++, targetEnv.name());
+                setCell(row, col++, diff.differenceType().name());
+                setCell(row, col++, k.year());
+                setCell(row, col++, k.eff());
+                setCell(row, col++, k.term());
+                setCell(row, col++, k.carrierNo());
+                setCell(row, col++, k.localityNo());
+                setCell(row, col++, k.zipLow());
+                setCell(row, col++, k.zipHigh());
+                setCell(row, col++, k.rvsId());
+            }
+
+            // Auto-size columns (optional; skip for very large data to save time)
+            for (int c = 0; c < 11; c++) {
+                sheet.autoSizeColumn(c);
+            }
+
+            // Ensure output directory exists
+            Files.createDirectories(outputPath.getParent());
+
+            try (var out = Files.newOutputStream(outputPath)) {
+                workbook.write(out);
+            }
+        }
+    }
+
+    private static void setCell(Row row, int columnIndex, Object value) {
+        Cell cell = row.createCell(columnIndex);
+        if (value == null) {
+            cell.setBlank();
+        } else if (value instanceof Number n) {
+            cell.setCellValue(n.doubleValue());
+        } else if (value instanceof LocalDate d) {
+            cell.setCellValue(d.toString());
+        } else {
+            cell.setCellValue(value.toString());
         }
     }
 }
-
-####################################
-
-<button id="runNevada">Download & Compare (Python)</button>
-<pre id="out"></pre>
-<script>
-document.getElementById('runNevada').onclick = async () => {
-  const res = await fetch('/nevada/run-python', { method:'POST' });
-  const text = await res.text();
-  try { document.getElementById('out').textContent = JSON.stringify(JSON.parse(text), null, 2); }
-  catch { document.getElementById('out').textContent = text; }
-};
-</script>
-
-
-##################################
-
-requests
-beautifulsoup4
-pandas
-openpyxl
-
