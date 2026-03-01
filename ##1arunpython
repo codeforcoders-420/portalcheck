@@ -16,12 +16,13 @@
             <div class="left-side">
                 <div class="logo-section">
                     <div class="logo-badge">
-                        <div class="logo-circle">
-                            <i data-lucide="workflow" class="logo-icon"></i>
+                        <div class="logo-circle-app">
+                            <i data-lucide="users" class="logo-icon-small"></i>
+                            <i data-lucide="briefcase" class="logo-icon-tiny"></i>
                         </div>
-                        <div class="sso-text">
-                            <span class="sso-title">Single sign-on</span>
-                            <span class="sso-subtitle">(SSO)</span>
+                        <div class="app-name-text">
+                            <span class="app-title">MN Team</span>
+                            <span class="app-subtitle">Internal Portal</span>
                         </div>
                     </div>
                 </div>
@@ -350,7 +351,7 @@
 </html>
 
 
-**********************************
+**********************************************************************
 
 * {
     margin: 0;
@@ -416,9 +417,31 @@ body {
     justify-content: center;
 }
 
+.logo-circle-app {
+    background: linear-gradient(135deg, #2563eb 0%, #1e3a8a 100%);
+    padding: 0.75rem;
+    border-radius: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.3);
+}
+
 .logo-icon {
     width: 2rem;
     height: 2rem;
+    color: white;
+}
+
+.logo-icon-small {
+    width: 1.5rem;
+    height: 1.5rem;
+    color: white;
+}
+
+.logo-icon-tiny {
+    width: 1.25rem;
+    height: 1.25rem;
     color: white;
 }
 
@@ -436,6 +459,24 @@ body {
 .sso-subtitle {
     color: #2563eb;
     font-size: 0.75rem;
+}
+
+.app-name-text {
+    display: flex;
+    flex-direction: column;
+}
+
+.app-title {
+    color: #2563eb;
+    font-weight: 700;
+    font-size: 1.125rem;
+    line-height: 1.2;
+}
+
+.app-subtitle {
+    color: #60a5fa;
+    font-size: 0.875rem;
+    font-weight: 500;
 }
 
 .welcome-content h1 {
