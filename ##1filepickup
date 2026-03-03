@@ -20,7 +20,7 @@
             overflow-x: hidden;
         }
 
-        /* Animated Background Pattern */
+        /* Static Background Pattern - No Animation */
         body::before {
             content: '';
             position: fixed;
@@ -48,16 +48,6 @@
                 radial-gradient(ellipse at 90% 70%, rgba(139, 92, 246, 0.2) 0%, transparent 40%);
             z-index: 0;
             pointer-events: none;
-            animation: float 20s ease-in-out infinite;
-        }
-
-        @keyframes float {
-            0%, 100% {
-                transform: translate(0, 0);
-            }
-            50% {
-                transform: translate(30px, -30px);
-            }
         }
 
         /* Header Styles */
@@ -108,12 +98,64 @@
         }
 
         .user-greeting {
+            position: relative;
             margin-left: 1rem;
             padding-left: 2rem;
             border-left: 1px solid #d1d5db;
             color: #111827;
             font-size: 0.875rem;
             font-weight: 500;
+            cursor: pointer;
+        }
+
+        .user-greeting:hover {
+            color: #2563eb;
+        }
+
+        /* User Dropdown Menu */
+        .user-dropdown {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            margin-top: 0.5rem;
+            background: white;
+            border: 1px solid rgba(229, 231, 235, 0.8);
+            border-radius: 0.5rem;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+            min-width: 180px;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-10px);
+            transition: all 0.2s;
+        }
+
+        .user-dropdown.show {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        .user-dropdown a {
+            display: block;
+            padding: 0.75rem 1rem;
+            color: #374151;
+            text-decoration: none;
+            font-size: 0.875rem;
+            transition: all 0.2s;
+        }
+
+        .user-dropdown a:first-child {
+            border-radius: 0.5rem 0.5rem 0 0;
+        }
+
+        .user-dropdown a:last-child {
+            border-radius: 0 0 0.5rem 0.5rem;
+            border-top: 1px solid #f3f4f6;
+        }
+
+        .user-dropdown a:hover {
+            background: #f9fafb;
+            color: #2563eb;
         }
 
         /* Section Styles */
@@ -195,24 +237,7 @@
             transform: translateY(-4px);
         }
 
-        /* Announcements Card - Golden Highlight */
-        .glass-card.message-card-highlight {
-            background: linear-gradient(135deg, rgba(251, 191, 36, 0.95) 0%, rgba(245, 158, 11, 0.95) 100%);
-            border: 2px solid rgba(251, 191, 36, 0.6);
-            box-shadow: 0 8px 32px rgba(251, 191, 36, 0.3), 0 2px 8px rgba(245, 158, 11, 0.2);
-        }
-
-        .glass-card.message-card-highlight:hover {
-            box-shadow: 0 12px 48px rgba(251, 191, 36, 0.4), 0 4px 12px rgba(245, 158, 11, 0.3);
-        }
-
-        .glass-card.message-card-highlight .section-title {
-            color: #78350f;
-            font-weight: 700;
-            font-size: 1.125rem;
-        }
-
-        /* Three Column Layout - Compact */
+        /* Three Column Layout */
         .three-column-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -505,9 +530,16 @@
             background: rgba(255, 255, 255, 0.8);
         }
 
-        .story-id {
+        .story-id-link {
             color: #2563eb;
             font-weight: 600;
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        .story-id-link:hover {
+            color: #1d4ed8;
+            text-decoration: underline;
         }
 
         .status-badge {
@@ -518,17 +550,12 @@
             font-weight: 600;
         }
 
-        .status-done {
+        .status-add {
             background: #dcfce7;
             color: #166534;
         }
 
-        .status-in-progress {
-            background: #dbeafe;
-            color: #1e40af;
-        }
-
-        .status-in-review {
+        .status-exists {
             background: #fef3c7;
             color: #92400e;
         }
@@ -540,6 +567,152 @@
             min-height: 120px;
             color: #94a3b8;
             font-size: 0.75rem;
+        }
+
+        /* Modal/Popup Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(4px);
+            z-index: 2000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.show {
+            display: flex;
+        }
+
+        .modal {
+            background: white;
+            border-radius: 1rem;
+            padding: 2rem;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            animation: modalSlideIn 0.3s ease-out;
+        }
+
+        @keyframes modalSlideIn {
+            from {
+                transform: translateY(-30px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .modal-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #111827;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            color: #6b7280;
+            cursor: pointer;
+            padding: 0;
+            width: 2rem;
+            height: 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 0.5rem;
+            transition: all 0.2s;
+        }
+
+        .modal-close:hover {
+            background: #f3f4f6;
+            color: #111827;
+        }
+
+        .modal-body {
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .form-label {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        .form-select {
+            padding: 0.75rem 1rem;
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            outline: none;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+
+        .form-select:focus {
+            background: white;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: white;
+            box-shadow: 0 4px 14px rgba(59, 130, 246, 0.4);
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background: #f3f4f6;
+            color: #374151;
+        }
+
+        .btn-secondary:hover {
+            background: #e5e7eb;
         }
 
         /* Message Corner Styles */
@@ -560,14 +733,14 @@
 
         .message-card {
             border-left: 3px solid;
-            background: linear-gradient(90deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0.3) 100%);
+            background: linear-gradient(90deg, rgba(249, 250, 251, 0.9) 0%, transparent 100%);
             padding: 0.875rem;
             border-radius: 0 0.75rem 0.75rem 0;
             transition: all 0.2s;
         }
 
         .message-card:hover {
-            background: linear-gradient(90deg, rgba(255, 255, 255, 0.8) 0%, rgba(255, 255, 255, 0.5) 100%);
+            background: linear-gradient(90deg, rgba(241, 245, 249, 0.95) 0%, transparent 100%);
             transform: translateX(2px);
         }
 
@@ -622,21 +795,21 @@
 
         .message-title {
             font-weight: 700;
-            color: #78350f;
+            color: #1e293b;
             font-size: 0.75rem;
             letter-spacing: -0.025em;
         }
 
         .message-date {
             font-size: 0.65rem;
-            color: #92400e;
+            color: #64748b;
             white-space: nowrap;
             font-weight: 600;
         }
 
         .message-text {
             font-size: 0.75rem;
-            color: #78350f;
+            color: #475569;
             line-height: 1.5;
             font-weight: 500;
         }
@@ -962,18 +1135,6 @@
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
         }
 
-        .form-group {
-            margin-bottom: 1.5rem;
-        }
-
-        .form-label {
-            display: block;
-            font-size: 0.875rem;
-            font-weight: 600;
-            color: #374151;
-            margin-bottom: 0.75rem;
-        }
-
         .form-input,
         .form-textarea {
             width: 100%;
@@ -1143,10 +1304,58 @@
                 <a href="#how-it-works" class="nav-link">How it works</a>
                 <a href="#contact" class="nav-link">Contact</a>
                 <a href="#pending-approvals" class="nav-link">Pending Approvals</a>
-                <span class="user-greeting">Hello, John Doe</span>
+                <div class="user-greeting" onclick="toggleUserMenu()">
+                    Hello, John Doe
+                    <div class="user-dropdown" id="userDropdown">
+                        <a href="#" onclick="changePassword(); return false;">Change Password</a>
+                        <a href="#" onclick="logout(); return false;">Logout</a>
+                    </div>
+                </div>
             </nav>
         </div>
     </header>
+
+    <!-- Search Options Modal -->
+    <div class="modal-overlay" id="searchModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title">Search Options</h3>
+                <button class="modal-close" onclick="closeSearchModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Year</label>
+                    <select class="form-select" id="yearSelect">
+                        <option value="">Select Year</option>
+                        <option value="2025">2025</option>
+                        <option value="2026">2026</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">LOB</label>
+                    <select class="form-select" id="lobSelect">
+                        <option value="">Select LOB</option>
+                        <option value="MI">MI</option>
+                        <option value="NV">NV</option>
+                        <option value="MS">MS</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">File System</label>
+                    <select class="form-select" id="fsSelect">
+                        <option value="">Select FS</option>
+                        <option value="FS1">FS1</option>
+                        <option value="FS2">FS2</option>
+                        <option value="FS3">FS3</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeSearchModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="performSearch()">Search</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Home Section -->
     <section id="home">
@@ -1192,7 +1401,7 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
                                 </svg>
                             </div>
-                            <button class="search-button" onclick="searchStories()">Search</button>
+                            <button class="search-button" onclick="openSearchModal()">Search</button>
                         </div>
 
                         <div id="searchResults" style="display: none;">
@@ -1201,7 +1410,6 @@
                                     <thead>
                                         <tr>
                                             <th>ID</th>
-                                            <th>Title</th>
                                             <th>Status</th>
                                         </tr>
                                     </thead>
@@ -1214,7 +1422,7 @@
                 </div>
 
                 <!-- Message Corner / Announcements -->
-                <div class="glass-card message-card-highlight">
+                <div class="glass-card">
                     <h3 class="section-title">📢 Announcements</h3>
                     
                     <div class="messages-content">
@@ -1668,9 +1876,92 @@
     </section>
 
     <script>
+        // Clear search on page load
+        window.addEventListener('load', function() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('searchResults').style.display = 'none';
+        });
+
         // Calendar state
         let currentDate = new Date(2026, 2, 3); // March 3, 2026
         const today = new Date(2026, 2, 3);
+
+        // User menu toggle
+        function toggleUserMenu() {
+            const dropdown = document.getElementById('userDropdown');
+            dropdown.classList.toggle('show');
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(event) {
+            const userGreeting = document.querySelector('.user-greeting');
+            const dropdown = document.getElementById('userDropdown');
+            if (!userGreeting.contains(event.target)) {
+                dropdown.classList.remove('show');
+            }
+        });
+
+        function changePassword() {
+            alert('Change Password functionality would be implemented here');
+        }
+
+        function logout() {
+            if (confirm('Are you sure you want to logout?')) {
+                alert('Logout functionality would be implemented here');
+                // window.location.href = '/login.html';
+            }
+        }
+
+        // Search Modal Functions
+        function openSearchModal() {
+            const searchInput = document.getElementById('searchInput');
+            if (!searchInput.value.trim()) {
+                alert('Please enter a Story ID');
+                return;
+            }
+            document.getElementById('searchModal').classList.add('show');
+        }
+
+        function closeSearchModal() {
+            document.getElementById('searchModal').classList.remove('show');
+            // Reset dropdown values
+            document.getElementById('yearSelect').value = '';
+            document.getElementById('lobSelect').value = '';
+            document.getElementById('fsSelect').value = '';
+        }
+
+        function performSearch() {
+            const storyId = document.getElementById('searchInput').value.trim();
+            const year = document.getElementById('yearSelect').value;
+            const lob = document.getElementById('lobSelect').value;
+            const fs = document.getElementById('fsSelect').value;
+
+            if (!year || !lob || !fs) {
+                alert('Please select all options');
+                return;
+            }
+
+            closeSearchModal();
+
+            // Simulate folder check (in real app, this would be a server call)
+            // For demo, randomly determine if folder exists
+            const folderPath = `${year}/${lob}/${fs}`;
+            const folderExists = Math.random() > 0.5; // Random for demo
+            
+            const status = folderExists ? 'Already Exists' : 'Add';
+            const statusClass = folderExists ? 'status-exists' : 'status-add';
+
+            // Display results
+            const resultsBody = document.getElementById('resultsBody');
+            resultsBody.innerHTML = `
+                <tr>
+                    <td><a href="workflow.html?storyId=${storyId}&year=${year}&lob=${lob}&fs=${fs}" class="story-id-link">${storyId}</a></td>
+                    <td><span class="status-badge ${statusClass}">${status}</span></td>
+                </tr>
+            `;
+
+            document.getElementById('searchResults').style.display = 'block';
+        }
 
         // Generate calendar
         function generateCalendar() {
@@ -1762,69 +2053,6 @@
         // Initialize calendar on load
         document.addEventListener('DOMContentLoaded', function() {
             generateCalendar();
-        });
-
-        // Mock story data
-        const stories = [
-            { id: 'STY-1001', title: 'Implement user authentication', status: 'In Progress' },
-            { id: 'STY-1002', title: 'Fix login page bug', status: 'Done' },
-            { id: 'STY-1003', title: 'Add dashboard analytics', status: 'To Do' },
-            { id: 'STY-1004', title: 'Update API documentation', status: 'In Review' },
-        ];
-
-        // Search functionality
-        function searchStories() {
-            const searchInput = document.getElementById('searchInput');
-            const searchResults = document.getElementById('searchResults');
-            const resultsBody = document.getElementById('resultsBody');
-            const query = searchInput.value.toLowerCase().trim();
-
-            if (!query) {
-                searchResults.style.display = 'none';
-                return;
-            }
-
-            const results = stories.filter(story => 
-                story.id.toLowerCase().includes(query) || 
-                story.title.toLowerCase().includes(query)
-            );
-
-            resultsBody.innerHTML = '';
-
-            if (results.length > 0) {
-                results.forEach(story => {
-                    const statusClass = 
-                        story.status === 'Done' ? 'status-done' :
-                        story.status === 'In Progress' ? 'status-in-progress' :
-                        story.status === 'In Review' ? 'status-in-review' : '';
-
-                    const row = `
-                        <tr>
-                            <td class="story-id">${story.id}</td>
-                            <td>${story.title}</td>
-                            <td><span class="status-badge ${statusClass}">${story.status}</span></td>
-                        </tr>
-                    `;
-                    resultsBody.innerHTML += row;
-                });
-            } else {
-                resultsBody.innerHTML = `
-                    <tr>
-                        <td colspan="3">
-                            <div class="no-results">No stories found</div>
-                        </td>
-                    </tr>
-                `;
-            }
-
-            searchResults.style.display = 'block';
-        }
-
-        // Enable search on Enter key
-        document.getElementById('searchInput').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                searchStories();
-            }
         });
 
         // Navigation active state
