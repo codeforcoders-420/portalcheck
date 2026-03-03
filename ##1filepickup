@@ -166,12 +166,17 @@
             text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
         }
 
+        h1 .username {
+            color: #60a5fa;
+            font-weight: 700;
+        }
+
         h1.dark {
             color: #111827;
             text-shadow: none;
         }
 
-        /* Glass Card Style */
+        /* Glass Card Style - Fixed Height */
         .glass-card {
             background: rgba(255, 255, 255, 0.98);
             backdrop-filter: blur(20px);
@@ -179,13 +184,32 @@
             border: 1px solid rgba(255, 255, 255, 0.5);
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
             padding: 1.5rem;
-            transition: all 0.3s;
-            height: 100%;
+            transition: box-shadow 0.3s, transform 0.3s;
+            height: 550px;
+            display: flex;
+            flex-direction: column;
         }
 
         .glass-card:hover {
             box-shadow: 0 12px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.1);
             transform: translateY(-4px);
+        }
+
+        /* Announcements Card - Golden Highlight */
+        .glass-card.message-card-highlight {
+            background: linear-gradient(135deg, rgba(251, 191, 36, 0.95) 0%, rgba(245, 158, 11, 0.95) 100%);
+            border: 2px solid rgba(251, 191, 36, 0.6);
+            box-shadow: 0 8px 32px rgba(251, 191, 36, 0.3), 0 2px 8px rgba(245, 158, 11, 0.2);
+        }
+
+        .glass-card.message-card-highlight:hover {
+            box-shadow: 0 12px 48px rgba(251, 191, 36, 0.4), 0 4px 12px rgba(245, 158, 11, 0.3);
+        }
+
+        .glass-card.message-card-highlight .section-title {
+            color: #78350f;
+            font-weight: 700;
+            font-size: 1.125rem;
         }
 
         /* Three Column Layout - Compact */
@@ -203,12 +227,13 @@
             }
         }
 
-        /* Calendar Styles - Compact */
+        /* Calendar Styles */
         .calendar-header {
             display: flex;
-            justify-content: center;
+            justify-content: space-between;
             align-items: center;
             margin-bottom: 1rem;
+            flex-shrink: 0;
         }
 
         .calendar-title {
@@ -216,6 +241,38 @@
             font-weight: 600;
             color: #1e293b;
             letter-spacing: -0.025em;
+            flex: 1;
+            text-align: center;
+        }
+
+        .calendar-nav-btn {
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            border-radius: 0.5rem;
+            width: 2rem;
+            height: 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: #2563eb;
+            font-weight: 600;
+            font-size: 1.25rem;
+            line-height: 1;
+        }
+
+        .calendar-nav-btn:hover {
+            background: rgba(59, 130, 246, 0.2);
+            border-color: rgba(59, 130, 246, 0.5);
+            transform: scale(1.05);
+        }
+
+        .calendar-content {
+            flex: 1;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
         }
 
         .calendar-grid {
@@ -287,9 +344,10 @@
             display: flex;
             flex-direction: column;
             gap: 0.5rem;
-            margin-top: 1rem;
+            margin-top: auto;
             padding-top: 0.875rem;
             border-top: 1px solid rgba(226, 232, 240, 0.6);
+            flex-shrink: 0;
         }
 
         .legend-item {
@@ -320,7 +378,7 @@
             font-weight: 500;
         }
 
-        /* Search Box Styles - Compact */
+        /* Search Box Styles */
         .section-title {
             font-size: 1rem;
             font-weight: 600;
@@ -328,6 +386,14 @@
             margin-bottom: 1rem;
             letter-spacing: -0.025em;
             text-align: center;
+            flex-shrink: 0;
+        }
+
+        .search-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
 
         .search-box {
@@ -335,6 +401,7 @@
             flex-direction: column;
             gap: 0.625rem;
             margin-bottom: 1rem;
+            flex-shrink: 0;
         }
 
         .search-input-wrapper {
@@ -398,7 +465,7 @@
             background: rgba(249, 250, 251, 0.6);
             border-radius: 0.875rem;
             overflow: hidden;
-            max-height: 280px;
+            flex: 1;
             overflow-y: auto;
         }
 
@@ -475,38 +542,45 @@
             font-size: 0.75rem;
         }
 
-        /* Message Corner Styles - Compact */
+        /* Message Corner Styles */
+        .messages-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
         .messages-container {
             display: flex;
             flex-direction: column;
             gap: 0.625rem;
             overflow-y: auto;
-            max-height: 350px;
+            flex: 1;
         }
 
         .message-card {
             border-left: 3px solid;
-            background: linear-gradient(90deg, rgba(249, 250, 251, 0.9) 0%, transparent 100%);
+            background: linear-gradient(90deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0.3) 100%);
             padding: 0.875rem;
             border-radius: 0 0.75rem 0.75rem 0;
             transition: all 0.2s;
         }
 
         .message-card:hover {
-            background: linear-gradient(90deg, rgba(241, 245, 249, 0.95) 0%, transparent 100%);
+            background: linear-gradient(90deg, rgba(255, 255, 255, 0.8) 0%, rgba(255, 255, 255, 0.5) 100%);
             transform: translateX(2px);
         }
 
         .message-card.info {
-            border-left-color: #3b82f6;
+            border-left-color: #0ea5e9;
         }
 
         .message-card.success {
-            border-left-color: #22c55e;
+            border-left-color: #10b981;
         }
 
         .message-card.warning {
-            border-left-color: #f59e0b;
+            border-left-color: #dc2626;
         }
 
         .message-content {
@@ -522,15 +596,15 @@
         }
 
         .message-icon.info {
-            color: #3b82f6;
+            color: #0ea5e9;
         }
 
         .message-icon.success {
-            color: #22c55e;
+            color: #10b981;
         }
 
         .message-icon.warning {
-            color: #f59e0b;
+            color: #dc2626;
         }
 
         .message-body {
@@ -547,22 +621,24 @@
         }
 
         .message-title {
-            font-weight: 600;
-            color: #1e293b;
+            font-weight: 700;
+            color: #78350f;
             font-size: 0.75rem;
             letter-spacing: -0.025em;
         }
 
         .message-date {
             font-size: 0.65rem;
-            color: #64748b;
+            color: #92400e;
             white-space: nowrap;
+            font-weight: 600;
         }
 
         .message-text {
             font-size: 0.75rem;
-            color: #475569;
+            color: #78350f;
             line-height: 1.5;
+            font-weight: 500;
         }
 
         /* Summary Cards */
@@ -1075,66 +1151,31 @@
     <!-- Home Section -->
     <section id="home">
         <div class="home-container">
-            <h1>Welcome back</h1>
+            <h1>Welcome back, <span class="username">John Doe</span></h1>
             
             <div class="three-column-grid">
                 <!-- Calendar -->
                 <div class="glass-card">
                     <div class="calendar-header">
-                        <h3 class="calendar-title">March 2026</h3>
+                        <button class="calendar-nav-btn" onclick="changeMonth(-1)">‹</button>
+                        <h3 class="calendar-title" id="calendarTitle">March 2026</h3>
+                        <button class="calendar-nav-btn" onclick="changeMonth(1)">›</button>
                     </div>
                     
-                    <div class="calendar-grid">
-                        <div class="calendar-day-header">S</div>
-                        <div class="calendar-day-header">M</div>
-                        <div class="calendar-day-header">T</div>
-                        <div class="calendar-day-header">W</div>
-                        <div class="calendar-day-header">T</div>
-                        <div class="calendar-day-header">F</div>
-                        <div class="calendar-day-header">S</div>
-                        
-                        <!-- March 2026 starts on Sunday -->
-                        <div class="calendar-day">1</div>
-                        <div class="calendar-day current-week-deployment">2</div>
-                        <div class="calendar-day today">3</div>
-                        <div class="calendar-day current-week-deployment">4</div>
-                        <div class="calendar-day current-week-deployment">5</div>
-                        <div class="calendar-day">6</div>
-                        <div class="calendar-day">7</div>
-                        <div class="calendar-day">8</div>
-                        <div class="calendar-day deployment">9</div>
-                        <div class="calendar-day">10</div>
-                        <div class="calendar-day deployment">11</div>
-                        <div class="calendar-day deployment">12</div>
-                        <div class="calendar-day">13</div>
-                        <div class="calendar-day">14</div>
-                        <div class="calendar-day">15</div>
-                        <div class="calendar-day deployment">16</div>
-                        <div class="calendar-day">17</div>
-                        <div class="calendar-day deployment">18</div>
-                        <div class="calendar-day deployment">19</div>
-                        <div class="calendar-day">20</div>
-                        <div class="calendar-day">21</div>
-                        <div class="calendar-day">22</div>
-                        <div class="calendar-day deployment">23</div>
-                        <div class="calendar-day">24</div>
-                        <div class="calendar-day deployment">25</div>
-                        <div class="calendar-day deployment">26</div>
-                        <div class="calendar-day">27</div>
-                        <div class="calendar-day">28</div>
-                        <div class="calendar-day">29</div>
-                        <div class="calendar-day deployment">30</div>
-                        <div class="calendar-day">31</div>
-                    </div>
-
-                    <div class="calendar-legend">
-                        <div class="legend-item">
-                            <div class="legend-color blue-gradient"></div>
-                            <span class="legend-text">Current Week Deployment</span>
+                    <div class="calendar-content">
+                        <div class="calendar-grid" id="calendarGrid">
+                            <!-- Calendar will be generated by JavaScript -->
                         </div>
-                        <div class="legend-item">
-                            <div class="legend-color blue-light"></div>
-                            <span class="legend-text">Deployment Day</span>
+
+                        <div class="calendar-legend">
+                            <div class="legend-item">
+                                <div class="legend-color blue-gradient"></div>
+                                <span class="legend-text">Current Week Deployment</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color blue-light"></div>
+                                <span class="legend-text">Deployment Day</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1143,94 +1184,113 @@
                 <div class="glass-card">
                     <h3 class="section-title">Search Stories</h3>
                     
-                    <div class="search-box">
-                        <div class="search-input-wrapper">
-                            <input type="text" id="searchInput" class="search-input" placeholder="Enter Story ID...">
-                            <svg class="search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-                            </svg>
+                    <div class="search-content">
+                        <div class="search-box">
+                            <div class="search-input-wrapper">
+                                <input type="text" id="searchInput" class="search-input" placeholder="Enter Story ID...">
+                                <svg class="search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                                </svg>
+                            </div>
+                            <button class="search-button" onclick="searchStories()">Search</button>
                         </div>
-                        <button class="search-button" onclick="searchStories()">Search</button>
-                    </div>
 
-                    <div id="searchResults" style="display: none;">
-                        <div class="search-results">
-                            <table class="results-table">
-                                <thead>
-                                    <tr>
-                                        <th>ID</th>
-                                        <th>Title</th>
-                                        <th>Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="resultsBody">
-                                </tbody>
-                            </table>
+                        <div id="searchResults" style="display: none;">
+                            <div class="search-results">
+                                <table class="results-table">
+                                    <thead>
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Title</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="resultsBody">
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Message Corner -->
-                <div class="glass-card">
-                    <h3 class="section-title">Message Corner</h3>
+                <!-- Message Corner / Announcements -->
+                <div class="glass-card message-card-highlight">
+                    <h3 class="section-title">📢 Announcements</h3>
                     
-                    <div class="messages-container">
-                        <div class="message-card success">
-                            <div class="message-content">
-                                <svg class="message-icon success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                                </svg>
-                                <div class="message-body">
-                                    <div class="message-header">
-                                        <h4 class="message-title">Deployment Successful</h4>
-                                        <span class="message-date">Mar 3</span>
+                    <div class="messages-content">
+                        <div class="messages-container">
+                            <div class="message-card success">
+                                <div class="message-content">
+                                    <svg class="message-icon success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                    </svg>
+                                    <div class="message-body">
+                                        <div class="message-header">
+                                            <h4 class="message-title">Deployment Successful</h4>
+                                            <span class="message-date">Mar 3</span>
+                                        </div>
+                                        <p class="message-text">Release v2.3.1 deployed to production.</p>
                                     </div>
-                                    <p class="message-text">Release v2.3.1 deployed to production.</p>
                                 </div>
                             </div>
-                        </div>
 
-                        <div class="message-card info">
-                            <div class="message-content">
-                                <svg class="message-icon info" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                                </svg>
-                                <div class="message-body">
-                                    <div class="message-header">
-                                        <h4 class="message-title">Upcoming Deployment</h4>
-                                        <span class="message-date">Mar 3</span>
+                            <div class="message-card info">
+                                <div class="message-content">
+                                    <svg class="message-icon info" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                    </svg>
+                                    <div class="message-body">
+                                        <div class="message-header">
+                                            <h4 class="message-title">Upcoming Deployment</h4>
+                                            <span class="message-date">Mar 3</span>
+                                        </div>
+                                        <p class="message-text">Next window: Wed, March 5th at 2:00 PM.</p>
                                     </div>
-                                    <p class="message-text">Next window: Wed, March 5th at 2:00 PM.</p>
                                 </div>
                             </div>
-                        </div>
 
-                        <div class="message-card warning">
-                            <div class="message-content">
-                                <svg class="message-icon warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                                </svg>
-                                <div class="message-body">
-                                    <div class="message-header">
-                                        <h4 class="message-title">Pending Approvals</h4>
-                                        <span class="message-date">Mar 2</span>
+                            <div class="message-card warning">
+                                <div class="message-content">
+                                    <svg class="message-icon warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                    </svg>
+                                    <div class="message-body">
+                                        <div class="message-header">
+                                            <h4 class="message-title">Pending Approvals</h4>
+                                            <span class="message-date">Mar 2</span>
+                                        </div>
+                                        <p class="message-text">3 stories waiting for your approval.</p>
                                     </div>
-                                    <p class="message-text">3 stories waiting for your approval.</p>
                                 </div>
                             </div>
-                        </div>
 
-                        <div class="message-card info">
-                            <div class="message-content">
-                                <svg class="message-icon info" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                                </svg>
-                                <div class="message-body">
-                                    <div class="message-header">
-                                        <h4 class="message-title">Team Update</h4>
-                                        <span class="message-date">Mar 1</span>
+                            <div class="message-card info">
+                                <div class="message-content">
+                                    <svg class="message-icon info" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                    </svg>
+                                    <div class="message-body">
+                                        <div class="message-header">
+                                            <h4 class="message-title">Team Update</h4>
+                                            <span class="message-date">Mar 1</span>
+                                        </div>
+                                        <p class="message-text">Sprint planning Friday at 10:00 AM.</p>
                                     </div>
-                                    <p class="message-text">Sprint planning Friday at 10:00 AM.</p>
+                                </div>
+                            </div>
+
+                            <div class="message-card warning">
+                                <div class="message-content">
+                                    <svg class="message-icon warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                    </svg>
+                                    <div class="message-body">
+                                        <div class="message-header">
+                                            <h4 class="message-title">System Maintenance</h4>
+                                            <span class="message-date">Feb 28</span>
+                                        </div>
+                                        <p class="message-text">Scheduled maintenance on Sunday, 2-4 AM.</p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1263,7 +1323,7 @@
                 </div>
             </div>
 
-            <div class="glass-card">
+            <div class="glass-card" style="height: auto;">
                 <h2 class="section-title" style="font-size: 1.5rem; margin-bottom: 1.5rem;">Sprint Overview</h2>
                 
                 <div class="progress-container">
@@ -1608,6 +1668,102 @@
     </section>
 
     <script>
+        // Calendar state
+        let currentDate = new Date(2026, 2, 3); // March 3, 2026
+        const today = new Date(2026, 2, 3);
+
+        // Generate calendar
+        function generateCalendar() {
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            
+            // Update title
+            const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                'July', 'August', 'September', 'October', 'November', 'December'];
+            document.getElementById('calendarTitle').textContent = `${monthNames[month]} ${year}`;
+            
+            // Get first day of month and number of days
+            const firstDay = new Date(year, month, 1);
+            const lastDay = new Date(year, month + 1, 0);
+            const daysInMonth = lastDay.getDate();
+            const startingDayOfWeek = firstDay.getDay();
+            
+            // Clear calendar
+            const calendarGrid = document.getElementById('calendarGrid');
+            calendarGrid.innerHTML = '';
+            
+            // Add day headers
+            ['S', 'M', 'T', 'W', 'T', 'F', 'S'].forEach(day => {
+                const header = document.createElement('div');
+                header.className = 'calendar-day-header';
+                header.textContent = day;
+                calendarGrid.appendChild(header);
+            });
+            
+            // Add empty cells for days before month starts
+            for (let i = 0; i < startingDayOfWeek; i++) {
+                const emptyDay = document.createElement('div');
+                emptyDay.className = 'calendar-day';
+                emptyDay.style.visibility = 'hidden';
+                calendarGrid.appendChild(emptyDay);
+            }
+            
+            // Add days of month
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dayElement = document.createElement('div');
+                dayElement.className = 'calendar-day';
+                dayElement.textContent = day;
+                
+                const currentDay = new Date(year, month, day);
+                const dayOfWeek = currentDay.getDay();
+                
+                // Check if deployment day (Monday=1, Wednesday=3, Thursday=4)
+                const isDeployment = dayOfWeek === 1 || dayOfWeek === 3 || dayOfWeek === 4;
+                
+                if (isDeployment) {
+                    dayElement.classList.add('deployment');
+                }
+                
+                // Check if current week deployment (only for today's week)
+                if (isCurrentWeek(currentDay) && isDeployment && month === today.getMonth() && year === today.getFullYear()) {
+                    dayElement.classList.add('current-week-deployment');
+                    dayElement.classList.remove('deployment');
+                }
+                
+                // Check if today
+                if (currentDay.toDateString() === today.toDateString()) {
+                    dayElement.classList.add('today');
+                }
+                
+                calendarGrid.appendChild(dayElement);
+            }
+        }
+        
+        // Check if date is in current week
+        function isCurrentWeek(date) {
+            const currentWeekStart = new Date(today);
+            const dayOfWeek = today.getDay();
+            const diff = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+            currentWeekStart.setDate(diff);
+            currentWeekStart.setHours(0, 0, 0, 0);
+            
+            const currentWeekEnd = new Date(currentWeekStart);
+            currentWeekEnd.setDate(currentWeekStart.getDate() + 6);
+            
+            return date >= currentWeekStart && date <= currentWeekEnd;
+        }
+        
+        // Change month
+        function changeMonth(direction) {
+            currentDate.setMonth(currentDate.getMonth() + direction);
+            generateCalendar();
+        }
+        
+        // Initialize calendar on load
+        document.addEventListener('DOMContentLoaded', function() {
+            generateCalendar();
+        });
+
         // Mock story data
         const stories = [
             { id: 'STY-1001', title: 'Implement user authentication', status: 'In Progress' },
