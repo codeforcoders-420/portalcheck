@@ -1,29 +1,50 @@
- <!-- Error Message -->
-                        <div id="errorMessage" class="error-message" style="display: none;">
-                            <i data-lucide="alert-circle" class="error-icon"></i>
-                            <p id="errorText" class="error-text"></p>
-                            <button type="button" class="error-close" onclick="hideError()">
+<!-- Success Message -->
+                        <div id="successMessage" class="success-message" style="display: none;">
+                            <i data-lucide="check-circle" class="success-icon"></i>
+                            <p id="successText" class="success-text"></p>
+                            <button type="button" class="success-close" onclick="hideSuccess()">
                                 <i data-lucide="x"></i>
                             </button>
                         </div>
 
 
-************************
+****************************************************************
 
-function showError(message) {
-            const errorElement = document.getElementById('errorMessage');
-            const errorText = document.getElementById('errorText');
-            errorText.textContent = message;
-            errorElement.style.display = 'flex';
+<div class="form-group">
+                                <div class="input-wrapper">
+                                    <i data-lucide="user" class="input-icon"></i>
+                                    <input 
+                                        type="text" 
+                                        id="signup-username" 
+                                        class="input" 
+                                        placeholder="Username"
+                                        oninput="hideSuccess()"
+                                        required
+                                    />
+                                </div>
+                            </div>
+
+***************************************************************
+
+function showSuccess(message) {
+            const successElement = document.getElementById('successMessage');
+            const successText = document.getElementById('successText');
+            successText.textContent = message;
+            successElement.style.display = 'flex';
             lucide.createIcons();
         }
 
-*********************************
+function hideSuccess() {
+            const successElement = document.getElementById('successMessage');
+            successElement.style.display = 'none';
+        }
 
-/* Error Message */
-.error-message {
-    background: #fef2f2;
-    border-left: 4px solid #ef4444;
+***************************************************************
+
+/* Success Message */
+.success-message {
+    background: #f0fdf4;
+    border-left: 4px solid #22c55e;
     border-radius: 0.5rem;
     padding: 1rem;
     margin-bottom: 1.5rem;
@@ -33,37 +54,26 @@ function showError(message) {
     animation: slideInFromTop 0.3s ease-out;
 }
 
-@keyframes slideInFromTop {
-    from {
-        opacity: 0;
-        transform: translateY(-10px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-.error-icon {
+.success-icon {
     width: 1.25rem;
     height: 1.25rem;
-    color: #ef4444;
+    color: #22c55e;
     flex-shrink: 0;
     margin-top: 0.125rem;
 }
 
-.error-text {
+.success-text {
     flex: 1;
-    color: #991b1b;
+    color: #166534;
     font-weight: 500;
     font-size: 0.875rem;
     line-height: 1.4;
 }
 
-.error-close {
+.success-close {
     background: none;
     border: none;
-    color: #ef4444;
+    color: #22c55e;
     cursor: pointer;
     padding: 0;
     display: flex;
@@ -71,11 +81,11 @@ function showError(message) {
     transition: color 0.2s;
 }
 
-.error-close:hover {
-    color: #dc2626;
+.success-close:hover {
+    color: #16a34a;
 }
 
-.error-close i {
+.success-close i {
     width: 1.125rem;
     height: 1.125rem;
 }
