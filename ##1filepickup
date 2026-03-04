@@ -414,6 +414,33 @@
             flex-shrink: 0;
         }
 
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            flex-shrink: 0;
+        }
+
+        .add-message-btn {
+            padding: 0.5rem 1rem;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            border: none;
+            border-radius: 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+        }
+
+        .add-message-btn:hover {
+            background: linear-gradient(135deg, #059669 0%, #047857 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+        }
+
         .search-content {
             flex: 1;
             display: flex;
@@ -673,6 +700,43 @@
         }
 
         .form-select:focus {
+            background: white;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            font-family: inherit;
+            outline: none;
+            transition: all 0.2s;
+        }
+
+        .form-input:focus {
+            background: white;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .form-textarea {
+            resize: none;
+            min-height: 100px;
+            padding: 0.75rem 1rem;
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            font-family: inherit;
+            outline: none;
+            transition: all 0.2s;
+        }
+
+        .form-textarea:focus {
             background: white;
             border-color: #3b82f6;
             box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
@@ -1135,30 +1199,6 @@
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
         }
 
-        .form-input,
-        .form-textarea {
-            width: 100%;
-            padding: 0.875rem 1.25rem;
-            background: rgba(249, 250, 251, 0.8);
-            border: 1px solid rgba(229, 231, 235, 0.5);
-            border-radius: 1rem;
-            font-size: 0.875rem;
-            font-family: inherit;
-            outline: none;
-            transition: all 0.2s;
-        }
-
-        .form-input:focus,
-        .form-textarea:focus {
-            background: white;
-            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
-        }
-
-        .form-textarea {
-            resize: none;
-            min-height: 150px;
-        }
-
         .submit-button {
             width: 100%;
             padding: 1rem 1.5rem;
@@ -1357,6 +1397,38 @@
         </div>
     </div>
 
+    <!-- Add Message Modal (Admin Only) -->
+    <div class="modal-overlay" id="addMessageModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title">Add New Announcement</h3>
+                <button class="modal-close" onclick="closeAddMessageModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Message Type</label>
+                    <select class="form-select" id="messageType">
+                        <option value="info">Information</option>
+                        <option value="success">Success</option>
+                        <option value="warning">Warning</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Title</label>
+                    <input type="text" id="messageTitle" class="form-input" placeholder="Enter message title...">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Message</label>
+                    <textarea id="messageContent" class="form-textarea" placeholder="Enter your message..."></textarea>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeAddMessageModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="postMessage()">Post Message</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Home Section -->
     <section id="home">
         <div class="home-container">
@@ -1423,84 +1495,16 @@
 
                 <!-- Message Corner / Announcements -->
                 <div class="glass-card">
-                    <h3 class="section-title">📢 Announcements</h3>
+                    <div class="section-header">
+                        <h3 class="section-title" style="margin: 0;">📢 Announcements</h3>
+                        <button class="add-message-btn" id="addMessageBtn" onclick="openAddMessageModal()" style="display: none;">
+                            + Add Message
+                        </button>
+                    </div>
                     
                     <div class="messages-content">
-                        <div class="messages-container">
-                            <div class="message-card success">
-                                <div class="message-content">
-                                    <svg class="message-icon success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                                    </svg>
-                                    <div class="message-body">
-                                        <div class="message-header">
-                                            <h4 class="message-title">Deployment Successful</h4>
-                                            <span class="message-date">Mar 3</span>
-                                        </div>
-                                        <p class="message-text">Release v2.3.1 deployed to production.</p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="message-card info">
-                                <div class="message-content">
-                                    <svg class="message-icon info" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                                    </svg>
-                                    <div class="message-body">
-                                        <div class="message-header">
-                                            <h4 class="message-title">Upcoming Deployment</h4>
-                                            <span class="message-date">Mar 3</span>
-                                        </div>
-                                        <p class="message-text">Next window: Wed, March 5th at 2:00 PM.</p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="message-card warning">
-                                <div class="message-content">
-                                    <svg class="message-icon warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                                    </svg>
-                                    <div class="message-body">
-                                        <div class="message-header">
-                                            <h4 class="message-title">Pending Approvals</h4>
-                                            <span class="message-date">Mar 2</span>
-                                        </div>
-                                        <p class="message-text">3 stories waiting for your approval.</p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="message-card info">
-                                <div class="message-content">
-                                    <svg class="message-icon info" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                                    </svg>
-                                    <div class="message-body">
-                                        <div class="message-header">
-                                            <h4 class="message-title">Team Update</h4>
-                                            <span class="message-date">Mar 1</span>
-                                        </div>
-                                        <p class="message-text">Sprint planning Friday at 10:00 AM.</p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="message-card warning">
-                                <div class="message-content">
-                                    <svg class="message-icon warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                                    </svg>
-                                    <div class="message-body">
-                                        <div class="message-header">
-                                            <h4 class="message-title">System Maintenance</h4>
-                                            <span class="message-date">Feb 28</span>
-                                        </div>
-                                        <p class="message-text">Scheduled maintenance on Sunday, 2-4 AM.</p>
-                                    </div>
-                                </div>
-                            </div>
+                        <div class="messages-container" id="messagesContainer">
+                            <!-- Messages will be rendered here -->
                         </div>
                     </div>
                 </div>
@@ -1876,10 +1880,111 @@
     </section>
 
     <script>
+        // User role configuration - Set to true for admin users
+        const isAdmin = true; // Change this based on actual user role from backend
+
+        // Show/hide admin features
+        if (isAdmin) {
+            document.getElementById('addMessageBtn').style.display = 'block';
+        }
+
+        // Messages array - stores all announcements
+        let messages = [
+            { id: 1, type: 'success', title: 'Deployment Successful', content: 'Release v2.3.1 deployed to production.', date: 'Mar 3' },
+            { id: 2, type: 'info', title: 'Upcoming Deployment', content: 'Next window: Wed, March 5th at 2:00 PM.', date: 'Mar 3' },
+            { id: 3, type: 'warning', title: 'Pending Approvals', content: '3 stories waiting for your approval.', date: 'Mar 2' },
+            { id: 4, type: 'info', title: 'Team Update', content: 'Sprint planning Friday at 10:00 AM.', date: 'Mar 1' },
+            { id: 5, type: 'warning', title: 'System Maintenance', content: 'Scheduled maintenance on Sunday, 2-4 AM.', date: 'Feb 28' }
+        ];
+
+        // Render messages
+        function renderMessages() {
+            const container = document.getElementById('messagesContainer');
+            container.innerHTML = '';
+
+            messages.forEach(msg => {
+                const iconSvg = msg.type === 'success' 
+                    ? '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>'
+                    : msg.type === 'warning'
+                    ? '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>'
+                    : '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>';
+
+                const messageHtml = `
+                    <div class="message-card ${msg.type}">
+                        <div class="message-content">
+                            <svg class="message-icon ${msg.type}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                ${iconSvg}
+                            </svg>
+                            <div class="message-body">
+                                <div class="message-header">
+                                    <h4 class="message-title">${msg.title}</h4>
+                                    <span class="message-date">${msg.date}</span>
+                                </div>
+                                <p class="message-text">${msg.content}</p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                container.innerHTML += messageHtml;
+            });
+        }
+
+        // Open Add Message Modal
+        function openAddMessageModal() {
+            document.getElementById('addMessageModal').classList.add('show');
+        }
+
+        // Close Add Message Modal
+        function closeAddMessageModal() {
+            document.getElementById('addMessageModal').classList.remove('show');
+            // Reset form
+            document.getElementById('messageType').value = 'info';
+            document.getElementById('messageTitle').value = '';
+            document.getElementById('messageContent').value = '';
+        }
+
+        // Post new message
+        function postMessage() {
+            const type = document.getElementById('messageType').value;
+            const title = document.getElementById('messageTitle').value.trim();
+            const content = document.getElementById('messageContent').value.trim();
+
+            if (!title || !content) {
+                alert('Please fill in all fields');
+                return;
+            }
+
+            // Get current date
+            const date = new Date();
+            const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+            // Create new message
+            const newMessage = {
+                id: messages.length + 1,
+                type: type,
+                title: title,
+                content: content,
+                date: dateStr
+            };
+
+            // Add to beginning of messages array
+            messages.unshift(newMessage);
+
+            // Re-render messages
+            renderMessages();
+
+            // Close modal
+            closeAddMessageModal();
+
+            // Show success notification
+            alert('Message posted successfully!');
+        }
+
         // Clear search on page load
         window.addEventListener('load', function() {
             document.getElementById('searchInput').value = '';
             document.getElementById('searchResults').style.display = 'none';
+            renderMessages(); // Initial render
         });
 
         // Calendar state
