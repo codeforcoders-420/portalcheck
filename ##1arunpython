@@ -1,1420 +1,413 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MN Team Portal - Workflow</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 50%, #cbd5e1 100%);
-            color: #1e293b;
-            min-height: 100vh;
-            position: relative;
-        }
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
-        /* Subtle Background Pattern */
-        body::before {
-            content: '';
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-image: 
-                radial-gradient(circle at 15% 20%, rgba(99, 102, 241, 0.08) 0%, transparent 40%),
-                radial-gradient(circle at 85% 80%, rgba(139, 92, 246, 0.08) 0%, transparent 40%),
-                radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.05) 0%, transparent 50%);
-            z-index: 0;
-            pointer-events: none;
-        }
+/**
+ * Java 17 + Apache POI solution.
+ *
+ * Input:
+ *   Copy-of-WEB-Radiology-Service-Fee-Schedule-February-2026-FNL.xlsx
+ *
+ * Output:
+ *   One single sheet in the requested format:
+ *   SCH NAME | Procedure Code | Modifier1 | Modifier2 | Modifier3 | Modifier4 |
+ *   Effective Date | End Date | Pricing Method | New Rate | Old Rate | Comments
+ *
+ * Notes:
+ * - All output cells are written as TEXT.
+ * - Sheet 1 is detected by sheet name containing "RADIOLOGY".
+ * - Sheet 2 is detected by sheet name containing "PAY0" and "SYSMAN".
+ * - For Sheet 2 modifier values like I~TC~1 -> TC.
+ */
+public class FeeScheduleTransformer {
 
-        /* Header */
-        .header {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(20px);
-            border-bottom: 1px solid rgba(226, 232, 240, 0.8);
-            padding: 1.25rem 2rem;
-            z-index: 1000;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-        }
+    private static final DateTimeFormatter OUTPUT_DATE = DateTimeFormatter.ofPattern("MM/dd/yyyy");
+    private static final LocalDate MIN_EFFECTIVE_DATE = LocalDate.of(2022, 1, 1);
+    private static final String OPEN_END_OUTPUT = "12/31/9999";
 
-        .header-content {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            max-width: 1800px;
-            margin: 0 auto;
-        }
+    private static final List<String> OUTPUT_HEADERS = List.of(
+            "SCH NAME",
+            "Procedure Code",
+            "Modifier1",
+            "Modifier2",
+            "Modifier3",
+            "Modifier4",
+            "Effective Date",
+            "End Date",
+            "Pricing Method",
+            "New Rate",
+            "Old Rate",
+            "Comments"
+    );
 
-        .header-left {
-            display: flex;
-            align-items: center;
-            gap: 1.5rem;
-        }
+    public static void main(String[] args) throws Exception {
+        Path input = Path.of("/mnt/data/Copy-of-WEB-Radiology-Service-Fee-Schedule-February-2026-FNL.xlsx");
+        Path output = Path.of("/mnt/data/Change_File_Report_Output.xlsx");
 
-        .back-button {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.625rem 1.25rem;
-            background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
-            border: 1px solid rgba(203, 213, 225, 0.6);
-            border-radius: 0.75rem;
-            color: #475569;
-            font-size: 0.875rem;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-            text-decoration: none;
-        }
+        transform(input, output);
+        System.out.println("Output created: " + output.toAbsolutePath());
+    }
 
-        .back-button:hover {
-            background: linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%);
-            border-color: rgba(148, 163, 184, 0.6);
-            transform: translateX(-2px);
-        }
+    public static void transform(Path inputFile, Path outputFile) throws IOException {
+        try (InputStream in = Files.newInputStream(inputFile);
+             Workbook sourceWorkbook = WorkbookFactory.create(in);
+             Workbook targetWorkbook = new XSSFWorkbook()) {
 
-        .workflow-title {
-            font-size: 1.25rem;
-            font-weight: 600;
-            color: #1e293b;
-            letter-spacing: -0.025em;
-        }
+            Sheet outputSheet = targetWorkbook.createSheet("Change File Report");
+            CellStyle textStyle = createTextStyle(targetWorkbook);
 
-        .workflow-title .story-id {
-            color: #3b82f6;
-            font-weight: 700;
-        }
+            writeHeader(outputSheet, textStyle);
 
-        .logo {
-            font-size: 0.875rem;
-            color: #64748b;
-            font-weight: 500;
-        }
+            int outputRowIndex = 1;
+            outputRowIndex = processRadiologySheet(sourceWorkbook, outputSheet, textStyle, outputRowIndex);
+            outputRowIndex = processSysmanSheet(sourceWorkbook, outputSheet, textStyle, outputRowIndex);
 
-        /* Main Layout */
-        .main-container {
-            display: flex;
-            padding-top: 5rem;
-            min-height: 100vh;
-            position: relative;
-            z-index: 1;
-        }
+            autoSize(outputSheet, OUTPUT_HEADERS.size());
 
-        /* Sidebar */
-        .sidebar {
-            width: 280px;
-            background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
-            border-right: 1px solid rgba(148, 163, 184, 0.2);
-            padding: 2rem 0;
-            position: fixed;
-            left: 0;
-            top: 5rem;
-            bottom: 0;
-            overflow-y: auto;
-            box-shadow: 4px 0 24px rgba(0, 0, 0, 0.12);
-        }
-
-        .sidebar::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: 
-                radial-gradient(circle at 20% 30%, rgba(59, 130, 246, 0.15) 0%, transparent 50%),
-                radial-gradient(circle at 80% 70%, rgba(99, 102, 241, 0.12) 0%, transparent 50%);
-            pointer-events: none;
-        }
-
-        .sidebar-title {
-            padding: 0 1.5rem;
-            margin-bottom: 1.5rem;
-            font-size: 0.6875rem;
-            font-weight: 700;
-            color: #94a3b8;
-            text-transform: uppercase;
-            letter-spacing: 0.15em;
-            position: relative;
-            z-index: 1;
-        }
-
-        .app-list {
-            list-style: none;
-            position: relative;
-            z-index: 1;
-        }
-
-        .app-item {
-            padding: 1rem 1.5rem;
-            cursor: pointer;
-            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-            border-left: 3px solid transparent;
-            color: #cbd5e1;
-            font-size: 0.875rem;
-            font-weight: 500;
-            display: flex;
-            align-items: center;
-            gap: 0.875rem;
-            position: relative;
-            letter-spacing: -0.015em;
-        }
-
-        .app-item::before {
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 100%;
-            background: linear-gradient(90deg, rgba(59, 130, 246, 0.12) 0%, transparent 100%);
-            opacity: 0;
-            transition: opacity 0.25s;
-        }
-
-        .app-item:hover {
-            color: #f1f5f9;
-            padding-left: 1.75rem;
-        }
-
-        .app-item:hover::before {
-            opacity: 1;
-        }
-
-        .app-item.active {
-            background: linear-gradient(90deg, rgba(59, 130, 246, 0.2) 0%, rgba(37, 99, 235, 0.08) 100%);
-            border-left-color: #3b82f6;
-            color: #ffffff;
-            font-weight: 600;
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
-        }
-
-        .app-item.active::before {
-            opacity: 0;
-        }
-
-        .app-icon {
-            width: 1.375rem;
-            height: 1.375rem;
-            color: #64748b;
-            transition: all 0.25s;
-            flex-shrink: 0;
-        }
-
-        .app-item:hover .app-icon {
-            color: #93c5fd;
-            transform: scale(1.1);
-        }
-
-        .app-item.active .app-icon {
-            color: #60a5fa;
-        }
-
-        /* Content Area */
-        .content-area {
-            flex: 1;
-            margin-left: 280px;
-            padding: 2rem;
-        }
-
-        .content-card {
-            background: rgba(255, 255, 255, 0.98);
-            backdrop-filter: blur(20px);
-            border-radius: 1.5rem;
-            border: 1px solid rgba(226, 232, 240, 0.8);
-            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.04);
-            padding: 2.5rem;
-            max-width: 1200px;
-        }
-
-        .content-header {
-            margin-bottom: 2rem;
-            padding-bottom: 1.5rem;
-            border-bottom: 1px solid rgba(226, 232, 240, 0.6);
-        }
-
-        .content-title {
-            font-size: 1.75rem;
-            font-weight: 600;
-            color: #1e293b;
-            margin-bottom: 0.5rem;
-            letter-spacing: -0.025em;
-        }
-
-        .content-description {
-            font-size: 0.875rem;
-            color: #64748b;
-            line-height: 1.6;
-        }
-
-        /* Form Styles */
-        .form-section {
-            margin-bottom: 2rem;
-        }
-
-        .form-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 1.5rem;
-        }
-
-        .form-group {
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-
-        .form-label {
-            font-size: 0.875rem;
-            font-weight: 600;
-            color: #334155;
-            letter-spacing: -0.025em;
-        }
-
-        .form-label .required {
-            color: #ef4444;
-            margin-left: 0.25rem;
-        }
-
-        .form-input,
-        .form-select,
-        .form-textarea {
-            padding: 0.875rem 1rem;
-            background: rgba(248, 250, 252, 0.8);
-            border: 1px solid rgba(203, 213, 225, 0.6);
-            border-radius: 0.75rem;
-            font-size: 0.875rem;
-            font-family: inherit;
-            color: #1e293b;
-            outline: none;
-            transition: all 0.2s;
-        }
-
-        .form-input:focus,
-        .form-select:focus,
-        .form-textarea:focus {
-            background: white;
-            border-color: #3b82f6;
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-        }
-
-        .form-select {
-            cursor: pointer;
-        }
-
-        .form-textarea {
-            resize: vertical;
-            min-height: 120px;
-        }
-
-        .form-hint {
-            font-size: 0.75rem;
-            color: #64748b;
-            margin-top: 0.25rem;
-        }
-
-        /* Buttons */
-        .button-group {
-            display: flex;
-            gap: 1rem;
-            margin-top: 2rem;
-            padding-top: 2rem;
-            border-top: 1px solid rgba(226, 232, 240, 0.6);
-        }
-
-        .btn {
-            padding: 0.875rem 1.75rem;
-            border: none;
-            border-radius: 0.75rem;
-            font-size: 0.875rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            letter-spacing: -0.025em;
-        }
-
-        .btn-primary {
-            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-            color: white;
-            box-shadow: 0 4px 14px rgba(59, 130, 246, 0.35);
-        }
-
-        .btn-primary:hover {
-            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-            transform: translateY(-1px);
-            box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
-        }
-
-        .btn-secondary {
-            background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
-            color: #475569;
-            border: 1px solid rgba(203, 213, 225, 0.6);
-        }
-
-        .btn-secondary:hover {
-            background: linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%);
-            border-color: rgba(148, 163, 184, 0.6);
-        }
-
-        .btn-success {
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            color: white;
-            box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
-        }
-
-        .btn-success:hover {
-            background: linear-gradient(135deg, #059669 0%, #047857 100%);
-            transform: translateY(-1px);
-            box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
-        }
-
-        .btn-danger {
-            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-            color: white;
-            box-shadow: 0 4px 14px rgba(239, 68, 68, 0.35);
-        }
-
-        .btn-danger:hover {
-            background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
-            transform: translateY(-1px);
-            box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
-        }
-
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none !important;
-        }
-
-        /* Loader Overlay */
-        .loader-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(15, 23, 42, 0.8);
-            backdrop-filter: blur(4px);
-            display: none;
-            align-items: center;
-            justify-content: center;
-            z-index: 9999;
-            animation: fadeIn 0.2s ease-out;
-        }
-
-        .loader-overlay.show {
-            display: flex;
-        }
-
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-            }
-            to {
-                opacity: 1;
+            try (OutputStream out = Files.newOutputStream(outputFile)) {
+                targetWorkbook.write(out);
             }
         }
+    }
 
-        .loader-content {
-            background: white;
-            border-radius: 1.5rem;
-            padding: 3rem;
-            text-align: center;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            animation: slideUp 0.3s ease-out;
-        }
+    private static int processRadiologySheet(Workbook workbook,
+                                             Sheet outputSheet,
+                                             CellStyle textStyle,
+                                             int startRowIndex) {
 
-        @keyframes slideUp {
-            from {
-                transform: translateY(20px);
-                opacity: 0;
-            }
-            to {
-                transform: translateY(0);
-                opacity: 1;
-            }
-        }
+        Sheet sourceSheet = StreamSupport.stream(workbook.spliterator(), false)
+                .filter(sheet -> containsIgnoreCase(sheet.getSheetName(), "RADIOLOGY"))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("No source sheet found with 'RADIOLOGY' in the name."));
 
-        .spinner {
-            width: 60px;
-            height: 60px;
-            border: 4px solid #e2e8f0;
-            border-top-color: #3b82f6;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-            margin: 0 auto 1.5rem;
-        }
+        int headerRowNum = findHeaderRow(sourceSheet, Set.of(
+                "Code", "Modifier 1", "Modifier 2", "Modifier 3", "Modifier 4",
+                "Rate Type", "Begin Date", "End Date", "Fee"
+        ));
 
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
+        Map<String, Integer> headerMap = buildHeaderMap(sourceSheet.getRow(headerRowNum));
 
-        .loader-title {
-            font-size: 1.125rem;
-            font-weight: 600;
-            color: #1e293b;
-            margin-bottom: 0.5rem;
-        }
-
-        .loader-text {
-            font-size: 0.875rem;
-            color: #64748b;
-        }
-
-        /* Info Box */
-        .info-box {
-            background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(147, 197, 253, 0.05) 100%);
-            border: 1px solid rgba(59, 130, 246, 0.2);
-            border-radius: 1rem;
-            padding: 1.25rem;
-            margin-bottom: 2rem;
-            display: flex;
-            gap: 1rem;
-        }
-
-        .info-box.success {
-            background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(167, 243, 208, 0.05) 100%);
-            border-color: rgba(16, 185, 129, 0.2);
-        }
-
-        .info-box.warning {
-            background: linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, rgba(252, 211, 77, 0.05) 100%);
-            border-color: rgba(245, 158, 11, 0.2);
-        }
-
-        .info-icon {
-            width: 1.5rem;
-            height: 1.5rem;
-            flex-shrink: 0;
-            color: #3b82f6;
-            margin-top: 0.125rem;
-        }
-
-        .info-box.success .info-icon {
-            color: #10b981;
-        }
-
-        .info-box.warning .info-icon {
-            color: #f59e0b;
-        }
-
-        .info-content {
-            flex: 1;
-        }
-
-        .info-title {
-            font-size: 0.875rem;
-            font-weight: 600;
-            color: #1e293b;
-            margin-bottom: 0.25rem;
-        }
-
-        .info-text {
-            font-size: 0.8125rem;
-            color: #475569;
-            line-height: 1.5;
-        }
-
-        /* Checkbox Group */
-        .checkbox-group {
-            display: flex;
-            flex-direction: column;
-            gap: 0.75rem;
-        }
-
-        .checkbox-item {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-        }
-
-        .checkbox-item input[type="checkbox"] {
-            width: 1.125rem;
-            height: 1.125rem;
-            cursor: pointer;
-            accent-color: #3b82f6;
-        }
-
-        .checkbox-label {
-            font-size: 0.875rem;
-            color: #334155;
-            cursor: pointer;
-        }
-
-        /* Status Badge */
-        .status-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.5rem 1rem;
-            border-radius: 9999px;
-            font-size: 0.8125rem;
-            font-weight: 600;
-            background: rgba(241, 245, 249, 0.8);
-            color: #64748b;
-            border: 1px solid rgba(226, 232, 240, 0.6);
-        }
-
-        .status-dot {
-            width: 0.5rem;
-            height: 0.5rem;
-            border-radius: 50%;
-            background: #94a3b8;
-        }
-
-        /* Responsive */
-        @media (max-width: 1024px) {
-            .sidebar {
-                width: 240px;
+        for (int r = headerRowNum + 1; r <= sourceSheet.getLastRowNum(); r++) {
+            Row row = sourceSheet.getRow(r);
+            if (row == null || isMeaninglessRadiologyRow(row, headerMap)) {
+                continue;
             }
 
-            .content-area {
-                margin-left: 240px;
-            }
-        }
-
-        @media (max-width: 768px) {
-            .sidebar {
-                transform: translateX(-100%);
-                transition: transform 0.3s;
+            String code = getCellString(row, headerMap.get("Code"));
+            if (code.isBlank()) {
+                continue;
             }
 
-            .sidebar.mobile-open {
-                transform: translateX(0);
+            OutputRecord record = new OutputRecord(
+                    "", // Keep blank. If you want sheet name here, replace with sourceSheet.getSheetName().trim()
+                    code,
+                    normalizeModifier(getCellString(row, headerMap.get("Modifier 1"))),
+                    normalizeModifier(getCellString(row, headerMap.get("Modifier 2"))),
+                    normalizeModifier(getCellString(row, headerMap.get("Modifier 3"))),
+                    normalizeModifier(getCellString(row, headerMap.get("Modifier 4"))),
+                    normalizeEffectiveDate(getCellString(row, headerMap.get("Begin Date"))),
+                    normalizeEndDate(getCellString(row, headerMap.get("End Date"))),
+                    mapRadiologyPricingMethod(getCellString(row, headerMap.get("Rate Type"))),
+                    normalizeMoneyToFourDecimals(getCellString(row, headerMap.get("Fee"))),
+                    "N/A",
+                    "New Code"
+            );
+
+            writeOutputRecord(outputSheet.createRow(startRowIndex++), record, textStyle);
+        }
+
+        return startRowIndex;
+    }
+
+    private static int processSysmanSheet(Workbook workbook,
+                                          Sheet outputSheet,
+                                          CellStyle textStyle,
+                                          int startRowIndex) {
+
+        Sheet sourceSheet = StreamSupport.stream(workbook.spliterator(), false)
+                .filter(sheet -> containsIgnoreCase(sheet.getSheetName(), "PAY0")
+                        && containsIgnoreCase(sheet.getSheetName(), "SYSMAN"))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("No source sheet found for PAY0-SYSMAN."));
+
+        Map<String, Integer> headerMap = buildHeaderMap(sourceSheet.getRow(sourceSheet.getFirstRowNum()));
+
+        for (int r = sourceSheet.getFirstRowNum() + 1; r <= sourceSheet.getLastRowNum(); r++) {
+            Row row = sourceSheet.getRow(r);
+            if (row == null || isBlankRow(row)) {
+                continue;
             }
 
-            .content-area {
-                margin-left: 0;
-                padding: 1rem;
+            String procedureCode = getCellString(row, headerMap.get("Procedure Code"));
+            if (procedureCode.isBlank()) {
+                continue;
             }
 
-            .content-card {
-                padding: 1.5rem;
-            }
+            String rawModifier = getCellString(row, headerMap.get("MODIFIER"));
+            String pricingIndicator = getCellString(row, headerMap.get("Pricing Indicator"));
 
-            .form-grid {
-                grid-template-columns: 1fr;
-            }
+            OutputRecord record = new OutputRecord(
+                    "",
+                    procedureCode,
+                    extractSysmanModifier(rawModifier),
+                    "",
+                    "",
+                    "",
+                    normalizeEffectiveDate(getCellString(row, headerMap.get("DOS From"))),
+                    normalizeEndDate(getCellString(row, headerMap.get("DOS Thru"))),
+                    mapSysmanPricingMethod(pricingIndicator),
+                    "0.0000",
+                    "N/A",
+                    "New Code"
+            );
 
-            .button-group {
-                flex-direction: column;
-            }
-
-            .btn {
-                justify-content: center;
-            }
+            writeOutputRecord(outputSheet.createRow(startRowIndex++), record, textStyle);
         }
 
-        /* Scrollbar */
-        .sidebar::-webkit-scrollbar {
-            width: 6px;
-        }
+        return startRowIndex;
+    }
 
-        .sidebar::-webkit-scrollbar-track {
-            background: transparent;
-        }
+    private static boolean isMeaninglessRadiologyRow(Row row, Map<String, Integer> headerMap) {
+        String code = getCellString(row, headerMap.get("Code"));
+        String fee = getCellString(row, headerMap.get("Fee"));
+        return code.isBlank() && fee.isBlank();
+    }
 
-        .sidebar::-webkit-scrollbar-thumb {
-            background: #cbd5e1;
-            border-radius: 3px;
-        }
+    private static int findHeaderRow(Sheet sheet, Set<String> requiredHeaders) {
+        for (Row row : sheet) {
+            Set<String> rowValues = StreamSupport.stream(row.spliterator(), false)
+                    .map(FeeScheduleTransformer::cellToString)
+                    .map(String::trim)
+                    .collect(Collectors.toSet());
 
-        .sidebar::-webkit-scrollbar-thumb:hover {
-            background: #94a3b8;
-        }
-    </style>
-</head>
-<body>
-    <!-- Loader Overlay -->
-    <div class="loader-overlay" id="loaderOverlay">
-        <div class="loader-content">
-            <div class="spinner"></div>
-            <div class="loader-title">Processing...</div>
-            <div class="loader-text">Please wait while we validate your request</div>
-        </div>
-    </div>
-
-    <!-- Header -->
-    <header class="header">
-        <div class="header-content">
-            <div class="header-left">
-                <a href="landing-page.html" class="back-button">
-                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
-                    </svg>
-                    Back to Home
-                </a>
-                <div class="workflow-title">
-                    Workflow for <span class="story-id" id="storyIdDisplay">STY-0000</span>
-                </div>
-            </div>
-            <div class="logo">MN Team Portal</div>
-        </div>
-    </header>
-
-    <!-- Main Container -->
-    <div class="main-container">
-        <!-- Sidebar -->
-        <aside class="sidebar" id="sidebar">
-            <div class="sidebar-title">Applications</div>
-            <ul class="app-list">
-                <li class="app-item active" onclick="loadApp('app1')">
-                    <svg class="app-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                    </svg>
-                    Application 1
-                </li>
-                <li class="app-item" onclick="loadApp('app2')">
-                    <svg class="app-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
-                    </svg>
-                    Application 2
-                </li>
-                <li class="app-item" onclick="loadApp('app3')">
-                    <svg class="app-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path>
-                    </svg>
-                    Application 3
-                </li>
-                <li class="app-item" onclick="loadApp('app4')">
-                    <svg class="app-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
-                    </svg>
-                    Application 4
-                </li>
-                <li class="app-item" onclick="loadApp('app5')">
-                    <svg class="app-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
-                    </svg>
-                    Application 5
-                </li>
-                <li class="app-item" onclick="loadApp('app6')">
-                    <svg class="app-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"></path>
-                    </svg>
-                    Application 6
-                </li>
-                <li class="app-item" onclick="loadApp('app7')">
-                    <svg class="app-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                    </svg>
-                    Application 7
-                </li>
-                <li class="app-item" onclick="loadApp('app8')">
-                    <svg class="app-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path>
-                    </svg>
-                    Application 8
-                </li>
-                <li class="app-item" onclick="loadApp('app9')">
-                    <svg class="app-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
-                    </svg>
-                    Application 9
-                </li>
-                <li class="app-item" onclick="loadApp('app10')">
-                    <svg class="app-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                    </svg>
-                    Application 10
-                </li>
-            </ul>
-        </aside>
-
-        <!-- Content Area -->
-        <main class="content-area">
-            <div class="content-card" id="contentCard">
-                <!-- Content will be dynamically loaded here -->
-            </div>
-        </main>
-    </div>
-
-    <script>
-        // Get story ID from URL parameters
-        const urlParams = new URLSearchParams(window.location.search);
-        const storyId = urlParams.get('storyId') || 'STY-0000';
-        const year = urlParams.get('year') || 'N/A';
-        const lob = urlParams.get('lob') || 'N/A';
-        const fs = urlParams.get('fs') || 'N/A';
-
-        // Display story ID
-        document.getElementById('storyIdDisplay').textContent = storyId;
-
-        // Application Templates
-        const appTemplates = {
-            app1: {
-                title: 'Application 1 - Data Configuration',
-                description: 'Configure and manage data settings for your workflow',
-                content: `
-                    <div class="info-box">
-                        <svg class="info-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                        </svg>
-                        <div class="info-content">
-                            <div class="info-title">Story Information</div>
-                            <div class="info-text">Story ID: ${storyId} | Year: ${year} | LOB: ${lob} | FS: ${fs}</div>
-                        </div>
-                    </div>
-
-                    <div class="form-section">
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label class="form-label">Environment <span class="required">*</span></label>
-                                <select class="form-select">
-                                    <option value="">Select Environment</option>
-                                    <option value="dev">Development</option>
-                                    <option value="qa">QA</option>
-                                    <option value="staging">Staging</option>
-                                    <option value="prod">Production</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">Region <span class="required">*</span></label>
-                                <select class="form-select">
-                                    <option value="">Select Region</option>
-                                    <option value="us-east">US East</option>
-                                    <option value="us-west">US West</option>
-                                    <option value="eu-west">EU West</option>
-                                    <option value="ap-south">AP South</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-section">
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label class="form-label">Configuration Name</label>
-                                <input type="text" class="form-input" placeholder="Enter configuration name">
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">Version</label>
-                                <input type="text" class="form-input" placeholder="e.g., 1.0.0">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-section">
-                        <div class="form-group">
-                            <label class="form-label">Description</label>
-                            <textarea class="form-textarea" placeholder="Enter description..."></textarea>
-                        </div>
-                    </div>
-
-                    <div class="button-group">
-                        <button class="btn btn-primary" onclick="runApplication('Application 1')">
-                            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path>
-                            </svg>
-                            Run Application
-                        </button>
-                        <button class="btn btn-secondary" onclick="validateForm()">Validate</button>
-                        <button class="btn btn-secondary" onclick="resetForm()">Reset</button>
-                    </div>
-                `
-            },
-            app2: {
-                title: 'Application 2 - Deployment Manager',
-                description: 'Manage deployment configurations and schedules',
-                content: `
-                    <div class="info-box success">
-                        <svg class="info-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                        </svg>
-                        <div class="info-content">
-                            <div class="info-title">Ready for Deployment</div>
-                            <div class="info-text">All prerequisites are met for ${storyId}</div>
-                        </div>
-                    </div>
-
-                    <div class="form-section">
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label class="form-label">Deployment Type <span class="required">*</span></label>
-                                <select class="form-select">
-                                    <option value="">Select Type</option>
-                                    <option value="rolling">Rolling Deployment</option>
-                                    <option value="blue-green">Blue-Green Deployment</option>
-                                    <option value="canary">Canary Deployment</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">Target Environment <span class="required">*</span></label>
-                                <select class="form-select">
-                                    <option value="">Select Environment</option>
-                                    <option value="staging">Staging</option>
-                                    <option value="production">Production</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-section">
-                        <div class="form-group">
-                            <label class="form-label">Deployment Options</label>
-                            <div class="checkbox-group">
-                                <div class="checkbox-item">
-                                    <input type="checkbox" id="backup" checked>
-                                    <label class="checkbox-label" for="backup">Create backup before deployment</label>
-                                </div>
-                                <div class="checkbox-item">
-                                    <input type="checkbox" id="notify" checked>
-                                    <label class="checkbox-label" for="notify">Send notification on completion</label>
-                                </div>
-                                <div class="checkbox-item">
-                                    <input type="checkbox" id="rollback">
-                                    <label class="checkbox-label" for="rollback">Enable automatic rollback on failure</label>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="button-group">
-                        <button class="btn btn-success" onclick="runApplication('Application 2')">
-                            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
-                            </svg>
-                            Deploy Now
-                        </button>
-                        <button class="btn btn-secondary">Schedule Deployment</button>
-                    </div>
-                `
-            },
-            app3: {
-                title: 'Application 3 - Testing Suite',
-                description: 'Configure and execute automated tests',
-                content: `
-                    <div class="info-box warning">
-                        <svg class="info-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
-                        </svg>
-                        <div class="info-content">
-                            <div class="info-title">Test Configuration Required</div>
-                            <div class="info-text">Please configure test parameters before proceeding</div>
-                        </div>
-                    </div>
-
-                    <div class="form-section">
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label class="form-label">Test Suite <span class="required">*</span></label>
-                                <select class="form-select">
-                                    <option value="">Select Test Suite</option>
-                                    <option value="unit">Unit Tests</option>
-                                    <option value="integration">Integration Tests</option>
-                                    <option value="e2e">End-to-End Tests</option>
-                                    <option value="performance">Performance Tests</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">Browser</label>
-                                <select class="form-select">
-                                    <option value="">Select Browser</option>
-                                    <option value="chrome">Chrome</option>
-                                    <option value="firefox">Firefox</option>
-                                    <option value="safari">Safari</option>
-                                    <option value="edge">Edge</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-section">
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label class="form-label">Test Timeout (seconds)</label>
-                                <input type="number" class="form-input" placeholder="300" value="300">
-                                <span class="form-hint">Maximum time allowed for test execution</span>
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">Parallel Execution</label>
-                                <select class="form-select">
-                                    <option value="1">Sequential</option>
-                                    <option value="2">2 Threads</option>
-                                    <option value="4" selected>4 Threads</option>
-                                    <option value="8">8 Threads</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="button-group">
-                        <button class="btn btn-primary" onclick="runApplication('Application 3')">
-                            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path>
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                            </svg>
-                            Run Tests
-                        </button>
-                        <button class="btn btn-secondary">View Results</button>
-                        <button class="btn btn-secondary">Export Report</button>
-                    </div>
-                `
-            },
-            app4: {
-                title: 'Application 4 - Database Operations',
-                description: 'Execute database queries and manage data',
-                content: `
-                    <div class="form-section">
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label class="form-label">Database Instance <span class="required">*</span></label>
-                                <select class="form-select">
-                                    <option value="">Select Instance</option>
-                                    <option value="db-prod-01">Production DB 01</option>
-                                    <option value="db-staging-01">Staging DB 01</option>
-                                    <option value="db-dev-01">Development DB 01</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">Operation Type</label>
-                                <select class="form-select">
-                                    <option value="">Select Operation</option>
-                                    <option value="backup">Backup</option>
-                                    <option value="restore">Restore</option>
-                                    <option value="migration">Migration</option>
-                                    <option value="query">Query Execution</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-section">
-                        <div class="form-group">
-                            <label class="form-label">SQL Query</label>
-                            <textarea class="form-textarea" placeholder="Enter SQL query here..."></textarea>
-                            <span class="form-hint">Write your SQL query or select operation type above</span>
-                        </div>
-                    </div>
-
-                    <div class="button-group">
-                        <button class="btn btn-primary" onclick="runApplication('Application 4')">Execute</button>
-                        <button class="btn btn-secondary">Validate Query</button>
-                        <button class="btn btn-danger">Cancel</button>
-                    </div>
-                `
-            },
-            app5: {
-                title: 'Application 5 - Analytics Dashboard',
-                description: 'View and analyze workflow metrics',
-                content: `
-                    <div class="form-section">
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label class="form-label">Time Range</label>
-                                <select class="form-select">
-                                    <option value="">Select Range</option>
-                                    <option value="today">Today</option>
-                                    <option value="week">Last 7 Days</option>
-                                    <option value="month">Last 30 Days</option>
-                                    <option value="quarter">Last Quarter</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">Metric Type</label>
-                                <select class="form-select">
-                                    <option value="">Select Metric</option>
-                                    <option value="performance">Performance</option>
-                                    <option value="usage">Usage Statistics</option>
-                                    <option value="errors">Error Rates</option>
-                                    <option value="success">Success Rates</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-section">
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label class="form-label">Group By</label>
-                                <select class="form-select">
-                                    <option value="hour">Hour</option>
-                                    <option value="day" selected>Day</option>
-                                    <option value="week">Week</option>
-                                    <option value="month">Month</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">Export Format</label>
-                                <select class="form-select">
-                                    <option value="pdf">PDF</option>
-                                    <option value="excel">Excel</option>
-                                    <option value="csv">CSV</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="button-group">
-                        <button class="btn btn-primary" onclick="runApplication('Application 5')">Generate Report</button>
-                        <button class="btn btn-secondary">View Dashboard</button>
-                        <button class="btn btn-secondary">Export Data</button>
-                    </div>
-                `
-            },
-            app6: {
-                title: 'Application 6 - File Manager',
-                description: 'Upload, manage and process files',
-                content: `
-                    <div class="form-section">
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label class="form-label">File Type</label>
-                                <select class="form-select">
-                                    <option value="">Select Type</option>
-                                    <option value="config">Configuration Files</option>
-                                    <option value="data">Data Files</option>
-                                    <option value="logs">Log Files</option>
-                                    <option value="backup">Backup Files</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">Destination</label>
-                                <select class="form-select">
-                                    <option value="">Select Destination</option>
-                                    <option value="local">Local Storage</option>
-                                    <option value="cloud">Cloud Storage</option>
-                                    <option value="archive">Archive</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-section">
-                        <div class="form-group">
-                            <label class="form-label">Processing Options</label>
-                            <div class="checkbox-group">
-                                <div class="checkbox-item">
-                                    <input type="checkbox" id="compress">
-                                    <label class="checkbox-label" for="compress">Compress files</label>
-                                </div>
-                                <div class="checkbox-item">
-                                    <input type="checkbox" id="encrypt">
-                                    <label class="checkbox-label" for="encrypt">Encrypt files</label>
-                                </div>
-                                <div class="checkbox-item">
-                                    <input type="checkbox" id="validate">
-                                    <label class="checkbox-label" for="validate">Validate file integrity</label>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="button-group">
-                        <button class="btn btn-primary" onclick="runApplication('Application 6')">Upload Files</button>
-                        <button class="btn btn-secondary">Browse Files</button>
-                        <button class="btn btn-secondary">Clear Selection</button>
-                    </div>
-                `
-            },
-            app7: {
-                title: 'Application 7 - Scheduler',
-                description: 'Schedule and manage automated tasks',
-                content: `
-                    <div class="form-section">
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label class="form-label">Schedule Type</label>
-                                <select class="form-select">
-                                    <option value="">Select Type</option>
-                                    <option value="once">Run Once</option>
-                                    <option value="daily">Daily</option>
-                                    <option value="weekly">Weekly</option>
-                                    <option value="monthly">Monthly</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">Execution Time</label>
-                                <input type="time" class="form-input">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-section">
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label class="form-label">Task Name</label>
-                                <input type="text" class="form-input" placeholder="Enter task name">
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">Priority</label>
-                                <select class="form-select">
-                                    <option value="low">Low</option>
-                                    <option value="medium" selected>Medium</option>
-                                    <option value="high">High</option>
-                                    <option value="critical">Critical</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="button-group">
-                        <button class="btn btn-primary" onclick="runApplication('Application 7')">Schedule Task</button>
-                        <button class="btn btn-secondary">View Scheduled</button>
-                        <button class="btn btn-danger">Cancel Task</button>
-                    </div>
-                `
-            },
-            app8: {
-                title: 'Application 8 - API Manager',
-                description: 'Configure and test API endpoints',
-                content: `
-                    <div class="form-section">
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label class="form-label">API Endpoint</label>
-                                <input type="text" class="form-input" placeholder="https://api.example.com/endpoint">
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">Method</label>
-                                <select class="form-select">
-                                    <option value="get" selected>GET</option>
-                                    <option value="post">POST</option>
-                                    <option value="put">PUT</option>
-                                    <option value="delete">DELETE</option>
-                                    <option value="patch">PATCH</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-section">
-                        <div class="form-group">
-                            <label class="form-label">Request Headers (JSON)</label>
-                            <textarea class="form-textarea" placeholder='{"Content-Type": "application/json"}'></textarea>
-                        </div>
-                    </div>
-
-                    <div class="form-section">
-                        <div class="form-group">
-                            <label class="form-label">Request Body</label>
-                            <textarea class="form-textarea" placeholder="Enter request body..."></textarea>
-                        </div>
-                    </div>
-
-                    <div class="button-group">
-                        <button class="btn btn-primary" onclick="runApplication('Application 8')">Send Request</button>
-                        <button class="btn btn-secondary">Test Connection</button>
-                        <button class="btn btn-secondary">Save Config</button>
-                    </div>
-                `
-            },
-            app9: {
-                title: 'Application 9 - Security Scanner',
-                description: 'Perform security audits and vulnerability scans',
-                content: `
-                    <div class="info-box warning">
-                        <svg class="info-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
-                        </svg>
-                        <div class="info-content">
-                            <div class="info-title">Security Scan</div>
-                            <div class="info-text">This will perform a comprehensive security audit. Please ensure proper authorization.</div>
-                        </div>
-                    </div>
-
-                    <div class="form-section">
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label class="form-label">Scan Type</label>
-                                <select class="form-select">
-                                    <option value="">Select Type</option>
-                                    <option value="vuln">Vulnerability Scan</option>
-                                    <option value="compliance">Compliance Check</option>
-                                    <option value="penetration">Penetration Test</option>
-                                    <option value="audit">Security Audit</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">Severity Level</label>
-                                <select class="form-select">
-                                    <option value="all" selected>All Levels</option>
-                                    <option value="critical">Critical Only</option>
-                                    <option value="high">High & Above</option>
-                                    <option value="medium">Medium & Above</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-section">
-                        <div class="form-group">
-                            <label class="form-label">Target Systems</label>
-                            <textarea class="form-textarea" placeholder="Enter target systems or IP addresses..."></textarea>
-                        </div>
-                    </div>
-
-                    <div class="button-group">
-                        <button class="btn btn-danger" onclick="runApplication('Application 9')">Start Scan</button>
-                        <button class="btn btn-secondary">View History</button>
-                        <button class="btn btn-secondary">Generate Report</button>
-                    </div>
-                `
-            },
-            app10: {
-                title: 'Application 10 - System Configuration',
-                description: 'Manage system settings and preferences',
-                content: `
-                    <div class="form-section">
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label class="form-label">Configuration Profile</label>
-                                <select class="form-select">
-                                    <option value="">Select Profile</option>
-                                    <option value="default">Default</option>
-                                    <option value="performance">Performance</option>
-                                    <option value="security">Security</option>
-                                    <option value="custom">Custom</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">Log Level</label>
-                                <select class="form-select">
-                                    <option value="debug">Debug</option>
-                                    <option value="info" selected>Info</option>
-                                    <option value="warn">Warning</option>
-                                    <option value="error">Error</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-section">
-                        <div class="form-group">
-                            <label class="form-label">System Options</label>
-                            <div class="checkbox-group">
-                                <div class="checkbox-item">
-                                    <input type="checkbox" id="auto-update" checked>
-                                    <label class="checkbox-label" for="auto-update">Enable automatic updates</label>
-                                </div>
-                                <div class="checkbox-item">
-                                    <input type="checkbox" id="monitoring" checked>
-                                    <label class="checkbox-label" for="monitoring">Enable system monitoring</label>
-                                </div>
-                                <div class="checkbox-item">
-                                    <input type="checkbox" id="alerts">
-                                    <label class="checkbox-label" for="alerts">Send email alerts</label>
-                                </div>
-                                <div class="checkbox-item">
-                                    <input type="checkbox" id="debug-mode">
-                                    <label class="checkbox-label" for="debug-mode">Enable debug mode</label>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-section">
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label class="form-label">Cache Duration (minutes)</label>
-                                <input type="number" class="form-input" placeholder="60" value="60">
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">Session Timeout (minutes)</label>
-                                <input type="number" class="form-input" placeholder="30" value="30">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="button-group">
-                        <button class="btn btn-success" onclick="runApplication('Application 10')">Save Configuration</button>
-                        <button class="btn btn-secondary">Reset to Default</button>
-                        <button class="btn btn-secondary">Export Settings</button>
-                    </div>
-                `
-            }
-        };
-
-        // Load application content
-        function loadApp(appKey) {
-            // Update active state in sidebar
-            document.querySelectorAll('.app-item').forEach(item => {
-                item.classList.remove('active');
-            });
-            event.target.closest('.app-item').classList.add('active');
-
-            // Load content
-            const app = appTemplates[appKey];
-            const contentCard = document.getElementById('contentCard');
-            
-            contentCard.innerHTML = `
-                <div class="content-header">
-                    <div class="content-title">${app.title}</div>
-                    <div class="content-description">${app.description}</div>
-                </div>
-                ${app.content}
-            `;
-        }
-
-        // Show loader
-        function showLoader() {
-            document.getElementById('loaderOverlay').classList.add('show');
-        }
-
-        // Hide loader
-        function hideLoader() {
-            document.getElementById('loaderOverlay').classList.remove('show');
-        }
-
-        // Run application
-        function runApplication(appName) {
-            showLoader();
-            
-            // Simulate processing time (2-3 seconds)
-            setTimeout(() => {
-                hideLoader();
-                alert(`${appName} executed successfully!\n\nValidation completed for Story ID: ${storyId}`);
-            }, 2500);
-        }
-
-        // Validate form
-        function validateForm() {
-            showLoader();
-            setTimeout(() => {
-                hideLoader();
-                alert('Form validation completed successfully!');
-            }, 1500);
-        }
-
-        // Reset form
-        function resetForm() {
-            if (confirm('Are you sure you want to reset all fields?')) {
-                document.querySelectorAll('.form-input, .form-select, .form-textarea').forEach(field => {
-                    if (field.tagName === 'SELECT') {
-                        field.selectedIndex = 0;
-                    } else {
-                        field.value = '';
-                    }
-                });
-                document.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
-                    checkbox.checked = false;
-                });
-                alert('Form has been reset!');
+            if (rowValues.containsAll(requiredHeaders)) {
+                return row.getRowNum();
             }
         }
+        throw new IllegalStateException("Header row not found in sheet: " + sheet.getSheetName());
+    }
 
-        // Load initial app on page load
-        window.addEventListener('DOMContentLoaded', function() {
-            loadApp('app1');
-        });
-    </script>
-</body>
-</html>
+    private static Map<String, Integer> buildHeaderMap(Row headerRow) {
+        return StreamSupport.stream(headerRow.spliterator(), false)
+                .collect(Collectors.toMap(
+                        cell -> cellToString(cell).trim(),
+                        Cell::getColumnIndex,
+                        (left, right) -> left,
+                        LinkedHashMap::new
+                ));
+    }
+
+    private static void writeHeader(Sheet sheet, CellStyle style) {
+        Row header = sheet.createRow(0);
+        for (int i = 0; i < OUTPUT_HEADERS.size(); i++) {
+            Cell cell = header.createCell(i, CellType.STRING);
+            cell.setCellValue(OUTPUT_HEADERS.get(i));
+            cell.setCellStyle(style);
+        }
+    }
+
+    private static void writeOutputRecord(Row row, OutputRecord record, CellStyle style) {
+        List<String> values = List.of(
+                record.schName(),
+                record.procedureCode(),
+                record.modifier1(),
+                record.modifier2(),
+                record.modifier3(),
+                record.modifier4(),
+                record.effectiveDate(),
+                record.endDate(),
+                record.pricingMethod(),
+                record.newRate(),
+                record.oldRate(),
+                record.comments()
+        );
+
+        for (int i = 0; i < values.size(); i++) {
+            Cell cell = row.createCell(i, CellType.STRING);
+            cell.setCellValue(values.get(i));
+            cell.setCellStyle(style);
+        }
+    }
+
+    private static CellStyle createTextStyle(Workbook workbook) {
+        CellStyle style = workbook.createCellStyle();
+        DataFormat dataFormat = workbook.createDataFormat();
+        style.setDataFormat(dataFormat.getFormat("@"));
+        return style;
+    }
+
+    private static void autoSize(Sheet sheet, int columnCount) {
+        for (int c = 0; c < columnCount; c++) {
+            sheet.autoSizeColumn(c);
+            int currentWidth = sheet.getColumnWidth(c);
+            sheet.setColumnWidth(c, Math.min(currentWidth + 800, 18000));
+        }
+    }
+
+    private static String getCellString(Row row, Integer colIndex) {
+        if (row == null || colIndex == null) {
+            return "";
+        }
+        Cell cell = row.getCell(colIndex, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
+        return cellToString(cell).trim();
+    }
+
+    private static String cellToString(Cell cell) {
+        if (cell == null) {
+            return "";
+        }
+        DataFormatter formatter = new DataFormatter();
+        return formatter.formatCellValue(cell);
+    }
+
+    private static boolean isBlankRow(Row row) {
+        return StreamSupport.stream(row.spliterator(), false)
+                .map(FeeScheduleTransformer::cellToString)
+                .allMatch(String::isBlank);
+    }
+
+    private static String normalizeModifier(String value) {
+        if (value == null) {
+            return "";
+        }
+        String trimmed = value.trim();
+        return trimmed.equals("-") ? "" : trimmed;
+    }
+
+    /**
+     * Input examples:
+     *   "I~TC~1" -> "TC"
+     *   "I~26~1" -> "26"
+     *   "" -> ""
+     */
+    private static String extractSysmanModifier(String rawValue) {
+        if (rawValue == null || rawValue.isBlank()) {
+            return "";
+        }
+        String cleaned = rawValue.trim();
+        if (!cleaned.contains("~")) {
+            return cleaned;
+        }
+        String[] parts = cleaned.split("~");
+        return parts.length >= 2 ? parts[1].trim() : cleaned;
+    }
+
+    private static String mapRadiologyPricingMethod(String rateType) {
+        return equalsIgnoreCase(rateType, "DEF") ? "Allowed" : rateType;
+    }
+
+    /**
+     * Based on your sample mapping, SYSMAN rows should become "By Report".
+     * This uses Pricing Indicator because that is where SYSMAN exists in the source file.
+     */
+    private static String mapSysmanPricingMethod(String pricingIndicator) {
+        return equalsIgnoreCase(pricingIndicator, "SYSMAN") ? "By Report" : pricingIndicator;
+    }
+
+    private static String normalizeMoneyToFourDecimals(String rawValue) {
+        if (rawValue == null || rawValue.isBlank()) {
+            return "";
+        }
+        String normalized = rawValue.replace("$", "")
+                .replace(",", "")
+                .trim();
+        if (normalized.isBlank()) {
+            return "";
+        }
+        try {
+            return new BigDecimal(normalized)
+                    .setScale(4, RoundingMode.HALF_UP)
+                    .toPlainString();
+        } catch (NumberFormatException ex) {
+            return normalized;
+        }
+    }
+
+    private static String normalizeEffectiveDate(String rawValue) {
+        LocalDate parsed = parseDate(rawValue);
+        if (parsed == null) {
+            return rawValue == null ? "" : rawValue;
+        }
+        return (parsed.isBefore(MIN_EFFECTIVE_DATE) ? MIN_EFFECTIVE_DATE : parsed).format(OUTPUT_DATE);
+    }
+
+    private static String normalizeEndDate(String rawValue) {
+        LocalDate parsed = parseDate(rawValue);
+        if (parsed == null) {
+            return rawValue == null ? "" : rawValue;
+        }
+        if (LocalDate.of(2299, 12, 31).equals(parsed)) {
+            return OPEN_END_OUTPUT;
+        }
+        return parsed.format(OUTPUT_DATE);
+    }
+
+    private static LocalDate parseDate(String rawValue) {
+        if (rawValue == null || rawValue.isBlank()) {
+            return null;
+        }
+
+        String value = rawValue.trim();
+        List<Function<String, LocalDate>> parsers = List.of(
+                v -> tryParse(v, DateTimeFormatter.ofPattern("MM/dd/yyyy")),
+                v -> tryParse(v, DateTimeFormatter.ofPattern("M/d/yyyy")),
+                v -> tryParse(v, DateTimeFormatter.ofPattern("yyyyMMdd"))
+        );
+
+        for (Function<String, LocalDate> parser : parsers) {
+            LocalDate date = parser.apply(value);
+            if (date != null) {
+                return date;
+            }
+        }
+        return null;
+    }
+
+    private static LocalDate tryParse(String value, DateTimeFormatter formatter) {
+        try {
+            return LocalDate.parse(value, formatter);
+        } catch (DateTimeParseException ex) {
+            return null;
+        }
+    }
+
+    private static boolean containsIgnoreCase(String text, String search) {
+        return text != null && search != null && text.toLowerCase(Locale.ROOT).contains(search.toLowerCase(Locale.ROOT));
+    }
+
+    private static boolean equalsIgnoreCase(String left, String right) {
+        return Objects.equals(
+                left == null ? null : left.trim().toLowerCase(Locale.ROOT),
+                right == null ? null : right.trim().toLowerCase(Locale.ROOT)
+        );
+    }
+
+    private record OutputRecord(
+            String schName,
+            String procedureCode,
+            String modifier1,
+            String modifier2,
+            String modifier3,
+            String modifier4,
+            String effectiveDate,
+            String endDate,
+            String pricingMethod,
+            String newRate,
+            String oldRate,
+            String comments
+    ) {}
+}
