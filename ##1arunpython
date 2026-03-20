@@ -17,26 +17,23 @@ import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
 /**
- * Java 17 + Apache POI solution.
+ * Java 17 + Apache POI
  *
- * Input:
- *   Copy-of-WEB-Radiology-Service-Fee-Schedule-February-2026-FNL.xlsx
+ * Updated OPPS conversion:
+ * 1) OPPS source sheet -> split output into separate workbooks by OPPS SI
+ *    Example: MS MCD STATUSA.xlsx, MS MCD STATUSB.xlsx, MS MCD STATUSG.xlsx
  *
- * Output:
- *   One single sheet in the requested format:
- *   SCH NAME | Procedure Code | Modifier1 | Modifier2 | Modifier3 | Modifier4 |
- *   Effective Date | End Date | Pricing Method | New Rate | Old Rate | Comments
+ * 2) PAY0-SYSMAN-PAPRICE FNL -> split output into separate workbooks by Pricing Indicator
+ *    SYSMAN -> MS MCD OPPS MNL.xlsx
+ *    PAY0   -> MS MCD STATUSN.xlsx
  *
- * Notes:
- * - All output cells are written as TEXT.
- * - Sheet 1 is detected by sheet name containing "RADIOLOGY".
- * - Sheet 2 is detected by sheet name containing "PAY0" and "SYSMAN".
- * - For Sheet 2 modifier values like I~TC~1 -> TC.
+ * All output cells are written as TEXT.
  */
-public class FeeScheduleTransformer {
+public class FeeScheduleTransformerOPPSSplit {
 
     private static final DateTimeFormatter OUTPUT_DATE = DateTimeFormatter.ofPattern("MM/dd/yyyy");
     private static final LocalDate MIN_EFFECTIVE_DATE = LocalDate.of(2022, 1, 1);
+    private static final LocalDate OPEN_END_SOURCE = LocalDate.of(2299, 12, 31);
     private static final String OPEN_END_OUTPUT = "12/31/9999";
 
     private static final List<String> OUTPUT_HEADERS = List.of(
@@ -55,96 +52,91 @@ public class FeeScheduleTransformer {
     );
 
     public static void main(String[] args) throws Exception {
-        Path input = Path.of("/mnt/data/Copy-of-WEB-Radiology-Service-Fee-Schedule-February-2026-FNL.xlsx");
-        Path output = Path.of("/mnt/data/Change_File_Report_Output.xlsx");
+        Path input = Path.of("/mnt/data/WEB-OPPS-Fee-Schedule-FEBRUARY-2026-FNL.xlsx");
+        Path outputFolder = Path.of("/mnt/data/opps_split_output");
 
-        transform(input, output);
-        System.out.println("Output created: " + output.toAbsolutePath());
+        transformToSeparateWorkbooks(input, outputFolder);
+        System.out.println("Output folder created: " + outputFolder.toAbsolutePath());
     }
 
-    public static void transform(Path inputFile, Path outputFile) throws IOException {
+    public static void transformToSeparateWorkbooks(Path inputFile, Path outputFolder) throws IOException {
+        Files.createDirectories(outputFolder);
+
         try (InputStream in = Files.newInputStream(inputFile);
-             Workbook sourceWorkbook = WorkbookFactory.create(in);
-             Workbook targetWorkbook = new XSSFWorkbook()) {
+             Workbook sourceWorkbook = WorkbookFactory.create(in)) {
 
-            Sheet outputSheet = targetWorkbook.createSheet("Change File Report");
-            CellStyle textStyle = createTextStyle(targetWorkbook);
+            Map<String, List<OutputRecord>> groupedRecords = new LinkedHashMap<>();
 
-            writeHeader(outputSheet, textStyle);
+            processOppsSheet(sourceWorkbook).forEach(record ->
+                    groupedRecords.computeIfAbsent(record.schName(), key -> new ArrayList<>()).add(record));
 
-            int outputRowIndex = 1;
-            outputRowIndex = processRadiologySheet(sourceWorkbook, outputSheet, textStyle, outputRowIndex);
-            outputRowIndex = processSysmanSheet(sourceWorkbook, outputSheet, textStyle, outputRowIndex);
+            processPay0SysmanSheet(sourceWorkbook).forEach(record ->
+                    groupedRecords.computeIfAbsent(record.schName(), key -> new ArrayList<>()).add(record));
 
-            autoSize(outputSheet, OUTPUT_HEADERS.size());
-
-            try (OutputStream out = Files.newOutputStream(outputFile)) {
-                targetWorkbook.write(out);
+            for (Map.Entry<String, List<OutputRecord>> entry : groupedRecords.entrySet()) {
+                writeWorkbook(outputFolder.resolve(toSafeFileName(entry.getKey()) + ".xlsx"), entry.getValue());
             }
         }
     }
 
-    private static int processRadiologySheet(Workbook workbook,
-                                             Sheet outputSheet,
-                                             CellStyle textStyle,
-                                             int startRowIndex) {
-
+    private static List<OutputRecord> processOppsSheet(Workbook workbook) {
         Sheet sourceSheet = StreamSupport.stream(workbook.spliterator(), false)
-                .filter(sheet -> containsIgnoreCase(sheet.getSheetName(), "RADIOLOGY"))
+                .filter(sheet -> containsIgnoreCase(sheet.getSheetName(), "OPPS"))
                 .findFirst()
-                .orElseThrow(() -> new IllegalStateException("No source sheet found with 'RADIOLOGY' in the name."));
+                .orElseThrow(() -> new IllegalStateException("No source sheet found with 'OPPS' in the name."));
 
         int headerRowNum = findHeaderRow(sourceSheet, Set.of(
-                "Code", "Modifier 1", "Modifier 2", "Modifier 3", "Modifier 4",
-                "Rate Type", "Begin Date", "End Date", "Fee"
+                "Code", "Modifier", "Modifier 2", "Modifier 3", "Modifier 4",
+                "Rate Type", "Begin Date", "End Date", "Fee", "OPPS SI"
         ));
 
         Map<String, Integer> headerMap = buildHeaderMap(sourceSheet.getRow(headerRowNum));
+        List<OutputRecord> records = new ArrayList<>();
 
         for (int r = headerRowNum + 1; r <= sourceSheet.getLastRowNum(); r++) {
             Row row = sourceSheet.getRow(r);
-            if (row == null || isMeaninglessRadiologyRow(row, headerMap)) {
+            if (row == null || isBlankRow(row)) {
                 continue;
             }
 
-            String code = getCellString(row, headerMap.get("Code"));
-            if (code.isBlank()) {
+            String procedureCode = getCellString(row, headerMap.get("Code"));
+            if (procedureCode.isBlank()) {
                 continue;
             }
 
-            OutputRecord record = new OutputRecord(
-                    "", // Keep blank. If you want sheet name here, replace with sourceSheet.getSheetName().trim()
-                    code,
-                    normalizeModifier(getCellString(row, headerMap.get("Modifier 1"))),
+            String oppsSi = getCellString(row, headerMap.get("OPPS SI"));
+            if (oppsSi.isBlank()) {
+                continue;
+            }
+
+            records.add(new OutputRecord(
+                    mapOppsSchName(oppsSi),
+                    procedureCode,
+                    normalizeModifier(getCellString(row, headerMap.get("Modifier"))),
                     normalizeModifier(getCellString(row, headerMap.get("Modifier 2"))),
                     normalizeModifier(getCellString(row, headerMap.get("Modifier 3"))),
                     normalizeModifier(getCellString(row, headerMap.get("Modifier 4"))),
                     normalizeEffectiveDate(getCellString(row, headerMap.get("Begin Date"))),
                     normalizeEndDate(getCellString(row, headerMap.get("End Date"))),
-                    mapRadiologyPricingMethod(getCellString(row, headerMap.get("Rate Type"))),
+                    mapOppsPricingMethod(getCellString(row, headerMap.get("Rate Type"))),
                     normalizeMoneyToFourDecimals(getCellString(row, headerMap.get("Fee"))),
                     "N/A",
                     "New Code"
-            );
-
-            writeOutputRecord(outputSheet.createRow(startRowIndex++), record, textStyle);
+            ));
         }
 
-        return startRowIndex;
+        return records;
     }
 
-    private static int processSysmanSheet(Workbook workbook,
-                                          Sheet outputSheet,
-                                          CellStyle textStyle,
-                                          int startRowIndex) {
-
+    private static List<OutputRecord> processPay0SysmanSheet(Workbook workbook) {
         Sheet sourceSheet = StreamSupport.stream(workbook.spliterator(), false)
                 .filter(sheet -> containsIgnoreCase(sheet.getSheetName(), "PAY0")
                         && containsIgnoreCase(sheet.getSheetName(), "SYSMAN"))
                 .findFirst()
-                .orElseThrow(() -> new IllegalStateException("No source sheet found for PAY0-SYSMAN."));
+                .orElseThrow(() -> new IllegalStateException("No source sheet found for PAY0-SYSMAN-PAPRICE FNL."));
 
         Map<String, Integer> headerMap = buildHeaderMap(sourceSheet.getRow(sourceSheet.getFirstRowNum()));
+        List<OutputRecord> records = new ArrayList<>();
 
         for (int r = sourceSheet.getFirstRowNum() + 1; r <= sourceSheet.getLastRowNum(); r++) {
             Row row = sourceSheet.getRow(r);
@@ -157,40 +149,54 @@ public class FeeScheduleTransformer {
                 continue;
             }
 
-            String rawModifier = getCellString(row, headerMap.get("MODIFIER"));
             String pricingIndicator = getCellString(row, headerMap.get("Pricing Indicator"));
+            if (pricingIndicator.isBlank()) {
+                continue;
+            }
 
-            OutputRecord record = new OutputRecord(
-                    "",
+            records.add(new OutputRecord(
+                    mapPay0SysmanSchName(pricingIndicator),
                     procedureCode,
-                    extractSysmanModifier(rawModifier),
+                    "",
                     "",
                     "",
                     "",
                     normalizeEffectiveDate(getCellString(row, headerMap.get("DOS From"))),
                     normalizeEndDate(getCellString(row, headerMap.get("DOS Thru"))),
-                    mapSysmanPricingMethod(pricingIndicator),
+                    mapPay0SysmanPricingMethod(pricingIndicator),
                     "0.0000",
                     "N/A",
                     "New Code"
-            );
-
-            writeOutputRecord(outputSheet.createRow(startRowIndex++), record, textStyle);
+            ));
         }
 
-        return startRowIndex;
+        return records;
     }
 
-    private static boolean isMeaninglessRadiologyRow(Row row, Map<String, Integer> headerMap) {
-        String code = getCellString(row, headerMap.get("Code"));
-        String fee = getCellString(row, headerMap.get("Fee"));
-        return code.isBlank() && fee.isBlank();
+    private static void writeWorkbook(Path outputFile, List<OutputRecord> records) throws IOException {
+        try (Workbook workbook = new XSSFWorkbook()) {
+            Sheet sheet = workbook.createSheet("Change File Report");
+            CellStyle textStyle = createTextStyle(workbook);
+
+            writeHeader(sheet, textStyle);
+
+            int rowIndex = 1;
+            for (OutputRecord record : records) {
+                writeOutputRecord(sheet.createRow(rowIndex++), record, textStyle);
+            }
+
+            autoSize(sheet, OUTPUT_HEADERS.size());
+
+            try (OutputStream out = Files.newOutputStream(outputFile)) {
+                workbook.write(out);
+            }
+        }
     }
 
     private static int findHeaderRow(Sheet sheet, Set<String> requiredHeaders) {
         for (Row row : sheet) {
             Set<String> rowValues = StreamSupport.stream(row.spliterator(), false)
-                    .map(FeeScheduleTransformer::cellToString)
+                    .map(FeeScheduleTransformerOPPSSplit::cellToString)
                     .map(String::trim)
                     .collect(Collectors.toSet());
 
@@ -276,7 +282,7 @@ public class FeeScheduleTransformer {
 
     private static boolean isBlankRow(Row row) {
         return StreamSupport.stream(row.spliterator(), false)
-                .map(FeeScheduleTransformer::cellToString)
+                .map(FeeScheduleTransformerOPPSSplit::cellToString)
                 .allMatch(String::isBlank);
     }
 
@@ -288,34 +294,32 @@ public class FeeScheduleTransformer {
         return trimmed.equals("-") ? "" : trimmed;
     }
 
-    /**
-     * Input examples:
-     *   "I~TC~1" -> "TC"
-     *   "I~26~1" -> "26"
-     *   "" -> ""
-     */
-    private static String extractSysmanModifier(String rawValue) {
-        if (rawValue == null || rawValue.isBlank()) {
-            return "";
-        }
-        String cleaned = rawValue.trim();
-        if (!cleaned.contains("~")) {
-            return cleaned;
-        }
-        String[] parts = cleaned.split("~");
-        return parts.length >= 2 ? parts[1].trim() : cleaned;
+    private static String mapOppsSchName(String oppsSi) {
+        return "MS MCD STATUS" + oppsSi.trim().toUpperCase(Locale.ROOT);
     }
 
-    private static String mapRadiologyPricingMethod(String rateType) {
-        return equalsIgnoreCase(rateType, "DEF") ? "Allowed" : rateType;
+    private static String mapOppsPricingMethod(String rateType) {
+        return equalsIgnoreCase(rateType, "OPP") ? "Allowed" : rateType;
     }
 
-    /**
-     * Based on your sample mapping, SYSMAN rows should become "By Report".
-     * This uses Pricing Indicator because that is where SYSMAN exists in the source file.
-     */
-    private static String mapSysmanPricingMethod(String pricingIndicator) {
-        return equalsIgnoreCase(pricingIndicator, "SYSMAN") ? "By Report" : pricingIndicator;
+    private static String mapPay0SysmanSchName(String pricingIndicator) {
+        if (equalsIgnoreCase(pricingIndicator, "SYSMAN")) {
+            return "MS MCD OPPS MNL";
+        }
+        if (equalsIgnoreCase(pricingIndicator, "PAY0")) {
+            return "MS MCD STATUSN";
+        }
+        return pricingIndicator;
+    }
+
+    private static String mapPay0SysmanPricingMethod(String pricingIndicator) {
+        if (equalsIgnoreCase(pricingIndicator, "SYSMAN")) {
+            return "By Report";
+        }
+        if (equalsIgnoreCase(pricingIndicator, "PAY0")) {
+            return "Allowed";
+        }
+        return pricingIndicator;
     }
 
     private static String normalizeMoneyToFourDecimals(String rawValue) {
@@ -329,9 +333,7 @@ public class FeeScheduleTransformer {
             return "";
         }
         try {
-            return new BigDecimal(normalized)
-                    .setScale(4, RoundingMode.HALF_UP)
-                    .toPlainString();
+            return new BigDecimal(normalized).setScale(4, RoundingMode.HALF_UP).toPlainString();
         } catch (NumberFormatException ex) {
             return normalized;
         }
@@ -350,7 +352,7 @@ public class FeeScheduleTransformer {
         if (parsed == null) {
             return rawValue == null ? "" : rawValue;
         }
-        if (LocalDate.of(2299, 12, 31).equals(parsed)) {
+        if (OPEN_END_SOURCE.equals(parsed)) {
             return OPEN_END_OUTPUT;
         }
         return parsed.format(OUTPUT_DATE);
@@ -394,6 +396,10 @@ public class FeeScheduleTransformer {
                 left == null ? null : left.trim().toLowerCase(Locale.ROOT),
                 right == null ? null : right.trim().toLowerCase(Locale.ROOT)
         );
+    }
+
+    private static String toSafeFileName(String input) {
+        return input.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
     }
 
     private record OutputRecord(
