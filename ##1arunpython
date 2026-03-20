@@ -12,24 +12,20 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.*;
-import java.util.function.Function;
-import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
 
 /**
  * Java 17 + Apache POI
  *
- * Updated OPPS conversion:
- * 1) OPPS source sheet -> split output into separate workbooks by OPPS SI
- *    Example: MS MCD STATUSA.xlsx, MS MCD STATUSB.xlsx, MS MCD STATUSG.xlsx
- *
- * 2) PAY0-SYSMAN-PAPRICE FNL -> split output into separate workbooks by Pricing Indicator
- *    SYSMAN -> MS MCD OPPS MNL.xlsx
- *    PAY0   -> MS MCD STATUSN.xlsx
- *
- * All output cells are written as TEXT.
+ * ASC converter:
+ * 1. Finds sheet whose name contains ASC for sheet 1.
+ * 2. Detects header row using: Code, Modifier, Modifier 2, Modifier 3, Modifier 4,
+ *    Rate Type, Begin Date, End Date, FEE.
+ * 3. Applies ASC mapping from source ASC sheet.
+ * 4. Reads PAY0-SYSMAN-PAPRICE sheet and applies second mapping.
+ * 5. Merges both sets of rows into one output workbook: MS MCD ASC.xlsx
+ * 6. Writes all output cells as TEXT.
  */
-public class FeeScheduleTransformerOPPSSplit {
+public class FeeScheduleTransformerASC {
 
     private static final DateTimeFormatter OUTPUT_DATE = DateTimeFormatter.ofPattern("MM/dd/yyyy");
     private static final LocalDate MIN_EFFECTIVE_DATE = LocalDate.of(2022, 1, 1);
@@ -52,74 +48,62 @@ public class FeeScheduleTransformerOPPSSplit {
     );
 
     public static void main(String[] args) throws Exception {
-        Path input = Path.of("/mnt/data/WEB-OPPS-Fee-Schedule-FEBRUARY-2026-FNL.xlsx");
-        Path outputFolder = Path.of("/mnt/data/opps_split_output");
+        Path input = Path.of("/mnt/data/WEB-Ambulatory-Surgical-Center-Fee-Sch-JANUARY-2026-FNL-v2.xlsx");
+        Path output = Path.of("/mnt/data/MS MCD ASC.xlsx");
 
-        transformToSeparateWorkbooks(input, outputFolder);
-        System.out.println("Output folder created: " + outputFolder.toAbsolutePath());
+        transform(input, output);
+        System.out.println("Created output file: " + output.toAbsolutePath());
     }
 
-    public static void transformToSeparateWorkbooks(Path inputFile, Path outputFolder) throws IOException {
-        Files.createDirectories(outputFolder);
-
+    public static void transform(Path inputFile, Path outputFile) throws IOException {
         try (InputStream in = Files.newInputStream(inputFile);
              Workbook sourceWorkbook = WorkbookFactory.create(in)) {
 
-            Map<String, List<OutputRecord>> groupedRecords = new LinkedHashMap<>();
+            List<OutputRecord> combined = new ArrayList<>();
+            combined.addAll(processAscSheet(sourceWorkbook));
+            combined.addAll(processPay0SysmanSheet(sourceWorkbook));
 
-            processOppsSheet(sourceWorkbook).forEach(record ->
-                    groupedRecords.computeIfAbsent(record.schName(), key -> new ArrayList<>()).add(record));
-
-            processPay0SysmanSheet(sourceWorkbook).forEach(record ->
-                    groupedRecords.computeIfAbsent(record.schName(), key -> new ArrayList<>()).add(record));
-
-            for (Map.Entry<String, List<OutputRecord>> entry : groupedRecords.entrySet()) {
-                writeWorkbook(outputFolder.resolve(toSafeFileName(entry.getKey()) + ".xlsx"), entry.getValue());
-            }
+            writeWorkbook(outputFile, combined);
         }
     }
 
-    private static List<OutputRecord> processOppsSheet(Workbook workbook) {
-        Sheet sourceSheet = StreamSupport.stream(workbook.spliterator(), false)
-                .filter(sheet -> containsIgnoreCase(sheet.getSheetName(), "OPPS"))
-                .findFirst()
-                .orElseThrow(() -> new IllegalStateException("No source sheet found with 'OPPS' in the name."));
+    private static List<OutputRecord> processAscSheet(Workbook workbook) {
+        Sheet ascSheet = findSheetContaining(workbook, "ASC")
+                .orElseThrow(() -> new IllegalArgumentException("No sheet found containing ASC in the sheet name."));
 
-        int headerRowNum = findHeaderRow(sourceSheet, Set.of(
+        int headerRowIndex = findHeaderRow(ascSheet, Set.of(
                 "Code", "Modifier", "Modifier 2", "Modifier 3", "Modifier 4",
-                "Rate Type", "Begin Date", "End Date", "Fee", "OPPS SI"
+                "Rate Type", "Begin Date", "End Date", "FEE"
         ));
 
-        Map<String, Integer> headerMap = buildHeaderMap(sourceSheet.getRow(headerRowNum));
+        Map<String, Integer> headerMap = buildHeaderMap(ascSheet.getRow(headerRowIndex));
         List<OutputRecord> records = new ArrayList<>();
 
-        for (int r = headerRowNum + 1; r <= sourceSheet.getLastRowNum(); r++) {
-            Row row = sourceSheet.getRow(r);
-            if (row == null || isBlankRow(row)) {
+        for (int rowIndex = headerRowIndex + 1; rowIndex <= ascSheet.getLastRowNum(); rowIndex++) {
+            Row row = ascSheet.getRow(rowIndex);
+            if (row == null || isRowEmpty(row)) {
                 continue;
             }
 
-            String procedureCode = getCellString(row, headerMap.get("Code"));
+            String procedureCode = getCellAsString(row, headerMap.get("Code"));
             if (procedureCode.isBlank()) {
                 continue;
             }
 
-            String oppsSi = getCellString(row, headerMap.get("OPPS SI"));
-            if (oppsSi.isBlank()) {
-                continue;
-            }
+            String rateType = getCellAsString(row, headerMap.get("Rate Type"));
+            String pricingMethod = "ASC".equalsIgnoreCase(rateType) ? "Allowed" : "";
 
             records.add(new OutputRecord(
-                    mapOppsSchName(oppsSi),
+                    "MS MCD ASC",
                     procedureCode,
-                    normalizeModifier(getCellString(row, headerMap.get("Modifier"))),
-                    normalizeModifier(getCellString(row, headerMap.get("Modifier 2"))),
-                    normalizeModifier(getCellString(row, headerMap.get("Modifier 3"))),
-                    normalizeModifier(getCellString(row, headerMap.get("Modifier 4"))),
-                    normalizeEffectiveDate(getCellString(row, headerMap.get("Begin Date"))),
-                    normalizeEndDate(getCellString(row, headerMap.get("End Date"))),
-                    mapOppsPricingMethod(getCellString(row, headerMap.get("Rate Type"))),
-                    normalizeMoneyToFourDecimals(getCellString(row, headerMap.get("Fee"))),
+                    getCellAsString(row, headerMap.get("Modifier")),
+                    getCellAsString(row, headerMap.get("Modifier 2")),
+                    getCellAsString(row, headerMap.get("Modifier 3")),
+                    getCellAsString(row, headerMap.get("Modifier 4")),
+                    normalizeEffectiveDate(getCellAsString(row, headerMap.get("Begin Date"))),
+                    normalizeEndDate(getCellAsString(row, headerMap.get("End Date"))),
+                    pricingMethod,
+                    normalizeRateToFourDecimals(getCellAsString(row, headerMap.get("FEE"))),
                     "N/A",
                     "New Code"
             ));
@@ -129,41 +113,44 @@ public class FeeScheduleTransformerOPPSSplit {
     }
 
     private static List<OutputRecord> processPay0SysmanSheet(Workbook workbook) {
-        Sheet sourceSheet = StreamSupport.stream(workbook.spliterator(), false)
-                .filter(sheet -> containsIgnoreCase(sheet.getSheetName(), "PAY0")
-                        && containsIgnoreCase(sheet.getSheetName(), "SYSMAN"))
-                .findFirst()
-                .orElseThrow(() -> new IllegalStateException("No source sheet found for PAY0-SYSMAN-PAPRICE FNL."));
+        Sheet sheet = findSheetContaining(workbook, "PAY0-SYSMAN-PAPRICE")
+                .orElseThrow(() -> new IllegalArgumentException("PAY0-SYSMAN-PAPRICE sheet not found."));
 
-        Map<String, Integer> headerMap = buildHeaderMap(sourceSheet.getRow(sourceSheet.getFirstRowNum()));
+        int headerRowIndex = findHeaderRow(sheet, Set.of(
+                "Procedure Code", "Pricing Indicator", "DOS From", "DOS Thru"
+        ));
+
+        Map<String, Integer> headerMap = buildHeaderMap(sheet.getRow(headerRowIndex));
         List<OutputRecord> records = new ArrayList<>();
 
-        for (int r = sourceSheet.getFirstRowNum() + 1; r <= sourceSheet.getLastRowNum(); r++) {
-            Row row = sourceSheet.getRow(r);
-            if (row == null || isBlankRow(row)) {
+        for (int rowIndex = headerRowIndex + 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
+            Row row = sheet.getRow(rowIndex);
+            if (row == null || isRowEmpty(row)) {
                 continue;
             }
 
-            String procedureCode = getCellString(row, headerMap.get("Procedure Code"));
+            String procedureCode = getCellAsString(row, headerMap.get("Procedure Code"));
             if (procedureCode.isBlank()) {
                 continue;
             }
 
-            String pricingIndicator = getCellString(row, headerMap.get("Pricing Indicator"));
-            if (pricingIndicator.isBlank()) {
-                continue;
-            }
+            String pricingIndicator = getCellAsString(row, headerMap.get("Pricing Indicator"));
+            String pricingMethod = switch (pricingIndicator.toUpperCase(Locale.ROOT)) {
+                case "SYSMAN" -> "By Report";
+                case "PAY0" -> "Allowed";
+                default -> "";
+            };
 
             records.add(new OutputRecord(
-                    mapPay0SysmanSchName(pricingIndicator),
+                    "MS MCD ASC",
                     procedureCode,
                     "",
                     "",
                     "",
                     "",
-                    normalizeEffectiveDate(getCellString(row, headerMap.get("DOS From"))),
-                    normalizeEndDate(getCellString(row, headerMap.get("DOS Thru"))),
-                    mapPay0SysmanPricingMethod(pricingIndicator),
+                    normalizeEffectiveDate(getCellAsString(row, headerMap.get("DOS From"))),
+                    normalizeEndDate(getCellAsString(row, headerMap.get("DOS Thru"))),
+                    pricingMethod,
                     "0.0000",
                     "N/A",
                     "New Code"
@@ -173,233 +160,188 @@ public class FeeScheduleTransformerOPPSSplit {
         return records;
     }
 
+    private static Optional<Sheet> findSheetContaining(Workbook workbook, String token) {
+        for (int i = 0; i < workbook.getNumberOfSheets(); i++) {
+            Sheet sheet = workbook.getSheetAt(i);
+            if (sheet.getSheetName().toUpperCase(Locale.ROOT).contains(token.toUpperCase(Locale.ROOT))) {
+                return Optional.of(sheet);
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static int findHeaderRow(Sheet sheet, Set<String> requiredHeaders) {
+        DataFormatter formatter = new DataFormatter();
+
+        for (Row row : sheet) {
+            Set<String> rowValues = new HashSet<>();
+            for (Cell cell : row) {
+                String value = formatter.formatCellValue(cell).trim();
+                if (!value.isBlank()) {
+                    rowValues.add(value);
+                }
+            }
+            if (rowValues.containsAll(requiredHeaders)) {
+                return row.getRowNum();
+            }
+        }
+
+        throw new IllegalArgumentException("Header row not found in sheet: " + sheet.getSheetName());
+    }
+
+    private static Map<String, Integer> buildHeaderMap(Row headerRow) {
+        Map<String, Integer> headerMap = new HashMap<>();
+        DataFormatter formatter = new DataFormatter();
+
+        for (Cell cell : headerRow) {
+            headerMap.put(formatter.formatCellValue(cell).trim(), cell.getColumnIndex());
+        }
+        return headerMap;
+    }
+
+    private static boolean isRowEmpty(Row row) {
+        DataFormatter formatter = new DataFormatter();
+        for (Cell cell : row) {
+            if (!formatter.formatCellValue(cell).trim().isBlank()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static String getCellAsString(Row row, Integer colIndex) {
+        if (colIndex == null) {
+            return "";
+        }
+        Cell cell = row.getCell(colIndex, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
+        if (cell == null) {
+            return "";
+        }
+        return new DataFormatter().formatCellValue(cell).trim();
+    }
+
+    private static String normalizeEffectiveDate(String raw) {
+        LocalDate date = parseFlexibleDate(raw);
+        if (date == null) {
+            return "";
+        }
+        if (date.isBefore(MIN_EFFECTIVE_DATE)) {
+            return OUTPUT_DATE.format(MIN_EFFECTIVE_DATE);
+        }
+        return OUTPUT_DATE.format(date);
+    }
+
+    private static String normalizeEndDate(String raw) {
+        LocalDate date = parseFlexibleDate(raw);
+        if (date == null) {
+            return "";
+        }
+        if (OPEN_END_SOURCE.equals(date)) {
+            return OPEN_END_OUTPUT;
+        }
+        return OUTPUT_DATE.format(date);
+    }
+
+    private static LocalDate parseFlexibleDate(String raw) {
+        if (raw == null) {
+            return null;
+        }
+
+        String value = raw.trim();
+        if (value.isBlank()) {
+            return null;
+        }
+
+        List<DateTimeFormatter> formatters = List.of(
+                DateTimeFormatter.ofPattern("MM/dd/yyyy"),
+                DateTimeFormatter.ofPattern("M/d/yyyy"),
+                DateTimeFormatter.ofPattern("yyyyMMdd")
+        );
+
+        for (DateTimeFormatter formatter : formatters) {
+            try {
+                return LocalDate.parse(value, formatter);
+            } catch (DateTimeParseException ignored) {
+            }
+        }
+
+        if (value.matches("\\d+")) {
+            try {
+                double numeric = Double.parseDouble(value);
+                if (DateUtil.isValidExcelDate(numeric)) {
+                    return DateUtil.getLocalDateTime(numeric).toLocalDate();
+                }
+            } catch (NumberFormatException ignored) {
+            }
+        }
+
+        return null;
+    }
+
+    private static String normalizeRateToFourDecimals(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "";
+        }
+
+        String cleaned = raw.replace("$", "")
+                .replace(",", "")
+                .trim();
+
+        try {
+            BigDecimal value = new BigDecimal(cleaned);
+            return value.setScale(4, RoundingMode.HALF_UP).toPlainString();
+        } catch (NumberFormatException ex) {
+            return cleaned;
+        }
+    }
+
     private static void writeWorkbook(Path outputFile, List<OutputRecord> records) throws IOException {
         try (Workbook workbook = new XSSFWorkbook()) {
-            Sheet sheet = workbook.createSheet("Change File Report");
-            CellStyle textStyle = createTextStyle(workbook);
+            Sheet sheet = workbook.createSheet("Output");
+            DataFormat dataFormat = workbook.createDataFormat();
+            CellStyle textStyle = workbook.createCellStyle();
+            textStyle.setDataFormat(dataFormat.getFormat("@"));
 
-            writeHeader(sheet, textStyle);
-
-            int rowIndex = 1;
-            for (OutputRecord record : records) {
-                writeOutputRecord(sheet.createRow(rowIndex++), record, textStyle);
+            int rowIndex = 0;
+            Row headerRow = sheet.createRow(rowIndex++);
+            for (int i = 0; i < OUTPUT_HEADERS.size(); i++) {
+                Cell cell = headerRow.createCell(i, CellType.STRING);
+                cell.setCellStyle(textStyle);
+                cell.setCellValue(OUTPUT_HEADERS.get(i));
             }
 
-            autoSize(sheet, OUTPUT_HEADERS.size());
+            for (OutputRecord record : records) {
+                Row row = sheet.createRow(rowIndex++);
+                List<String> values = List.of(
+                        record.schName(),
+                        record.procedureCode(),
+                        record.modifier1(),
+                        record.modifier2(),
+                        record.modifier3(),
+                        record.modifier4(),
+                        record.effectiveDate(),
+                        record.endDate(),
+                        record.pricingMethod(),
+                        record.newRate(),
+                        record.oldRate(),
+                        record.comments()
+                );
+
+                for (int i = 0; i < values.size(); i++) {
+                    Cell cell = row.createCell(i, CellType.STRING);
+                    cell.setCellStyle(textStyle);
+                    cell.setCellValue(values.get(i));
+                }
+            }
+
+            for (int i = 0; i < OUTPUT_HEADERS.size(); i++) {
+                sheet.autoSizeColumn(i);
+            }
 
             try (OutputStream out = Files.newOutputStream(outputFile)) {
                 workbook.write(out);
             }
         }
-    }
-
-    private static int findHeaderRow(Sheet sheet, Set<String> requiredHeaders) {
-        for (Row row : sheet) {
-            Set<String> rowValues = StreamSupport.stream(row.spliterator(), false)
-                    .map(FeeScheduleTransformerOPPSSplit::cellToString)
-                    .map(String::trim)
-                    .collect(Collectors.toSet());
-
-            if (rowValues.containsAll(requiredHeaders)) {
-                return row.getRowNum();
-            }
-        }
-        throw new IllegalStateException("Header row not found in sheet: " + sheet.getSheetName());
-    }
-
-    private static Map<String, Integer> buildHeaderMap(Row headerRow) {
-        return StreamSupport.stream(headerRow.spliterator(), false)
-                .collect(Collectors.toMap(
-                        cell -> cellToString(cell).trim(),
-                        Cell::getColumnIndex,
-                        (left, right) -> left,
-                        LinkedHashMap::new
-                ));
-    }
-
-    private static void writeHeader(Sheet sheet, CellStyle style) {
-        Row header = sheet.createRow(0);
-        for (int i = 0; i < OUTPUT_HEADERS.size(); i++) {
-            Cell cell = header.createCell(i, CellType.STRING);
-            cell.setCellValue(OUTPUT_HEADERS.get(i));
-            cell.setCellStyle(style);
-        }
-    }
-
-    private static void writeOutputRecord(Row row, OutputRecord record, CellStyle style) {
-        List<String> values = List.of(
-                record.schName(),
-                record.procedureCode(),
-                record.modifier1(),
-                record.modifier2(),
-                record.modifier3(),
-                record.modifier4(),
-                record.effectiveDate(),
-                record.endDate(),
-                record.pricingMethod(),
-                record.newRate(),
-                record.oldRate(),
-                record.comments()
-        );
-
-        for (int i = 0; i < values.size(); i++) {
-            Cell cell = row.createCell(i, CellType.STRING);
-            cell.setCellValue(values.get(i));
-            cell.setCellStyle(style);
-        }
-    }
-
-    private static CellStyle createTextStyle(Workbook workbook) {
-        CellStyle style = workbook.createCellStyle();
-        DataFormat dataFormat = workbook.createDataFormat();
-        style.setDataFormat(dataFormat.getFormat("@"));
-        return style;
-    }
-
-    private static void autoSize(Sheet sheet, int columnCount) {
-        for (int c = 0; c < columnCount; c++) {
-            sheet.autoSizeColumn(c);
-            int currentWidth = sheet.getColumnWidth(c);
-            sheet.setColumnWidth(c, Math.min(currentWidth + 800, 18000));
-        }
-    }
-
-    private static String getCellString(Row row, Integer colIndex) {
-        if (row == null || colIndex == null) {
-            return "";
-        }
-        Cell cell = row.getCell(colIndex, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
-        return cellToString(cell).trim();
-    }
-
-    private static String cellToString(Cell cell) {
-        if (cell == null) {
-            return "";
-        }
-        DataFormatter formatter = new DataFormatter();
-        return formatter.formatCellValue(cell);
-    }
-
-    private static boolean isBlankRow(Row row) {
-        return StreamSupport.stream(row.spliterator(), false)
-                .map(FeeScheduleTransformerOPPSSplit::cellToString)
-                .allMatch(String::isBlank);
-    }
-
-    private static String normalizeModifier(String value) {
-        if (value == null) {
-            return "";
-        }
-        String trimmed = value.trim();
-        return trimmed.equals("-") ? "" : trimmed;
-    }
-
-    private static String mapOppsSchName(String oppsSi) {
-        return "MS MCD STATUS" + oppsSi.trim().toUpperCase(Locale.ROOT);
-    }
-
-    private static String mapOppsPricingMethod(String rateType) {
-        return equalsIgnoreCase(rateType, "OPP") ? "Allowed" : rateType;
-    }
-
-    private static String mapPay0SysmanSchName(String pricingIndicator) {
-        if (equalsIgnoreCase(pricingIndicator, "SYSMAN")) {
-            return "MS MCD OPPS MNL";
-        }
-        if (equalsIgnoreCase(pricingIndicator, "PAY0")) {
-            return "MS MCD STATUSN";
-        }
-        return pricingIndicator;
-    }
-
-    private static String mapPay0SysmanPricingMethod(String pricingIndicator) {
-        if (equalsIgnoreCase(pricingIndicator, "SYSMAN")) {
-            return "By Report";
-        }
-        if (equalsIgnoreCase(pricingIndicator, "PAY0")) {
-            return "Allowed";
-        }
-        return pricingIndicator;
-    }
-
-    private static String normalizeMoneyToFourDecimals(String rawValue) {
-        if (rawValue == null || rawValue.isBlank()) {
-            return "";
-        }
-        String normalized = rawValue.replace("$", "")
-                .replace(",", "")
-                .trim();
-        if (normalized.isBlank()) {
-            return "";
-        }
-        try {
-            return new BigDecimal(normalized).setScale(4, RoundingMode.HALF_UP).toPlainString();
-        } catch (NumberFormatException ex) {
-            return normalized;
-        }
-    }
-
-    private static String normalizeEffectiveDate(String rawValue) {
-        LocalDate parsed = parseDate(rawValue);
-        if (parsed == null) {
-            return rawValue == null ? "" : rawValue;
-        }
-        return (parsed.isBefore(MIN_EFFECTIVE_DATE) ? MIN_EFFECTIVE_DATE : parsed).format(OUTPUT_DATE);
-    }
-
-    private static String normalizeEndDate(String rawValue) {
-        LocalDate parsed = parseDate(rawValue);
-        if (parsed == null) {
-            return rawValue == null ? "" : rawValue;
-        }
-        if (OPEN_END_SOURCE.equals(parsed)) {
-            return OPEN_END_OUTPUT;
-        }
-        return parsed.format(OUTPUT_DATE);
-    }
-
-    private static LocalDate parseDate(String rawValue) {
-        if (rawValue == null || rawValue.isBlank()) {
-            return null;
-        }
-
-        String value = rawValue.trim();
-        List<Function<String, LocalDate>> parsers = List.of(
-                v -> tryParse(v, DateTimeFormatter.ofPattern("MM/dd/yyyy")),
-                v -> tryParse(v, DateTimeFormatter.ofPattern("M/d/yyyy")),
-                v -> tryParse(v, DateTimeFormatter.ofPattern("yyyyMMdd"))
-        );
-
-        for (Function<String, LocalDate> parser : parsers) {
-            LocalDate date = parser.apply(value);
-            if (date != null) {
-                return date;
-            }
-        }
-        return null;
-    }
-
-    private static LocalDate tryParse(String value, DateTimeFormatter formatter) {
-        try {
-            return LocalDate.parse(value, formatter);
-        } catch (DateTimeParseException ex) {
-            return null;
-        }
-    }
-
-    private static boolean containsIgnoreCase(String text, String search) {
-        return text != null && search != null && text.toLowerCase(Locale.ROOT).contains(search.toLowerCase(Locale.ROOT));
-    }
-
-    private static boolean equalsIgnoreCase(String left, String right) {
-        return Objects.equals(
-                left == null ? null : left.trim().toLowerCase(Locale.ROOT),
-                right == null ? null : right.trim().toLowerCase(Locale.ROOT)
-        );
-    }
-
-    private static String toSafeFileName(String input) {
-        return input.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
     }
 
     private record OutputRecord(
@@ -415,5 +357,6 @@ public class FeeScheduleTransformerOPPSSplit {
             String newRate,
             String oldRate,
             String comments
-    ) {}
+    ) {
+    }
 }
