@@ -1,378 +1,317 @@
+package com.example.aspconverter;
+
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.LocalDate;
+import java.nio.file.*;
+import java.text.DecimalFormat;
+import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 import java.util.*;
-import java.util.function.Function;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-public class FeeScheduleTransformerPAD {
+public class AspFileConverter {
 
-    private static final List<String> OUTPUT_HEADERS = List.of(
-            "SCH NAME", "Procedure Code", "Modifier1", "Modifier2", "Modifier3", "Modifier4",
-            "Effective Date", "End Date", "Pricing Method", "New Rate", "Old Rate", "Comments"
-    );
+    // Hardcoded input/output paths
+    private static final String INPUT_FOLDER = "C:/Users/InputFiles/";
+    private static final String OUTPUT_FOLDER = "C:/Users/OutputFiles/";
 
-    private static final DateTimeFormatter OUT_DATE = DateTimeFormatter.ofPattern("MM/dd/yyyy");
-    private static final LocalDate MIN_EFFECTIVE_DATE = LocalDate.of(2022, 1, 1);
-    private static final String OPEN_END_OUTPUT = "12/31/9999";
+    private static final List<String> SUPPORTED_EXTENSIONS = List.of(".xls", ".xlsx");
 
-    private record OutputRow(
-            String schName,
-            String procedureCode,
-            String modifier1,
-            String modifier2,
-            String modifier3,
-            String modifier4,
-            String effectiveDate,
-            String endDate,
-            String pricingMethod,
-            String newRate,
-            String oldRate,
-            String comments
-    ) {
-        List<String> toList() {
-            return List.of(
-                    nz(schName), nz(procedureCode), nz(modifier1), nz(modifier2), nz(modifier3), nz(modifier4),
-                    nz(effectiveDate), nz(endDate), nz(pricingMethod), nz(newRate), nz(oldRate), nz(comments)
-            );
+    // Expected source headers
+    private static final String HCPCS_HEADER = "HCPCS Code";
+    private static final String PAYMENT_LIMIT_HEADER = "Payment Limit";
+
+    // Output headers based on your mapping
+    private static final String OUTPUT_COL_1 = "Procedure Code";
+    private static final String OUTPUT_COL_2 = "Modifier1";
+    private static final String OUTPUT_COL_3 = "New Rate";
+
+    public static void main(String[] args) {
+        try {
+            convertAllFiles();
+            System.out.println("Conversion completed successfully.");
+        } catch (Exception e) {
+            System.err.println("Error during conversion: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
-    public static void main(String[] args) throws Exception {
-        Path input = Path.of("/mnt/data/WEB-Phys-Admin-Drug-Services-Fee-Schedule-JAN-2026-FNL-v-2.xlsx");
-        Path outputFolder = Path.of("/mnt/data/pad_output");
-        Files.createDirectories(outputFolder);
+    public static void convertAllFiles() throws IOException {
+        Path inputDir = Paths.get(INPUT_FOLDER);
+        Path outputDir = Paths.get(OUTPUT_FOLDER);
 
-        transform(input, outputFolder);
-    }
-
-    public static void transform(Path inputFile, Path outputFolder) throws IOException {
-        try (InputStream in = Files.newInputStream(inputFile);
-             Workbook sourceWorkbook = WorkbookFactory.create(in)) {
-
-            Sheet padSheet = findSheetContains(sourceWorkbook, "PAD")
-                    .orElseThrow(() -> new IllegalArgumentException("No sheet name contains 'PAD'"));
-
-            Sheet manualSheet = findSheetContains(sourceWorkbook, "PAPRIC-PAY0-SYSMAN")
-                    .or(() -> findSheetContains(sourceWorkbook, "PAPRIC"))
-                    .orElseThrow(() -> new IllegalArgumentException("No sheet name contains 'PAPRIC-PAY0-SYSMAN' or 'PAPRIC'"));
-
-            List<OutputRow> padlRows = new ArrayList<>();
-            List<OutputRow> padlManRows = new ArrayList<>();
-
-            processPadSheet(padSheet, padlRows);
-            processManualSheet(manualSheet, padlRows, padlManRows);
-
-            writeWorkbook(outputFolder.resolve("MS MCD PADL.xlsx"), padlRows);
-            writeWorkbook(outputFolder.resolve("MS MCD PADL MAN.xlsx"), padlManRows);
+        if (!Files.exists(inputDir) || !Files.isDirectory(inputDir)) {
+            throw new IllegalArgumentException("Input folder does not exist: " + INPUT_FOLDER);
         }
-    }
 
-    private static void processPadSheet(Sheet sheet, List<OutputRow> padlRows) {
-        Map<String, Integer> headerMap = findHeaderMap(sheet,
-                List.of("Code", "Modifier 1", "Modifier 2", "Modifier 3", "Modifier 4", "Rate Type", "Begin Date", "End Date", "Fee"));
-
-        int headerRowIndex = findHeaderRowIndex(sheet,
-                List.of("Code", "Modifier 1", "Modifier 2", "Modifier 3", "Modifier 4", "Rate Type", "Begin Date", "End Date", "Fee"));
-
-        for (int r = headerRowIndex + 1; r <= sheet.getLastRowNum(); r++) {
-            Row row = sheet.getRow(r);
-            if (row == null || isCompletelyBlank(row)) continue;
-
-            String code = readCell(row, headerMap.get("Code"));
-            String rateType = readCell(row, headerMap.get("Rate Type"));
-            if (isBlank(code) || !equalsIgnoreCaseTrim(rateType, "PAD")) continue;
-
-            padlRows.add(new OutputRow(
-                    "MS MCD PADL",
-                    code,
-                    readCell(row, headerMap.get("Modifier 1")),
-                    readCell(row, headerMap.get("Modifier 2")),
-                    readCell(row, headerMap.get("Modifier 3")),
-                    readCell(row, headerMap.get("Modifier 4")),
-                    normalizeEffectiveDate(readCell(row, headerMap.get("Begin Date"))),
-                    normalizeEndDate(readCell(row, headerMap.get("End Date"))),
-                    "Allowed",
-                    normalizeRate(readCell(row, headerMap.get("Fee"))),
-                    "N/A",
-                    "New Code"
-            ));
+        if (!Files.exists(outputDir)) {
+            Files.createDirectories(outputDir);
         }
-    }
 
-    private static void processManualSheet(Sheet sheet, List<OutputRow> padlRows, List<OutputRow> padlManRows) {
-        Map<String, Integer> headerMap = findHeaderMap(sheet,
-                List.of("Procedure Code", "Modifier", "Rate Type", "Pricing Indicator", "DOS From", "DOS Thru"));
-
-        int headerRowIndex = findHeaderRowIndex(sheet,
-                List.of("Procedure Code", "Modifier", "Rate Type", "Pricing Indicator", "DOS From", "DOS Thru"));
-
-        Integer pricingIndicatorCol = headerMap.get("Pricing Indicator");
-        Integer rateTypeCol = headerMap.get("Rate Type");
-
-        for (int r = headerRowIndex + 1; r <= sheet.getLastRowNum(); r++) {
-            Row row = sheet.getRow(r);
-            if (row == null || isCompletelyBlank(row)) continue;
-
-            String procedureCode = readCell(row, headerMap.get("Procedure Code"));
-            String rateType = readCell(row, rateTypeCol);
-            String pricingIndicator = readCell(row, pricingIndicatorCol);
-            String modifier = readCell(row, headerMap.get("Modifier"));
-
-            if (isBlank(procedureCode) || !equalsIgnoreCaseTrim(rateType, "DEF")) {
-                continue;
-            }
-
-            OutputRow out = new OutputRow(
-                    determineManualSchName(pricingIndicator),
-                    procedureCode,
-                    modifier,
-                    "",
-                    "",
-                    "",
-                    normalizeEffectiveDate(readCell(row, headerMap.get("DOS From"))),
-                    normalizeEndDate(readCell(row, headerMap.get("DOS Thru"))),
-                    determinePricingMethod(pricingIndicator),
-                    "0.0000",
-                    "N/A",
-                    "New Code"
-            );
-
-            if (equalsIgnoreCaseTrim(pricingIndicator, "PAY0")) {
-                padlRows.add(out);
-            } else if (equalsIgnoreCaseTrim(pricingIndicator, "SYSMAN")) {
-                padlManRows.add(out);
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(inputDir)) {
+            for (Path file : stream) {
+                if (Files.isRegularFile(file) && isExcelFile(file)) {
+                    System.out.println("Processing file: " + file.getFileName());
+                    try {
+                        processSingleFile(file, outputDir);
+                    } catch (Exception e) {
+                        System.err.println("Failed for file: " + file.getFileName() + " -> " + e.getMessage());
+                        e.printStackTrace();
+                    }
+                }
             }
         }
     }
 
-    private static String determineManualSchName(String pricingIndicator) {
-        if (equalsIgnoreCaseTrim(pricingIndicator, "PAY0")) return "MS MCD PADL";
-        if (equalsIgnoreCaseTrim(pricingIndicator, "SYSMAN")) return "MS MCD PADL MAN";
-        return "";
+    private static boolean isExcelFile(Path file) {
+        String name = file.getFileName().toString().toLowerCase();
+        return SUPPORTED_EXTENSIONS.stream().anyMatch(name::endsWith);
     }
 
-    private static String determinePricingMethod(String pricingIndicator) {
-        if (equalsIgnoreCaseTrim(pricingIndicator, "SYSMAN")) return "By Report";
-        if (equalsIgnoreCaseTrim(pricingIndicator, "PAY0")) return "Allowed";
-        return "";
-    }
+    private static void processSingleFile(Path sourceFile, Path outputDir) throws IOException {
+        try (InputStream is = Files.newInputStream(sourceFile);
+             Workbook sourceWorkbook = WorkbookFactory.create(is);
+             Workbook outputWorkbook = new XSSFWorkbook()) {
 
-    private static void writeWorkbook(Path outputFile, List<OutputRow> rows) throws IOException {
-        try (Workbook wb = new XSSFWorkbook()) {
-            Sheet sheet = wb.createSheet("Change File Report");
+            Sheet sourceSheet = sourceWorkbook.getSheetAt(0); // first sheet
+            HeaderInfo headerInfo = findHeaderRow(sourceSheet);
 
-            DataFormat df = wb.createDataFormat();
-            CellStyle textStyle = wb.createCellStyle();
-            textStyle.setDataFormat(df.getFormat("@"));
-
-            Font headerFont = wb.createFont();
-            headerFont.setBold(true);
-
-            CellStyle headerStyle = wb.createCellStyle();
-            headerStyle.cloneStyleFrom(textStyle);
-            headerStyle.setFont(headerFont);
-
-            Row header = sheet.createRow(0);
-            for (int i = 0; i < OUTPUT_HEADERS.size(); i++) {
-                Cell cell = header.createCell(i, CellType.STRING);
-                cell.setCellValue(OUTPUT_HEADERS.get(i));
-                cell.setCellStyle(headerStyle);
+            if (headerInfo == null) {
+                throw new IllegalStateException("Could not find header row with required columns in file: "
+                        + sourceFile.getFileName());
             }
 
-            int rowIdx = 1;
-            for (OutputRow out : rows) {
-                Row row = sheet.createRow(rowIdx++);
-                List<String> values = out.toList();
-                for (int c = 0; c < values.size(); c++) {
-                    Cell cell = row.createCell(c, CellType.STRING);
-                    cell.setCellValue(values.get(c));
-                    cell.setCellStyle(textStyle);
+            Sheet outputSheet = outputWorkbook.createSheet("ASP Output");
+
+            // Create header style
+            CellStyle headerStyle = outputWorkbook.createCellStyle();
+            Font boldFont = outputWorkbook.createFont();
+            boldFont.setBold(true);
+            headerStyle.setFont(boldFont);
+
+            // Text style
+            CellStyle textStyle = outputWorkbook.createCellStyle();
+            DataFormat dataFormat = outputWorkbook.createDataFormat();
+            textStyle.setDataFormat(dataFormat.getFormat("@"));
+
+            // Decimal style for 0.0000
+            CellStyle rateStyle = outputWorkbook.createCellStyle();
+            rateStyle.setDataFormat(dataFormat.getFormat("0.0000"));
+
+            // Write output headers
+            Row outHeader = outputSheet.createRow(0);
+
+            Cell h1 = outHeader.createCell(0);
+            h1.setCellValue(OUTPUT_COL_1);
+            h1.setCellStyle(headerStyle);
+
+            Cell h2 = outHeader.createCell(1);
+            h2.setCellValue(OUTPUT_COL_2);
+            h2.setCellStyle(headerStyle);
+
+            Cell h3 = outHeader.createCell(2);
+            h3.setCellValue(OUTPUT_COL_3);
+            h3.setCellStyle(headerStyle);
+
+            DataFormatter formatter = new DataFormatter();
+            int outputRowNum = 1;
+
+            for (int r = headerInfo.headerRowIndex + 1; r <= sourceSheet.getLastRowNum(); r++) {
+                Row sourceRow = sourceSheet.getRow(r);
+                if (sourceRow == null) {
+                    continue;
+                }
+
+                String hcpcsCode = getCellStringValue(sourceRow.getCell(headerInfo.hcpcsColIndex), formatter).trim();
+                String paymentLimitRaw = getCellStringValue(sourceRow.getCell(headerInfo.paymentLimitColIndex), formatter).trim();
+
+                // Skip fully empty data rows
+                if (hcpcsCode.isEmpty() && paymentLimitRaw.isEmpty()) {
+                    continue;
+                }
+
+                Row outRow = outputSheet.createRow(outputRowNum++);
+
+                // Procedure Code
+                Cell c1 = outRow.createCell(0);
+                c1.setCellValue(hcpcsCode);
+                c1.setCellStyle(textStyle);
+
+                // Modifier1 -> blank
+                Cell c2 = outRow.createCell(1);
+                c2.setCellValue("");
+                c2.setCellStyle(textStyle);
+
+                // New Rate
+                Cell c3 = outRow.createCell(2);
+                Double rateValue = parseAmount(paymentLimitRaw);
+
+                if (rateValue != null) {
+                    c3.setCellValue(rateValue);
+                    c3.setCellStyle(rateStyle);
+                } else {
+                    // keep original content if it cannot be parsed numerically
+                    c3.setCellValue(paymentLimitRaw);
+                    c3.setCellStyle(textStyle);
                 }
             }
 
-            IntStreamRange.range(0, OUTPUT_HEADERS.size()).forEach(i -> sheet.setColumnWidth(i, Math.min(9000, (OUTPUT_HEADERS.get(i).length() + 8) * 256)));
-            sheet.setColumnWidth(0, 20 * 256);
-            sheet.setColumnWidth(1, 18 * 256);
-            sheet.setColumnWidth(8, 18 * 256);
-            sheet.setColumnWidth(9, 12 * 256);
-            sheet.setColumnWidth(10, 12 * 256);
-            sheet.setColumnWidth(11, 18 * 256);
+            outputSheet.autoSizeColumn(0);
+            outputSheet.autoSizeColumn(1);
+            outputSheet.autoSizeColumn(2);
 
-            try (OutputStream out = Files.newOutputStream(outputFile)) {
-                wb.write(out);
+            String outputFileName = buildOutputFileName(sourceFile.getFileName().toString());
+            Path outputFile = outputDir.resolve(outputFileName);
+
+            try (OutputStream os = Files.newOutputStream(outputFile)) {
+                outputWorkbook.write(os);
+            }
+
+            System.out.println("Output written: " + outputFile);
+        }
+    }
+
+    /**
+     * Finds the header row by detecting both:
+     * - HCPCS Code
+     * - Payment Limit
+     *
+     * Ignores special characters in header comparison.
+     */
+    private static HeaderInfo findHeaderRow(Sheet sheet) {
+        DataFormatter formatter = new DataFormatter();
+
+        for (int rowIndex = 0; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
+            Row row = sheet.getRow(rowIndex);
+            if (row == null) {
+                continue;
+            }
+
+            Integer hcpcsIndex = null;
+            Integer paymentLimitIndex = null;
+
+            short lastCellNum = row.getLastCellNum();
+            if (lastCellNum < 0) {
+                continue;
+            }
+
+            for (int colIndex = 0; colIndex < lastCellNum; colIndex++) {
+                Cell cell = row.getCell(colIndex);
+                String cellValue = formatter.formatCellValue(cell);
+
+                String normalized = normalizeHeader(cellValue);
+
+                if (normalized.equals(normalizeHeader(HCPCS_HEADER))) {
+                    hcpcsIndex = colIndex;
+                }
+
+                if (normalized.equals(normalizeHeader(PAYMENT_LIMIT_HEADER))) {
+                    paymentLimitIndex = colIndex;
+                }
+            }
+
+            if (hcpcsIndex != null && paymentLimitIndex != null) {
+                return new HeaderInfo(rowIndex, hcpcsIndex, paymentLimitIndex);
             }
         }
-    }
 
-    private static Optional<Sheet> findSheetContains(Workbook workbook, String token) {
-        String needle = token.toUpperCase(Locale.ROOT);
-        return Stream.iterate(0, i -> i + 1)
-                .limit(workbook.getNumberOfSheets())
-                .map(workbook::getSheetAt)
-                .filter(s -> s.getSheetName().toUpperCase(Locale.ROOT).contains(needle))
-                .findFirst();
-    }
-
-    private static int findHeaderRowIndex(Sheet sheet, List<String> requiredHeaders) {
-        for (int r = sheet.getFirstRowNum(); r <= sheet.getLastRowNum(); r++) {
-            Row row = sheet.getRow(r);
-            if (row == null) continue;
-            Set<String> present = cellsAsNormalizedSet(row);
-            boolean allFound = requiredHeaders.stream().map(FeeScheduleTransformerPAD::normalizeHeader).allMatch(present::contains);
-            if (allFound) return r;
-        }
-        throw new IllegalArgumentException("Unable to locate header row in sheet: " + sheet.getSheetName());
-    }
-
-    private static Map<String, Integer> findHeaderMap(Sheet sheet, List<String> requiredHeaders) {
-        int headerRowIndex = findHeaderRowIndex(sheet, requiredHeaders);
-        Row headerRow = sheet.getRow(headerRowIndex);
-
-        Map<String, Integer> raw = new HashMap<>();
-        for (Cell cell : headerRow) {
-            String text = normalizeHeader(readCell(cell));
-            if (!text.isEmpty()) raw.put(text, cell.getColumnIndex());
-        }
-
-        return requiredHeaders.stream()
-                .collect(Collectors.toMap(Function.identity(), h -> {
-                    Integer idx = raw.get(normalizeHeader(h));
-                    if (idx == null) throw new IllegalArgumentException("Missing header '" + h + "' in sheet: " + sheet.getSheetName());
-                    return idx;
-                }));
-    }
-
-    private static Set<String> cellsAsNormalizedSet(Row row) {
-        Set<String> set = new HashSet<>();
-        for (Cell cell : row) {
-            String value = normalizeHeader(readCell(cell));
-            if (!value.isEmpty()) set.add(value);
-        }
-        return set;
-    }
-
-    private static String normalizeHeader(String value) {
-        return nz(value).trim().replace("\n", " ").replace("\r", " ").replaceAll("\\s+", " ").toUpperCase(Locale.ROOT);
-    }
-
-    private static String readCell(Row row, Integer colIndex) {
-        if (row == null || colIndex == null) return "";
-        return readCell(row.getCell(colIndex, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL));
-    }
-
-    private static String readCell(Cell cell) {
-        if (cell == null) return "";
-        return switch (cell.getCellType()) {
-            case STRING -> cell.getStringCellValue().trim();
-            case NUMERIC -> DateUtil.isCellDateFormatted(cell)
-                    ? OUT_DATE.format(cell.getLocalDateTimeCellValue().toLocalDate())
-                    : stripTrailingZeros(BigDecimal.valueOf(cell.getNumericCellValue()).toPlainString());
-            case BOOLEAN -> Boolean.toString(cell.getBooleanCellValue());
-            case FORMULA -> readFormulaCell(cell);
-            case BLANK, _NONE, ERROR -> "";
-        };
-    }
-
-    private static String readFormulaCell(Cell cell) {
-        return switch (cell.getCachedFormulaResultType()) {
-            case STRING -> cell.getStringCellValue().trim();
-            case NUMERIC -> DateUtil.isCellDateFormatted(cell)
-                    ? OUT_DATE.format(cell.getLocalDateTimeCellValue().toLocalDate())
-                    : stripTrailingZeros(BigDecimal.valueOf(cell.getNumericCellValue()).toPlainString());
-            case BOOLEAN -> Boolean.toString(cell.getBooleanCellValue());
-            default -> "";
-        };
-    }
-
-    private static String normalizeEffectiveDate(String raw) {
-        LocalDate parsed = parseDate(raw);
-        if (parsed == null) return "";
-        if (parsed.isBefore(MIN_EFFECTIVE_DATE)) parsed = MIN_EFFECTIVE_DATE;
-        return OUT_DATE.format(parsed);
-    }
-
-    private static String normalizeEndDate(String raw) {
-        String cleaned = nz(raw).trim();
-        if (cleaned.equals("12/31/2299") || cleaned.equals("22991231")) return OPEN_END_OUTPUT;
-        LocalDate parsed = parseDate(cleaned);
-        return parsed == null ? cleaned : OUT_DATE.format(parsed);
-    }
-
-    private static LocalDate parseDate(String raw) {
-        String value = nz(raw).trim();
-        if (value.isEmpty()) return null;
-
-        List<DateTimeFormatter> formats = List.of(
-                DateTimeFormatter.ofPattern("M/d/yyyy"),
-                DateTimeFormatter.ofPattern("MM/dd/yyyy"),
-                DateTimeFormatter.ofPattern("M/d/uuuu"),
-                DateTimeFormatter.ofPattern("MM/dd/uuuu"),
-                DateTimeFormatter.ofPattern("yyyyMMdd")
-        );
-
-        for (DateTimeFormatter fmt : formats) {
-            try {
-                return LocalDate.parse(value, fmt);
-            } catch (DateTimeParseException ignored) {
-            }
-        }
         return null;
     }
 
-    private static String normalizeRate(String raw) {
-        String value = nz(raw).replace("$", "").replace(",", "").trim();
-        if (value.isEmpty()) return "";
+    /**
+     * Removes special characters and normalizes header text.
+     * Example:
+     * "Payment Limit", "Payment-Limit", "Payment Limit*" -> "paymentlimit"
+     */
+    private static String normalizeHeader(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replaceAll("[^A-Za-z0-9]", "")
+                    .toLowerCase(Locale.ROOT)
+                    .trim();
+    }
+
+    private static String getCellStringValue(Cell cell, DataFormatter formatter) {
+        if (cell == null) {
+            return "";
+        }
+        return formatter.formatCellValue(cell);
+    }
+
+    /**
+     * Converts values like:
+     * "$12.34", "12.34", "1,234.56"
+     * into numeric double.
+     */
+    private static Double parseAmount(String rawValue) {
+        if (rawValue == null || rawValue.trim().isEmpty()) {
+            return null;
+        }
+
+        String cleaned = rawValue.replaceAll("[$,\\s]", "").trim();
+
+        if (cleaned.isEmpty()) {
+            return null;
+        }
+
         try {
-            return new BigDecimal(value).setScale(4, RoundingMode.HALF_UP).toPlainString();
-        } catch (NumberFormatException ex) {
+            return Double.parseDouble(cleaned);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Extracts Month + Year from source filename and creates:
+     * April 2026_ASP.xlsx
+     *
+     * Example input:
+     * April 2026 Medicare Part B Payment Limit File 031926.xls
+     */
+    private static String buildOutputFileName(String sourceFileName) {
+        Pattern pattern = Pattern.compile(
+                "(January|February|March|April|May|June|July|August|September|October|November|December)\\s+(\\d{4})",
+                Pattern.CASE_INSENSITIVE
+        );
+
+        Matcher matcher = pattern.matcher(sourceFileName);
+        if (matcher.find()) {
+            String month = capitalizeFirstLetter(matcher.group(1).toLowerCase(Locale.ROOT));
+            String year = matcher.group(2);
+            return month + " " + year + "_ASP.xlsx";
+        }
+
+        // fallback if month/year not found
+        return removeExtension(sourceFileName) + "_ASP.xlsx";
+    }
+
+    private static String capitalizeFirstLetter(String value) {
+        if (value == null || value.isEmpty()) {
             return value;
         }
+        return value.substring(0, 1).toUpperCase(Locale.ROOT) + value.substring(1);
     }
 
-    private static boolean isCompletelyBlank(Row row) {
-        if (row == null) return true;
-        for (Cell cell : row) {
-            if (!isBlank(readCell(cell))) return false;
-        }
-        return true;
+    private static String removeExtension(String fileName) {
+        int dotIndex = fileName.lastIndexOf('.');
+        return dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName;
     }
 
-    private static boolean equalsIgnoreCaseTrim(String a, String b) {
-        return nz(a).trim().equalsIgnoreCase(nz(b).trim());
-    }
+    private static class HeaderInfo {
+        private final int headerRowIndex;
+        private final int hcpcsColIndex;
+        private final int paymentLimitColIndex;
 
-    private static boolean isBlank(String value) {
-        return nz(value).trim().isEmpty();
-    }
-
-    private static String nz(String value) {
-        return value == null ? "" : value;
-    }
-
-    private static String stripTrailingZeros(String numeric) {
-        try {
-            return new BigDecimal(numeric).stripTrailingZeros().toPlainString();
-        } catch (NumberFormatException ex) {
-            return numeric;
-        }
-    }
-
-    private static final class IntStreamRange {
-        private IntStreamRange() {}
-        static java.util.stream.IntStream range(int startInclusive, int endExclusive) {
-            return java.util.stream.IntStream.range(startInclusive, endExclusive);
+        private HeaderInfo(int headerRowIndex, int hcpcsColIndex, int paymentLimitColIndex) {
+            this.headerRowIndex = headerRowIndex;
+            this.hcpcsColIndex = hcpcsColIndex;
+            this.paymentLimitColIndex = paymentLimitColIndex;
         }
     }
 }
