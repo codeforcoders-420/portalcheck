@@ -3,65 +3,62 @@ package com.example.aspconverter;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
-import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.*;
-import java.text.DecimalFormat;
-import java.time.YearMonth;
-import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.List;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class AspFileConverter {
 
-    // Hardcoded input/output paths
+    // Hardcoded paths
     private static final String INPUT_FOLDER = "C:/Users/InputFiles/";
     private static final String OUTPUT_FOLDER = "C:/Users/OutputFiles/";
 
     private static final List<String> SUPPORTED_EXTENSIONS = List.of(".xls", ".xlsx");
 
-    // Expected source headers
+    // Required source headers
     private static final String HCPCS_HEADER = "HCPCS Code";
     private static final String PAYMENT_LIMIT_HEADER = "Payment Limit";
 
-    // Output headers based on your mapping
-    private static final String OUTPUT_COL_1 = "Procedure Code";
-    private static final String OUTPUT_COL_2 = "Modifier1";
-    private static final String OUTPUT_COL_3 = "New Rate";
+    // Output headers
+    private static final String OUTPUT_PROCEDURE_CODE = "Procedure Code";
+    private static final String OUTPUT_MODIFIER1 = "Modifier1";
+    private static final String OUTPUT_NEW_RATE = "New Rate";
 
     public static void main(String[] args) {
         try {
             convertAllFiles();
-            System.out.println("Conversion completed successfully.");
+            System.out.println("All files processed successfully.");
         } catch (Exception e) {
-            System.err.println("Error during conversion: " + e.getMessage());
+            System.err.println("Error while processing files: " + e.getMessage());
             e.printStackTrace();
         }
     }
 
-    public static void convertAllFiles() throws IOException {
-        Path inputDir = Paths.get(INPUT_FOLDER);
-        Path outputDir = Paths.get(OUTPUT_FOLDER);
+    private static void convertAllFiles() throws Exception {
+        Path inputPath = Paths.get(INPUT_FOLDER);
+        Path outputPath = Paths.get(OUTPUT_FOLDER);
 
-        if (!Files.exists(inputDir) || !Files.isDirectory(inputDir)) {
+        if (!Files.exists(inputPath) || !Files.isDirectory(inputPath)) {
             throw new IllegalArgumentException("Input folder does not exist: " + INPUT_FOLDER);
         }
 
-        if (!Files.exists(outputDir)) {
-            Files.createDirectories(outputDir);
+        if (!Files.exists(outputPath)) {
+            Files.createDirectories(outputPath);
         }
 
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(inputDir)) {
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(inputPath)) {
             for (Path file : stream) {
                 if (Files.isRegularFile(file) && isExcelFile(file)) {
-                    System.out.println("Processing file: " + file.getFileName());
+                    System.out.println("Processing: " + file.getFileName());
                     try {
-                        processSingleFile(file, outputDir);
+                        processFile(file, outputPath);
                     } catch (Exception e) {
-                        System.err.println("Failed for file: " + file.getFileName() + " -> " + e.getMessage());
-                        e.printStackTrace();
+                        System.err.println("Failed to process file: " + file.getFileName());
+                        System.err.println("Reason: " + e.getMessage());
                     }
                 }
             }
@@ -69,95 +66,92 @@ public class AspFileConverter {
     }
 
     private static boolean isExcelFile(Path file) {
-        String name = file.getFileName().toString().toLowerCase();
-        return SUPPORTED_EXTENSIONS.stream().anyMatch(name::endsWith);
+        String fileName = file.getFileName().toString().toLowerCase(Locale.ROOT);
+        return SUPPORTED_EXTENSIONS.stream().anyMatch(fileName::endsWith);
     }
 
-    private static void processSingleFile(Path sourceFile, Path outputDir) throws IOException {
-        try (InputStream is = Files.newInputStream(sourceFile);
-             Workbook sourceWorkbook = WorkbookFactory.create(is);
+    private static void processFile(Path sourceFile, Path outputFolder) throws Exception {
+        try (InputStream inputStream = Files.newInputStream(sourceFile);
+             Workbook sourceWorkbook = WorkbookFactory.create(inputStream);
              Workbook outputWorkbook = new XSSFWorkbook()) {
 
-            Sheet sourceSheet = sourceWorkbook.getSheetAt(0); // first sheet
+            Sheet sourceSheet = sourceWorkbook.getSheetAt(0);
             HeaderInfo headerInfo = findHeaderRow(sourceSheet);
 
             if (headerInfo == null) {
-                throw new IllegalStateException("Could not find header row with required columns in file: "
-                        + sourceFile.getFileName());
+                throw new IllegalStateException("Required headers not found in source file.");
             }
 
             Sheet outputSheet = outputWorkbook.createSheet("ASP Output");
 
-            // Create header style
+            // Styles
+            DataFormat dataFormat = outputWorkbook.createDataFormat();
+
             CellStyle headerStyle = outputWorkbook.createCellStyle();
             Font boldFont = outputWorkbook.createFont();
             boldFont.setBold(true);
             headerStyle.setFont(boldFont);
 
-            // Text style
             CellStyle textStyle = outputWorkbook.createCellStyle();
-            DataFormat dataFormat = outputWorkbook.createDataFormat();
             textStyle.setDataFormat(dataFormat.getFormat("@"));
 
-            // Decimal style for 0.0000
             CellStyle rateStyle = outputWorkbook.createCellStyle();
             rateStyle.setDataFormat(dataFormat.getFormat("0.0000"));
 
             // Write output headers
-            Row outHeader = outputSheet.createRow(0);
+            Row headerRow = outputSheet.createRow(0);
 
-            Cell h1 = outHeader.createCell(0);
-            h1.setCellValue(OUTPUT_COL_1);
+            Cell h1 = headerRow.createCell(0);
+            h1.setCellValue(OUTPUT_PROCEDURE_CODE);
             h1.setCellStyle(headerStyle);
 
-            Cell h2 = outHeader.createCell(1);
-            h2.setCellValue(OUTPUT_COL_2);
+            Cell h2 = headerRow.createCell(1);
+            h2.setCellValue(OUTPUT_MODIFIER1);
             h2.setCellStyle(headerStyle);
 
-            Cell h3 = outHeader.createCell(2);
-            h3.setCellValue(OUTPUT_COL_3);
+            Cell h3 = headerRow.createCell(2);
+            h3.setCellValue(OUTPUT_NEW_RATE);
             h3.setCellStyle(headerStyle);
 
             DataFormatter formatter = new DataFormatter();
             int outputRowNum = 1;
 
-            for (int r = headerInfo.headerRowIndex + 1; r <= sourceSheet.getLastRowNum(); r++) {
-                Row sourceRow = sourceSheet.getRow(r);
+            for (int rowIndex = headerInfo.headerRowIndex + 1; rowIndex <= sourceSheet.getLastRowNum(); rowIndex++) {
+                Row sourceRow = sourceSheet.getRow(rowIndex);
                 if (sourceRow == null) {
                     continue;
                 }
 
-                String hcpcsCode = getCellStringValue(sourceRow.getCell(headerInfo.hcpcsColIndex), formatter).trim();
-                String paymentLimitRaw = getCellStringValue(sourceRow.getCell(headerInfo.paymentLimitColIndex), formatter).trim();
+                String hcpcsCode = getCellValueAsString(sourceRow.getCell(headerInfo.hcpcsCodeColIndex), formatter).trim();
+                String paymentLimit = getCellValueAsString(sourceRow.getCell(headerInfo.paymentLimitColIndex), formatter).trim();
 
-                // Skip fully empty data rows
-                if (hcpcsCode.isEmpty() && paymentLimitRaw.isEmpty()) {
+                // Skip empty rows
+                if (hcpcsCode.isEmpty() && paymentLimit.isEmpty()) {
                     continue;
                 }
 
-                Row outRow = outputSheet.createRow(outputRowNum++);
+                Row outputRow = outputSheet.createRow(outputRowNum++);
 
                 // Procedure Code
-                Cell c1 = outRow.createCell(0);
-                c1.setCellValue(hcpcsCode);
-                c1.setCellStyle(textStyle);
+                Cell procedureCodeCell = outputRow.createCell(0);
+                procedureCodeCell.setCellValue(hcpcsCode);
+                procedureCodeCell.setCellStyle(textStyle);
 
                 // Modifier1 -> blank
-                Cell c2 = outRow.createCell(1);
-                c2.setCellValue("");
-                c2.setCellStyle(textStyle);
+                Cell modifier1Cell = outputRow.createCell(1);
+                modifier1Cell.setCellValue("");
+                modifier1Cell.setCellStyle(textStyle);
 
                 // New Rate
-                Cell c3 = outRow.createCell(2);
-                Double rateValue = parseAmount(paymentLimitRaw);
+                Cell newRateCell = outputRow.createCell(2);
+                Double numericRate = parsePaymentLimit(paymentLimit);
 
-                if (rateValue != null) {
-                    c3.setCellValue(rateValue);
-                    c3.setCellStyle(rateStyle);
+                if (numericRate != null) {
+                    newRateCell.setCellValue(numericRate);
+                    newRateCell.setCellStyle(rateStyle);
                 } else {
-                    // keep original content if it cannot be parsed numerically
-                    c3.setCellValue(paymentLimitRaw);
-                    c3.setCellStyle(textStyle);
+                    newRateCell.setCellValue("");
+                    newRateCell.setCellStyle(textStyle);
                 }
             }
 
@@ -166,23 +160,16 @@ public class AspFileConverter {
             outputSheet.autoSizeColumn(2);
 
             String outputFileName = buildOutputFileName(sourceFile.getFileName().toString());
-            Path outputFile = outputDir.resolve(outputFileName);
+            Path outputFile = outputFolder.resolve(outputFileName);
 
-            try (OutputStream os = Files.newOutputStream(outputFile)) {
-                outputWorkbook.write(os);
+            try (OutputStream outputStream = Files.newOutputStream(outputFile)) {
+                outputWorkbook.write(outputStream);
             }
 
-            System.out.println("Output written: " + outputFile);
+            System.out.println("Created output file: " + outputFile.getFileName());
         }
     }
 
-    /**
-     * Finds the header row by detecting both:
-     * - HCPCS Code
-     * - Payment Limit
-     *
-     * Ignores special characters in header comparison.
-     */
     private static HeaderInfo findHeaderRow(Sheet sheet) {
         DataFormatter formatter = new DataFormatter();
 
@@ -204,13 +191,13 @@ public class AspFileConverter {
                 Cell cell = row.getCell(colIndex);
                 String cellValue = formatter.formatCellValue(cell);
 
-                String normalized = normalizeHeader(cellValue);
+                String normalizedHeader = normalizeHeader(cellValue);
 
-                if (normalized.equals(normalizeHeader(HCPCS_HEADER))) {
+                if (normalizedHeader.equals(normalizeHeader(HCPCS_HEADER))) {
                     hcpcsIndex = colIndex;
                 }
 
-                if (normalized.equals(normalizeHeader(PAYMENT_LIMIT_HEADER))) {
+                if (normalizedHeader.equals(normalizeHeader(PAYMENT_LIMIT_HEADER))) {
                     paymentLimitIndex = colIndex;
                 }
             }
@@ -224,20 +211,20 @@ public class AspFileConverter {
     }
 
     /**
-     * Removes special characters and normalizes header text.
+     * Removes all special characters and compares only letters/numbers.
      * Example:
-     * "Payment Limit", "Payment-Limit", "Payment Limit*" -> "paymentlimit"
+     * "Payment Limit", "Payment-Limit", "Payment Limit*" => same
      */
     private static String normalizeHeader(String value) {
         if (value == null) {
             return "";
         }
         return value.replaceAll("[^A-Za-z0-9]", "")
-                    .toLowerCase(Locale.ROOT)
-                    .trim();
+                .toLowerCase(Locale.ROOT)
+                .trim();
     }
 
-    private static String getCellStringValue(Cell cell, DataFormatter formatter) {
+    private static String getCellValueAsString(Cell cell, DataFormatter formatter) {
         if (cell == null) {
             return "";
         }
@@ -245,16 +232,18 @@ public class AspFileConverter {
     }
 
     /**
-     * Converts values like:
-     * "$12.34", "12.34", "1,234.56"
-     * into numeric double.
+     * Converts payment limit values to numeric.
+     * Handles:
+     * $12.34
+     * 12.34
+     * 1,234.56
      */
-    private static Double parseAmount(String rawValue) {
-        if (rawValue == null || rawValue.trim().isEmpty()) {
+    private static Double parsePaymentLimit(String value) {
+        if (value == null || value.trim().isEmpty()) {
             return null;
         }
 
-        String cleaned = rawValue.replaceAll("[$,\\s]", "").trim();
+        String cleaned = value.replaceAll("[$,\\s]", "").trim();
 
         if (cleaned.isEmpty()) {
             return null;
@@ -268,49 +257,44 @@ public class AspFileConverter {
     }
 
     /**
-     * Extracts Month + Year from source filename and creates:
-     * April 2026_ASP.xlsx
+     * Extracts Month and Year from source file name and creates:
+     * Month Year_ASP.xlsx
      *
-     * Example input:
-     * April 2026 Medicare Part B Payment Limit File 031926.xls
+     * Examples:
+     * abc_April_2026_test.xls -> April 2026_ASP.xlsx
+     * file-May-2025-final.xlsx -> May 2025_ASP.xlsx
+     * April 2026 Medicare File.xls -> April 2026_ASP.xlsx
      */
     private static String buildOutputFileName(String sourceFileName) {
         Pattern pattern = Pattern.compile(
-                "(January|February|March|April|May|June|July|August|September|October|November|December)\\s+(\\d{4})",
+                "(January|February|March|April|May|June|July|August|September|October|November|December)[\\s_\\-]+(\\d{4})",
                 Pattern.CASE_INSENSITIVE
         );
 
         Matcher matcher = pattern.matcher(sourceFileName);
+
         if (matcher.find()) {
-            String month = capitalizeFirstLetter(matcher.group(1).toLowerCase(Locale.ROOT));
+            String month = capitalizeMonth(matcher.group(1));
             String year = matcher.group(2);
             return month + " " + year + "_ASP.xlsx";
         }
 
-        // fallback if month/year not found
-        return removeExtension(sourceFileName) + "_ASP.xlsx";
+        throw new IllegalArgumentException("Month and Year not found in source file name: " + sourceFileName);
     }
 
-    private static String capitalizeFirstLetter(String value) {
-        if (value == null || value.isEmpty()) {
-            return value;
-        }
-        return value.substring(0, 1).toUpperCase(Locale.ROOT) + value.substring(1);
-    }
-
-    private static String removeExtension(String fileName) {
-        int dotIndex = fileName.lastIndexOf('.');
-        return dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName;
+    private static String capitalizeMonth(String month) {
+        String lower = month.toLowerCase(Locale.ROOT);
+        return lower.substring(0, 1).toUpperCase(Locale.ROOT) + lower.substring(1);
     }
 
     private static class HeaderInfo {
         private final int headerRowIndex;
-        private final int hcpcsColIndex;
+        private final int hcpcsCodeColIndex;
         private final int paymentLimitColIndex;
 
-        private HeaderInfo(int headerRowIndex, int hcpcsColIndex, int paymentLimitColIndex) {
+        public HeaderInfo(int headerRowIndex, int hcpcsCodeColIndex, int paymentLimitColIndex) {
             this.headerRowIndex = headerRowIndex;
-            this.hcpcsColIndex = hcpcsColIndex;
+            this.hcpcsCodeColIndex = hcpcsCodeColIndex;
             this.paymentLimitColIndex = paymentLimitColIndex;
         }
     }
