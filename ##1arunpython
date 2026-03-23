@@ -6,8 +6,10 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.*;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -27,6 +29,9 @@ public class AspFileConverter {
     private static final String OUTPUT_PROCEDURE_CODE = "Procedure Code";
     private static final String OUTPUT_MODIFIER1 = "Modifier1";
     private static final String OUTPUT_NEW_RATE = "New Rate";
+
+    // Month lookup
+    private static final Map<String, String> MONTH_LOOKUP = createMonthLookup();
 
     public static void main(String[] args) {
         try {
@@ -84,7 +89,6 @@ public class AspFileConverter {
 
             Sheet outputSheet = outputWorkbook.createSheet("ASP Output");
 
-            // Styles
             DataFormat dataFormat = outputWorkbook.createDataFormat();
 
             CellStyle headerStyle = outputWorkbook.createCellStyle();
@@ -98,7 +102,7 @@ public class AspFileConverter {
             CellStyle rateStyle = outputWorkbook.createCellStyle();
             rateStyle.setDataFormat(dataFormat.getFormat("0.0000"));
 
-            // Write output headers
+            // Output header row
             Row headerRow = outputSheet.createRow(0);
 
             Cell h1 = headerRow.createCell(0);
@@ -125,7 +129,6 @@ public class AspFileConverter {
                 String hcpcsCode = getCellValueAsString(sourceRow.getCell(headerInfo.hcpcsCodeColIndex), formatter).trim();
                 String paymentLimit = getCellValueAsString(sourceRow.getCell(headerInfo.paymentLimitColIndex), formatter).trim();
 
-                // Skip empty rows
                 if (hcpcsCode.isEmpty() && paymentLimit.isEmpty()) {
                     continue;
                 }
@@ -210,11 +213,6 @@ public class AspFileConverter {
         return null;
     }
 
-    /**
-     * Removes all special characters and compares only letters/numbers.
-     * Example:
-     * "Payment Limit", "Payment-Limit", "Payment Limit*" => same
-     */
     private static String normalizeHeader(String value) {
         if (value == null) {
             return "";
@@ -231,13 +229,6 @@ public class AspFileConverter {
         return formatter.formatCellValue(cell);
     }
 
-    /**
-     * Converts payment limit values to numeric.
-     * Handles:
-     * $12.34
-     * 12.34
-     * 1,234.56
-     */
     private static Double parsePaymentLimit(String value) {
         if (value == null || value.trim().isEmpty()) {
             return null;
@@ -257,34 +248,100 @@ public class AspFileConverter {
     }
 
     /**
-     * Extracts Month and Year from source file name and creates:
-     * Month Year_ASP.xlsx
-     *
-     * Examples:
-     * abc_April_2026_test.xls -> April 2026_ASP.xlsx
-     * file-May-2025-final.xlsx -> May 2025_ASP.xlsx
-     * April 2026 Medicare File.xls -> April 2026_ASP.xlsx
+     * Handles:
+     * January 2025
+     * Jan 2025
+     * JAN_2025
+     * APR-2025
+     * Sept 2025
+     * september_2025
      */
     private static String buildOutputFileName(String sourceFileName) {
         Pattern pattern = Pattern.compile(
-                "(January|February|March|April|May|June|July|August|September|October|November|December)[\\s_\\-]+(\\d{4})",
-                Pattern.CASE_INSENSITIVE
+                "(?i)\\b(" +
+                        "jan(?:uary)?|" +
+                        "feb(?:ruary)?|" +
+                        "mar(?:ch)?|" +
+                        "apr(?:il)?|" +
+                        "may|" +
+                        "jun(?:e)?|" +
+                        "jul(?:y)?|" +
+                        "aug(?:ust)?|" +
+                        "sep(?:t|tember)?|" +
+                        "oct(?:ober)?|" +
+                        "nov(?:ember)?|" +
+                        "dec(?:ember)?" +
+                        ")\\b[\\s_\\-]+(\\d{4})\\b"
         );
 
         Matcher matcher = pattern.matcher(sourceFileName);
 
         if (matcher.find()) {
-            String month = capitalizeMonth(matcher.group(1));
+            String rawMonth = matcher.group(1);
             String year = matcher.group(2);
+
+            String month = normalizeMonth(rawMonth);
             return month + " " + year + "_ASP.xlsx";
         }
 
         throw new IllegalArgumentException("Month and Year not found in source file name: " + sourceFileName);
     }
 
-    private static String capitalizeMonth(String month) {
-        String lower = month.toLowerCase(Locale.ROOT);
-        return lower.substring(0, 1).toUpperCase(Locale.ROOT) + lower.substring(1);
+    private static String normalizeMonth(String rawMonth) {
+        if (rawMonth == null || rawMonth.isBlank()) {
+            throw new IllegalArgumentException("Month value is blank.");
+        }
+
+        String key = rawMonth.toLowerCase(Locale.ROOT).trim();
+
+        String normalizedMonth = MONTH_LOOKUP.get(key);
+        if (normalizedMonth != null) {
+            return normalizedMonth;
+        }
+
+        throw new IllegalArgumentException("Unsupported month value found in file name: " + rawMonth);
+    }
+
+    private static Map<String, String> createMonthLookup() {
+        Map<String, String> map = new HashMap<>();
+
+        map.put("jan", "January");
+        map.put("january", "January");
+
+        map.put("feb", "February");
+        map.put("february", "February");
+
+        map.put("mar", "March");
+        map.put("march", "March");
+
+        map.put("apr", "April");
+        map.put("april", "April");
+
+        map.put("may", "May");
+
+        map.put("jun", "June");
+        map.put("june", "June");
+
+        map.put("jul", "July");
+        map.put("july", "July");
+
+        map.put("aug", "August");
+        map.put("august", "August");
+
+        map.put("sep", "September");
+        map.put("sept", "September");
+        map.put("september", "September");
+
+        map.put("oct", "October");
+        map.put("october", "October");
+
+        map.put("nov", "November");
+        map.put("november", "November");
+
+        map.put("dec", "December");
+        map.put("december", "December");
+
+        return map;
     }
 
     private static class HeaderInfo {
