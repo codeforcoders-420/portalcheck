@@ -1,358 +1,308 @@
-package com.example.aspconverter;
-
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.file.*;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.text.DecimalFormat;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
 
-public class AspFileConverter {
+public class FeeScheduleTransformerAUDIO {
 
-    // Hardcoded paths
-    private static final String INPUT_FOLDER = "C:/Users/InputFiles/";
-    private static final String OUTPUT_FOLDER = "C:/Users/OutputFiles/";
+    private static final List<String> OUTPUT_HEADERS = List.of(
+            "SCH NAME", "Procedure Code", "Modifier1", "Modifier2", "Modifier3", "Modifier4",
+            "Effective Date", "End Date", "Pricing Method", "New Rate", "Old Rate", "Comments"
+    );
 
-    private static final List<String> SUPPORTED_EXTENSIONS = List.of(".xls", ".xlsx");
+    private static final LocalDate MIN_EFFECTIVE_DATE = LocalDate.of(2022, 1, 1);
+    private static final DateTimeFormatter OUT_DATE = DateTimeFormatter.ofPattern("MM/dd/yyyy");
+    private static final DecimalFormat RATE_FORMAT = new DecimalFormat("0.0000");
 
-    // Required source headers
-    private static final String HCPCS_HEADER = "HCPCS Code";
-    private static final String PAYMENT_LIMIT_HEADER = "Payment Limit";
-
-    // Output headers
-    private static final String OUTPUT_PROCEDURE_CODE = "Procedure Code";
-    private static final String OUTPUT_MODIFIER1 = "Modifier1";
-    private static final String OUTPUT_NEW_RATE = "New Rate";
-
-    // Month lookup
-    private static final Map<String, String> MONTH_LOOKUP = createMonthLookup();
-
-    public static void main(String[] args) {
-        try {
-            convertAllFiles();
-            System.out.println("All files processed successfully.");
-        } catch (Exception e) {
-            System.err.println("Error while processing files: " + e.getMessage());
-            e.printStackTrace();
-        }
+    public static void main(String[] args) throws Exception {
+        Path input = Path.of("/mnt/data/WEB-Audiology-Hearing-Services-Fee-Schedule-January-2026-FNL-.xlsx");
+        Path outputFolder = Path.of("/mnt/data/audio_output");
+        Files.createDirectories(outputFolder);
+        transform(input, outputFolder);
     }
 
-    private static void convertAllFiles() throws Exception {
-        Path inputPath = Paths.get(INPUT_FOLDER);
-        Path outputPath = Paths.get(OUTPUT_FOLDER);
+    public static void transform(Path inputFile, Path outputFolder) throws Exception {
+        try (InputStream is = Files.newInputStream(inputFile); Workbook workbook = WorkbookFactory.create(is)) {
+            Sheet audioSheet = findSheetContaining(workbook, "AUDIO");
+            Sheet manualSheet = findSheetContaining(workbook, "PAY0-SYSMAN-PAPRIC");
 
-        if (!Files.exists(inputPath) || !Files.isDirectory(inputPath)) {
-            throw new IllegalArgumentException("Input folder does not exist: " + INPUT_FOLDER);
-        }
-
-        if (!Files.exists(outputPath)) {
-            Files.createDirectories(outputPath);
-        }
-
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(inputPath)) {
-            for (Path file : stream) {
-                if (Files.isRegularFile(file) && isExcelFile(file)) {
-                    System.out.println("Processing: " + file.getFileName());
-                    try {
-                        processFile(file, outputPath);
-                    } catch (Exception e) {
-                        System.err.println("Failed to process file: " + file.getFileName());
-                        System.err.println("Reason: " + e.getMessage());
-                    }
-                }
+            if (audioSheet == null) {
+                throw new IllegalArgumentException("Could not find sheet containing AUDIO");
             }
-        }
-    }
-
-    private static boolean isExcelFile(Path file) {
-        String fileName = file.getFileName().toString().toLowerCase(Locale.ROOT);
-        return SUPPORTED_EXTENSIONS.stream().anyMatch(fileName::endsWith);
-    }
-
-    private static void processFile(Path sourceFile, Path outputFolder) throws Exception {
-        try (InputStream inputStream = Files.newInputStream(sourceFile);
-             Workbook sourceWorkbook = WorkbookFactory.create(inputStream);
-             Workbook outputWorkbook = new XSSFWorkbook()) {
-
-            Sheet sourceSheet = sourceWorkbook.getSheetAt(0);
-            HeaderInfo headerInfo = findHeaderRow(sourceSheet);
-
-            if (headerInfo == null) {
-                throw new IllegalStateException("Required headers not found in source file.");
+            if (manualSheet == null) {
+                throw new IllegalArgumentException("Could not find sheet containing PAY0-SYSMAN-PAPRIC");
             }
 
-            Sheet outputSheet = outputWorkbook.createSheet("ASP Output");
+            int audioHeaderRowIdx = findHeaderRow(audioSheet, List.of(
+                    "Code", "Modifier 1", "Modifier 2", "Modifier 3", "Modifier 4",
+                    "Rate Type", "Begin Date", "End Date", "Fee"
+            ));
+            if (audioHeaderRowIdx < 0) {
+                throw new IllegalArgumentException("Header row not found in AUDIO sheet");
+            }
 
-            DataFormat dataFormat = outputWorkbook.createDataFormat();
+            int manualHeaderRowIdx = findHeaderRow(manualSheet, List.of(
+                    "Procedure Code", "Pricing Indicator", "Rate Type", "DOS From", "DOS Thru"
+            ));
+            if (manualHeaderRowIdx < 0) {
+                throw new IllegalArgumentException("Header row not found in PAY0-SYSMAN-PAPRIC sheet");
+            }
 
-            CellStyle headerStyle = outputWorkbook.createCellStyle();
-            Font boldFont = outputWorkbook.createFont();
-            boldFont.setBold(true);
-            headerStyle.setFont(boldFont);
+            Map<String, List<String[]>> grouped = new LinkedHashMap<>();
+            grouped.put("MS MCD AUDL", new ArrayList<>());
+            grouped.put("MS MCD AUDL FAC", new ArrayList<>());
 
-            CellStyle textStyle = outputWorkbook.createCellStyle();
+            processAudioSheet(audioSheet, audioHeaderRowIdx, grouped);
+            processManualSheet(manualSheet, manualHeaderRowIdx, grouped);
+
+            writeWorkbook(outputFolder.resolve("MS MCD AUDL.xlsx"), grouped.get("MS MCD AUDL"));
+            writeWorkbook(outputFolder.resolve("MS MCD AUDL FAC.xlsx"), grouped.get("MS MCD AUDL FAC"));
+        }
+    }
+
+    private static void processAudioSheet(Sheet sheet, int headerRowIdx, Map<String, List<String[]>> grouped) {
+        Map<String, Integer> col = buildHeaderMap(sheet.getRow(headerRowIdx));
+        for (int r = headerRowIdx + 1; r <= sheet.getLastRowNum(); r++) {
+            Row row = sheet.getRow(r);
+            if (row == null || isBlankRow(row)) continue;
+
+            String code = getCellString(row, col.get("CODE"));
+            if (code.isBlank()) continue;
+
+            String rateType = getCellString(row, col.get("RATE TYPE"));
+            String schName = null;
+            if (equalsAny(rateType, "DEF")) schName = "MS MCD AUDL";
+            else if (equalsAny(rateType, "SDF")) schName = "MS MCD AUDL FAC";
+            else continue;
+
+            String[] out = new String[] {
+                    schName,
+                    code,
+                    getCellString(row, col.get("MODIFIER 1")),
+                    getCellString(row, col.get("MODIFIER 2")),
+                    getCellString(row, col.get("MODIFIER 3")),
+                    getCellString(row, col.get("MODIFIER 4")),
+                    normalizeEffectiveDate(getCellString(row, col.get("BEGIN DATE"))),
+                    normalizeEndDate(getCellString(row, col.get("END DATE"))),
+                    "Allowed",
+                    formatRate(getCellString(row, col.get("FEE"))),
+                    "N/A",
+                    "New Code"
+            };
+            grouped.get(schName).add(out);
+        }
+    }
+
+    private static void processManualSheet(Sheet sheet, int headerRowIdx, Map<String, List<String[]>> grouped) {
+        Map<String, Integer> col = buildHeaderMap(sheet.getRow(headerRowIdx));
+        for (int r = headerRowIdx + 1; r <= sheet.getLastRowNum(); r++) {
+            Row row = sheet.getRow(r);
+            if (row == null || isBlankRow(row)) continue;
+
+            String code = getCellString(row, col.get("PROCEDURE CODE"));
+            if (code.isBlank()) continue;
+
+            String rateType = getCellString(row, col.get("RATE TYPE"));
+            String pricingIndicator = getCellString(row, col.get("PRICING INDICATOR"));
+            String schName = null;
+            if (equalsAny(rateType, "DEF") && equalsAny(pricingIndicator, "SYSMAN")) {
+                schName = "MS MCD AUDL";
+            } else if (equalsAny(rateType, "SDF") && equalsAny(pricingIndicator, "SYSMAN")) {
+                schName = "MS MCD AUDL FAC";
+            } else {
+                continue;
+            }
+
+            String modifier = getCellString(row, col.get("MODIFIER"));
+            String pricingMethod = equalsAny(pricingIndicator, "SYSMAN") ? "By Report"
+                    : equalsAny(pricingIndicator, "PAY0") ? "Allowed" : "";
+
+            String[] out = new String[] {
+                    schName,
+                    code,
+                    modifier,
+                    "",
+                    "",
+                    "",
+                    normalizeEffectiveDate(getCellString(row, col.get("DOS FROM"))),
+                    normalizeEndDate(getCellString(row, col.get("DOS THRU"))),
+                    pricingMethod,
+                    "0.0000",
+                    "N/A",
+                    "New Code"
+            };
+            grouped.get(schName).add(out);
+        }
+    }
+
+    private static void writeWorkbook(Path outputFile, List<String[]> rows) throws IOException {
+        try (Workbook wb = new XSSFWorkbook()) {
+            Sheet sheet = wb.createSheet("Output");
+            DataFormat dataFormat = wb.createDataFormat();
+            CellStyle textStyle = wb.createCellStyle();
             textStyle.setDataFormat(dataFormat.getFormat("@"));
 
-            CellStyle rateStyle = outputWorkbook.createCellStyle();
-            rateStyle.setDataFormat(dataFormat.getFormat("0.0000"));
+            Row header = sheet.createRow(0);
+            for (int i = 0; i < OUTPUT_HEADERS.size(); i++) {
+                Cell c = header.createCell(i, CellType.STRING);
+                c.setCellValue(OUTPUT_HEADERS.get(i));
+                c.setCellStyle(textStyle);
+            }
 
-            // Output header row
-            Row headerRow = outputSheet.createRow(0);
-
-            Cell h1 = headerRow.createCell(0);
-            h1.setCellValue(OUTPUT_PROCEDURE_CODE);
-            h1.setCellStyle(headerStyle);
-
-            Cell h2 = headerRow.createCell(1);
-            h2.setCellValue(OUTPUT_MODIFIER1);
-            h2.setCellStyle(headerStyle);
-
-            Cell h3 = headerRow.createCell(2);
-            h3.setCellValue(OUTPUT_NEW_RATE);
-            h3.setCellStyle(headerStyle);
-
-            DataFormatter formatter = new DataFormatter();
-            int outputRowNum = 1;
-
-            for (int rowIndex = headerInfo.headerRowIndex + 1; rowIndex <= sourceSheet.getLastRowNum(); rowIndex++) {
-                Row sourceRow = sourceSheet.getRow(rowIndex);
-                if (sourceRow == null) {
-                    continue;
-                }
-
-                String hcpcsCode = getCellValueAsString(sourceRow.getCell(headerInfo.hcpcsCodeColIndex), formatter).trim();
-                String paymentLimit = getCellValueAsString(sourceRow.getCell(headerInfo.paymentLimitColIndex), formatter).trim();
-
-                if (hcpcsCode.isEmpty() && paymentLimit.isEmpty()) {
-                    continue;
-                }
-
-                Row outputRow = outputSheet.createRow(outputRowNum++);
-
-                // Procedure Code
-                Cell procedureCodeCell = outputRow.createCell(0);
-                procedureCodeCell.setCellValue(hcpcsCode);
-                procedureCodeCell.setCellStyle(textStyle);
-
-                // Modifier1 -> blank
-                Cell modifier1Cell = outputRow.createCell(1);
-                modifier1Cell.setCellValue("");
-                modifier1Cell.setCellStyle(textStyle);
-
-                // New Rate
-                Cell newRateCell = outputRow.createCell(2);
-                Double numericRate = parsePaymentLimit(paymentLimit);
-
-                if (numericRate != null) {
-                    newRateCell.setCellValue(numericRate);
-                    newRateCell.setCellStyle(rateStyle);
-                } else {
-                    newRateCell.setCellValue("");
-                    newRateCell.setCellStyle(textStyle);
+            int rowNum = 1;
+            for (String[] data : rows) {
+                Row row = sheet.createRow(rowNum++);
+                for (int i = 0; i < data.length; i++) {
+                    Cell c = row.createCell(i, CellType.STRING);
+                    c.setCellStyle(textStyle);
+                    c.setCellValue(data[i] == null ? "" : data[i]);
                 }
             }
 
-            outputSheet.autoSizeColumn(0);
-            outputSheet.autoSizeColumn(1);
-            outputSheet.autoSizeColumn(2);
-
-            String outputFileName = buildOutputFileName(sourceFile.getFileName().toString());
-            Path outputFile = outputFolder.resolve(outputFileName);
-
-            try (OutputStream outputStream = Files.newOutputStream(outputFile)) {
-                outputWorkbook.write(outputStream);
+            for (int i = 0; i < OUTPUT_HEADERS.size(); i++) {
+                sheet.autoSizeColumn(i);
+                sheet.setColumnWidth(i, Math.min(sheet.getColumnWidth(i) + 1024, 20000));
             }
 
-            System.out.println("Created output file: " + outputFile.getFileName());
+            try (OutputStream os = Files.newOutputStream(outputFile)) {
+                wb.write(os);
+            }
         }
     }
 
-    private static HeaderInfo findHeaderRow(Sheet sheet) {
-        DataFormatter formatter = new DataFormatter();
-
-        for (int rowIndex = 0; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
-            Row row = sheet.getRow(rowIndex);
-            if (row == null) {
-                continue;
-            }
-
-            Integer hcpcsIndex = null;
-            Integer paymentLimitIndex = null;
-
-            short lastCellNum = row.getLastCellNum();
-            if (lastCellNum < 0) {
-                continue;
-            }
-
-            for (int colIndex = 0; colIndex < lastCellNum; colIndex++) {
-                Cell cell = row.getCell(colIndex);
-                String cellValue = formatter.formatCellValue(cell);
-
-                String normalizedHeader = normalizeHeader(cellValue);
-
-                if (normalizedHeader.equals(normalizeHeader(HCPCS_HEADER))) {
-                    hcpcsIndex = colIndex;
-                }
-
-                if (normalizedHeader.equals(normalizeHeader(PAYMENT_LIMIT_HEADER))) {
-                    paymentLimitIndex = colIndex;
-                }
-            }
-
-            if (hcpcsIndex != null && paymentLimitIndex != null) {
-                return new HeaderInfo(rowIndex, hcpcsIndex, paymentLimitIndex);
-            }
+    private static Sheet findSheetContaining(Workbook workbook, String token) {
+        String needle = token.toUpperCase(Locale.ROOT);
+        for (int i = 0; i < workbook.getNumberOfSheets(); i++) {
+            Sheet s = workbook.getSheetAt(i);
+            if (s.getSheetName().toUpperCase(Locale.ROOT).contains(needle)) return s;
         }
-
         return null;
     }
 
-    private static String normalizeHeader(String value) {
-        if (value == null) {
-            return "";
+    private static int findHeaderRow(Sheet sheet, List<String> requiredHeaders) {
+        List<String> normalizedRequired = requiredHeaders.stream().map(FeeScheduleTransformerAUDIO::normalizeHeader).toList();
+        for (int r = 0; r <= Math.min(sheet.getLastRowNum(), 100); r++) {
+            Row row = sheet.getRow(r);
+            if (row == null) continue;
+            Set<String> present = new HashSet<>();
+            for (Cell cell : row) {
+                String v = normalizeHeader(getCellString(cell));
+                if (!v.isBlank()) present.add(v);
+            }
+            if (present.containsAll(normalizedRequired)) return r;
         }
-        return value.replaceAll("[^A-Za-z0-9]", "")
-                .toLowerCase(Locale.ROOT)
-                .trim();
+        return -1;
     }
 
-    private static String getCellValueAsString(Cell cell, DataFormatter formatter) {
-        if (cell == null) {
-            return "";
+    private static Map<String, Integer> buildHeaderMap(Row headerRow) {
+        Map<String, Integer> map = new HashMap<>();
+        for (Cell cell : headerRow) {
+            map.put(normalizeHeader(getCellString(cell)), cell.getColumnIndex());
         }
-        return formatter.formatCellValue(cell);
-    }
-
-    private static Double parsePaymentLimit(String value) {
-        if (value == null || value.trim().isEmpty()) {
-            return null;
-        }
-
-        String cleaned = value.replaceAll("[$,\\s]", "").trim();
-
-        if (cleaned.isEmpty()) {
-            return null;
-        }
-
-        try {
-            return Double.parseDouble(cleaned);
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
-
-    /**
-     * Handles:
-     * January 2025
-     * Jan 2025
-     * JAN_2025
-     * APR-2025
-     * Sept 2025
-     * september_2025
-     */
-    private static String buildOutputFileName(String sourceFileName) {
-        Pattern pattern = Pattern.compile(
-                "(?i)\\b(" +
-                        "jan(?:uary)?|" +
-                        "feb(?:ruary)?|" +
-                        "mar(?:ch)?|" +
-                        "apr(?:il)?|" +
-                        "may|" +
-                        "jun(?:e)?|" +
-                        "jul(?:y)?|" +
-                        "aug(?:ust)?|" +
-                        "sep(?:t|tember)?|" +
-                        "oct(?:ober)?|" +
-                        "nov(?:ember)?|" +
-                        "dec(?:ember)?" +
-                        ")\\b[\\s_\\-]+(\\d{4})\\b"
-        );
-
-        Matcher matcher = pattern.matcher(sourceFileName);
-
-        if (matcher.find()) {
-            String rawMonth = matcher.group(1);
-            String year = matcher.group(2);
-
-            String month = normalizeMonth(rawMonth);
-            return month + " " + year + "_ASP.xlsx";
-        }
-
-        throw new IllegalArgumentException("Month and Year not found in source file name: " + sourceFileName);
-    }
-
-    private static String normalizeMonth(String rawMonth) {
-        if (rawMonth == null || rawMonth.isBlank()) {
-            throw new IllegalArgumentException("Month value is blank.");
-        }
-
-        String key = rawMonth.toLowerCase(Locale.ROOT).trim();
-
-        String normalizedMonth = MONTH_LOOKUP.get(key);
-        if (normalizedMonth != null) {
-            return normalizedMonth;
-        }
-
-        throw new IllegalArgumentException("Unsupported month value found in file name: " + rawMonth);
-    }
-
-    private static Map<String, String> createMonthLookup() {
-        Map<String, String> map = new HashMap<>();
-
-        map.put("jan", "January");
-        map.put("january", "January");
-
-        map.put("feb", "February");
-        map.put("february", "February");
-
-        map.put("mar", "March");
-        map.put("march", "March");
-
-        map.put("apr", "April");
-        map.put("april", "April");
-
-        map.put("may", "May");
-
-        map.put("jun", "June");
-        map.put("june", "June");
-
-        map.put("jul", "July");
-        map.put("july", "July");
-
-        map.put("aug", "August");
-        map.put("august", "August");
-
-        map.put("sep", "September");
-        map.put("sept", "September");
-        map.put("september", "September");
-
-        map.put("oct", "October");
-        map.put("october", "October");
-
-        map.put("nov", "November");
-        map.put("november", "November");
-
-        map.put("dec", "December");
-        map.put("december", "December");
-
         return map;
     }
 
-    private static class HeaderInfo {
-        private final int headerRowIndex;
-        private final int hcpcsCodeColIndex;
-        private final int paymentLimitColIndex;
+    private static String normalizeHeader(String s) {
+        if (s == null) return "";
+        return s.replace("\n", " ")
+                .replace("\r", " ")
+                .replaceAll("\\s+", " ")
+                .trim()
+                .toUpperCase(Locale.ROOT);
+    }
 
-        public HeaderInfo(int headerRowIndex, int hcpcsCodeColIndex, int paymentLimitColIndex) {
-            this.headerRowIndex = headerRowIndex;
-            this.hcpcsCodeColIndex = hcpcsCodeColIndex;
-            this.paymentLimitColIndex = paymentLimitColIndex;
+    private static boolean isBlankRow(Row row) {
+        for (Cell cell : row) {
+            if (!getCellString(cell).isBlank()) return false;
         }
+        return true;
+    }
+
+    private static String getCellString(Row row, Integer idx) {
+        if (idx == null) return "";
+        return getCellString(row.getCell(idx));
+    }
+
+    private static String getCellString(Cell cell) {
+        if (cell == null) return "";
+        return switch (cell.getCellType()) {
+            case STRING -> cell.getStringCellValue().trim();
+            case NUMERIC -> {
+                double v = cell.getNumericCellValue();
+                if (Math.floor(v) == v) yield String.valueOf((long) v);
+                yield String.valueOf(v);
+            }
+            case BOOLEAN -> String.valueOf(cell.getBooleanCellValue());
+            case FORMULA -> {
+                try {
+                    yield cell.getStringCellValue().trim();
+                } catch (Exception e) {
+                    try {
+                        double v = cell.getNumericCellValue();
+                        if (Math.floor(v) == v) yield String.valueOf((long) v);
+                        yield String.valueOf(v);
+                    } catch (Exception ex) {
+                        yield "";
+                    }
+                }
+            }
+            default -> "";
+        };
+    }
+
+    private static String normalizeEffectiveDate(String input) {
+        LocalDate date = parseDate(input);
+        if (date == null || date.isBefore(MIN_EFFECTIVE_DATE)) date = MIN_EFFECTIVE_DATE;
+        return OUT_DATE.format(date);
+    }
+
+    private static String normalizeEndDate(String input) {
+        LocalDate date = parseDate(input);
+        if (date == null) return "";
+        if (date.equals(LocalDate.of(2299, 12, 31))) date = LocalDate.of(9999, 12, 31);
+        return OUT_DATE.format(date);
+    }
+
+    private static LocalDate parseDate(String input) {
+        if (input == null) return null;
+        String s = input.trim();
+        if (s.isBlank()) return null;
+        s = s.replace(".0", "");
+        List<DateTimeFormatter> fmts = List.of(
+                DateTimeFormatter.ofPattern("M/d/yyyy"),
+                DateTimeFormatter.ofPattern("MM/dd/yyyy"),
+                DateTimeFormatter.ofPattern("yyyyMMdd"),
+                DateTimeFormatter.ofPattern("yyyy-MM-dd")
+        );
+        for (DateTimeFormatter f : fmts) {
+            try { return LocalDate.parse(s, f); } catch (Exception ignored) {}
+        }
+        return null;
+    }
+
+    private static String formatRate(String input) {
+        if (input == null || input.isBlank()) return "";
+        String cleaned = input.replace("$", "").replace(",", "").trim();
+        try {
+            return RATE_FORMAT.format(Double.parseDouble(cleaned));
+        } catch (Exception e) {
+            return cleaned;
+        }
+    }
+
+    private static boolean equalsAny(String value, String... options) {
+        if (value == null) return false;
+        for (String option : options) {
+            if (value.trim().equalsIgnoreCase(option)) return true;
+        }
+        return false;
     }
 }
