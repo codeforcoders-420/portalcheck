@@ -28,6 +28,7 @@ def normalize_text(value):
     if value is None:
         return ""
     value = str(value).replace("\xa0", " ")
+    value = value.replace("–", "-").replace("—", "-")
     value = value.replace("\n", " ").strip()
     value = re.sub(r"\s+", " ", value)
     return value
@@ -52,21 +53,19 @@ def extract_effective_date(pdf_path: Path) -> str:
     return f"{dt.month}/{dt.day}/{dt.year}"
 
 
-def is_header_row(row):
-    if not row:
-        return False
-    joined = " ".join(normalize_text(x) for x in row).upper()
-    return "HIPAA" in joined and "CPT" in joined and "MODIFIER" in joined
+def is_valid_code(token: str) -> bool:
+    token = normalize_text(token)
+    return bool(re.fullmatch(r"[A-Z]?\d{4,5}", token))
 
 
-def is_valid_code(code: str) -> bool:
-    code = normalize_text(code)
-    return bool(re.fullmatch(r"[A-Z]?\d{4,5}", code))
+def is_modifier(token: str) -> bool:
+    token = normalize_text(token)
+    return bool(re.fullmatch(r"[A-Z0-9]{2}", token))
 
 
-def is_rate(rate_text: str) -> bool:
-    rate_text = normalize_text(rate_text)
-    return bool(re.fullmatch(r"\$?\d+(\.\d+)?(/unit)?", rate_text))
+def looks_like_rate(token: str) -> bool:
+    token = normalize_text(token)
+    return bool(re.fullmatch(r"\$?\d+(?:\.\d+)?(?:/unit)?", token))
 
 
 def parse_rate(rate_text: str):
@@ -79,84 +78,219 @@ def parse_rate(rate_text: str):
         return None
 
 
-def row_looks_like_data(row):
-    """
-    Expected columns:
-    0 = CPT Code
-    1 = 1st Modifier
-    2 = 2nd Modifier
-    3 = Maximum Allowable
-    4 = Service Limits
-    """
-    if not row or len(row) < 5:
-        return False
+def is_table_header_line(line: str) -> bool:
+    line = normalize_text(line).upper()
+    return "HIPAA" in line and "CPT" in line and "MODIFIER" in line
 
-    code = normalize_text(row[0])
-    rate = normalize_text(row[3])
 
+def is_new_section_line(line: str) -> bool:
+    """
+    Matches:
+    1001.1. Nursing Services
+    1001.4. Audiology Services
+    1001.7. Speech-Language Pathology Services
+    """
+    line = normalize_text(line)
+    return bool(re.match(r"^1001\.\d+\.\s+", line))
+
+
+def is_non_table_note_line(line: str) -> bool:
+    """
+    Stops capture when narrative text begins after the tables.
+    Example:
+    1001.8. Providers cannot use code ...
+    Appendix A
+    """
+    line = normalize_text(line)
+
+    if line.startswith("Appendix A"):
+        return True
+
+    # Section after the reimb tables but not a table itself
+    if re.match(r"^1001\.(8|9|10|11|12|13|14|15)\b", line):
+        return True
+
+    return False
+
+
+def parse_data_line(line: str):
+    """
+    Parse a single row line like:
+    92507 GN HA $65.64 8 visits per ...
+    92521 HA $113.99 2 units per ...
+    T1502 HA TD $5.78
+    """
+    line = normalize_text(line)
+    tokens = line.split()
+
+    if not tokens:
+        return None
+
+    code = tokens[0]
     if not is_valid_code(code):
-        return False
+        return None
 
-    if not is_rate(rate):
-        return False
-
-    # Prevent accidental section text like 1001. or 1001.1.
+    # Reject section-like numbers accidentally matching
     if "." in code:
-        return False
+        return None
 
-    return True
+    modifiers = []
+    rate = None
+    service_limit_tokens = []
+
+    for tok in tokens[1:]:
+        if rate is None and is_modifier(tok) and len(modifiers) < 2:
+            modifiers.append(tok)
+        elif rate is None and looks_like_rate(tok):
+            rate = parse_rate(tok)
+        else:
+            service_limit_tokens.append(tok)
+
+    if rate is None:
+        return None
+
+    return {
+        "procedure_code": code,
+        "modifier1": modifiers[0] if len(modifiers) >= 1 else "",
+        "modifier2": modifiers[1] if len(modifiers) >= 2 else "",
+        "new_rate": rate,
+        "service_limits": " ".join(service_limit_tokens).strip()
+    }
 
 
+# =========================================================
+# EXTRACTION LOGIC
+# =========================================================
 def extract_rows_from_pdf(pdf_path: Path, effective_date: str):
-    extracted_rows = []
+    rows = []
 
     with pdfplumber.open(str(pdf_path)) as pdf:
-        for page_index, page in enumerate(pdf.pages, start=1):
-            tables = page.extract_tables()
+        inside_chapter_1000 = False
+        inside_reimbursement_table = False
+        current_row = None
 
-            if not tables:
+        for page_index, page in enumerate(pdf.pages, start=1):
+            text = page.extract_text() or ""
+            if not text.strip():
                 continue
 
-            for table in tables:
-                if not table:
+            lines = [normalize_text(x) for x in text.splitlines() if normalize_text(x)]
+
+            for line in lines:
+                # Start at Chapter 1000
+                if not inside_chapter_1000 and "Chapter 1000: Basis For Reimbursement" in line:
+                    inside_chapter_1000 = True
+
+                if not inside_chapter_1000:
                     continue
 
-                # If table has a header row, skip it during row loop.
-                start_idx = 1 if is_header_row(table[0]) else 0
+                # Stop after Chapter 1000 tables section
+                if is_non_table_note_line(line):
+                    if current_row:
+                        rows.append([
+                            SCH_NAME,
+                            current_row["procedure_code"],
+                            current_row["modifier1"],
+                            current_row["modifier2"],
+                            "",
+                            "",
+                            effective_date,
+                            END_DATE,
+                            PRICING_METHOD,
+                            current_row["new_rate"],
+                            OLD_RATE,
+                            COMMENTS,
+                            current_row["page_number"]
+                        ])
+                        current_row = None
+                    inside_reimbursement_table = False
+                    continue
 
-                for row in table[start_idx:]:
-                    if not row or len(row) < 5:
-                        continue
+                # Detect table header
+                if is_table_header_line(line):
+                    inside_reimbursement_table = True
+                    continue
 
-                    row = [normalize_text(cell) for cell in row[:5]]
+                # New reimbursement subsection
+                if is_new_section_line(line):
+                    # don't turn off capture, because table may follow immediately
+                    continue
 
-                    if not row_looks_like_data(row):
-                        continue
+                # Ignore until first header appears
+                if not inside_reimbursement_table:
+                    continue
 
-                    procedure_code = row[0]
-                    modifier1 = row[1]
-                    modifier2 = row[2]
-                    new_rate = parse_rate(row[3])
+                parsed = parse_data_line(line)
 
-                    extracted_rows.append([
-                        SCH_NAME,
-                        procedure_code,
-                        modifier1,
-                        modifier2,
-                        "",                 # Modifier3
-                        "",                 # Modifier4
-                        effective_date,
-                        END_DATE,
-                        PRICING_METHOD,
-                        new_rate,
-                        OLD_RATE,
-                        COMMENTS,
-                        page_index
-                    ])
+                if parsed:
+                    # Save previous row before starting a new one
+                    if current_row:
+                        rows.append([
+                            SCH_NAME,
+                            current_row["procedure_code"],
+                            current_row["modifier1"],
+                            current_row["modifier2"],
+                            "",
+                            "",
+                            effective_date,
+                            END_DATE,
+                            PRICING_METHOD,
+                            current_row["new_rate"],
+                            OLD_RATE,
+                            COMMENTS,
+                            current_row["page_number"]
+                        ])
 
-    return extracted_rows
+                    current_row = {
+                        **parsed,
+                        "page_number": page_index
+                    }
+
+                else:
+                    # Continuation of service limit text for the previous valid row
+                    if current_row:
+                        # Skip page footer text
+                        if re.match(r"^Page \d+ of \d+$", line):
+                            continue
+
+                        # Skip broken header fragments
+                        upper = line.upper()
+                        if "HIPAA" in upper or "CPT CODE" in upper or "MAXIMUM" in upper or "ALLOWABLE" in upper:
+                            continue
+
+                        # Skip subsection titles
+                        if is_new_section_line(line):
+                            continue
+
+                        # Append continuation text only if it doesn't look like narrative
+                        if not is_non_table_note_line(line):
+                            existing = current_row["service_limits"]
+                            current_row["service_limits"] = (existing + " " + line).strip()
+
+        # Final pending row
+        if current_row:
+            rows.append([
+                SCH_NAME,
+                current_row["procedure_code"],
+                current_row["modifier1"],
+                current_row["modifier2"],
+                "",
+                "",
+                effective_date,
+                END_DATE,
+                PRICING_METHOD,
+                current_row["new_rate"],
+                OLD_RATE,
+                COMMENTS,
+                current_row["page_number"]
+            ])
+
+    return rows
 
 
+# =========================================================
+# EXCEL WRITER
+# =========================================================
 def write_to_excel(rows, output_file: Path):
     wb = Workbook()
     ws = wb.active
@@ -180,7 +314,6 @@ def write_to_excel(rows, output_file: Path):
 
     ws.append(headers)
 
-    # Header styling
     header_fill = PatternFill(fill_type="solid", fgColor="D9EAD3")
     header_font = Font(bold=True)
 
@@ -192,18 +325,15 @@ def write_to_excel(rows, output_file: Path):
     for row in rows:
         ws.append(row)
 
-    # Format New Rate column as 0.0000
     for r in range(2, ws.max_row + 1):
         ws.cell(r, 10).number_format = "0.0000"
 
-    # Auto width
     for column_cells in ws.columns:
         max_length = 0
         col_letter = column_cells[0].column_letter
         for cell in column_cells:
             cell_value = "" if cell.value is None else str(cell.value)
-            if len(cell_value) > max_length:
-                max_length = len(cell_value)
+            max_length = max(max_length, len(cell_value))
         ws.column_dimensions[col_letter].width = min(max_length + 2, 35)
 
     wb.save(output_file)
@@ -234,8 +364,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-*****************************
-
-pip install pdfplumber openpyxl
