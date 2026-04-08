@@ -8,9 +8,6 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 
 
-# =========================================================
-# CONFIG
-# =========================================================
 INPUT_FOLDER = Path(r"C:\Users\rajas")
 OUTPUT_FOLDER = Path(r"C:\Users\rajas\Output")
 
@@ -21,9 +18,6 @@ OLD_RATE = "N/A"
 COMMENTS = "New Code"
 
 
-# =========================================================
-# HELPERS
-# =========================================================
 def normalize_text(value):
     if value is None:
         return ""
@@ -75,55 +69,106 @@ def parse_money(value: str):
         return None
 
 
-def parse_table_data_line(line: str):
-    """
-    Example lines:
-    T1502 HA TD $5.78
-    97803 HA TS $23.94 12 visits per year
-    92507 GN HA $65.64 8 visits per calendar month; 1 unit per visit
-    """
-    tokens = normalize_text(line).split()
-    if not tokens:
-        return None
+def is_section_title(line: str) -> bool:
+    return bool(re.match(r"^1001\.\d+\.\s+.*Services$", normalize_text(line)))
 
-    code = tokens[0]
-    if not looks_like_code(code):
-        return None
 
-    modifiers = []
-    rate = None
-    service_limit_tokens = []
+def is_post_table_policy_line(line: str) -> bool:
+    line = normalize_text(line)
+    if line.startswith("Appendix A"):
+        return True
+    return bool(re.match(r"^1001\.(8|9|10|11|12|13|14|15)\b", line))
 
-    for token in tokens[1:]:
-        if rate is None and looks_like_modifier(token) and len(modifiers) < 2:
-            modifiers.append(token)
-        elif rate is None and looks_like_money(token):
-            rate = parse_money(token)
-        else:
-            service_limit_tokens.append(token)
 
-    if rate is None:
-        return None
+def is_header_fragment(line: str) -> bool:
+    line = normalize_text(line)
+    return line in {
+        "HIPAA",
+        "Compliant",
+        "CPT Code",
+        "1st Modifier 2nd Modifier Maximum",
+        "Allowable",
+        "Service Limits",
+        "1st Modifier",
+        "2nd Modifier",
+        "Maximum",
+    } or line.startswith("HIPAA ")
 
+
+def start_new_pending_row(code: str, page_number: int):
     return {
         "procedure_code": code,
-        "modifier1": modifiers[0] if len(modifiers) >= 1 else "",
-        "modifier2": modifiers[1] if len(modifiers) >= 2 else "",
-        "new_rate": rate,
-        "service_limits": " ".join(service_limit_tokens).strip()
+        "modifier1": "",
+        "modifier2": "",
+        "new_rate": None,
+        "service_limits": "",
+        "page_number": page_number
     }
 
 
-# =========================================================
-# EXTRACTION LOGIC
-# =========================================================
+def finalize_pending_row(pending, rows, effective_date):
+    if not pending:
+        return None
+
+    if not pending["procedure_code"] or pending["new_rate"] is None:
+        return pending
+
+    rows.append([
+        SCH_NAME,
+        pending["procedure_code"],
+        pending["modifier1"],
+        pending["modifier2"],
+        "",
+        "",
+        effective_date,
+        END_DATE,
+        PRICING_METHOD,
+        pending["new_rate"],
+        OLD_RATE,
+        COMMENTS,
+        pending["page_number"]
+    ])
+    return None
+
+
+def absorb_tokens_into_pending(tokens, pending):
+    """
+    Handles cases like:
+    92652
+    HA
+    $100.94 3 per year
+    """
+    idx = 0
+    while idx < len(tokens):
+        token = tokens[idx]
+
+        if looks_like_modifier(token):
+            if not pending["modifier1"]:
+                pending["modifier1"] = token
+            elif not pending["modifier2"]:
+                pending["modifier2"] = token
+            else:
+                pending["service_limits"] = (pending["service_limits"] + " " + token).strip()
+
+        elif looks_like_money(token):
+            if pending["new_rate"] is None:
+                pending["new_rate"] = parse_money(token)
+            else:
+                pending["service_limits"] = (pending["service_limits"] + " " + token).strip()
+
+        else:
+            pending["service_limits"] = (pending["service_limits"] + " " + token).strip()
+
+        idx += 1
+
+
 def extract_rows_from_pdf(pdf_path: Path, effective_date: str):
     rows = []
 
     with pdfplumber.open(str(pdf_path)) as pdf:
         inside_chapter_1000 = False
         inside_table = False
-        current_row = None
+        pending = None
 
         for page_number, page in enumerate(pdf.pages, start=1):
             text = page.extract_text() or ""
@@ -133,107 +178,60 @@ def extract_rows_from_pdf(pdf_path: Path, effective_date: str):
             lines = [normalize_text(x) for x in text.splitlines() if normalize_text(x)]
 
             for line in lines:
-                # Start Chapter 1000 processing
                 if "Chapter 1000: Basis For Reimbursement" in line:
                     inside_chapter_1000 = True
 
                 if not inside_chapter_1000:
                     continue
 
-                # End when Appendix A starts
+                if is_post_table_policy_line(line):
+                    pending = finalize_pending_row(pending, rows, effective_date)
+                    inside_table = False
+                    continue
+
                 if line.startswith("Appendix A"):
+                    pending = finalize_pending_row(pending, rows, effective_date)
                     inside_table = False
                     break
 
-                # Header is split across multiple lines in the PDF:
-                # HIPAA 1st Modifier 2nd Modifier Maximum Service Limits
-                # Compliant Allowable
-                # CPT Code
-                if (
-                    line.startswith("HIPAA ")
-                    or line == "Compliant Allowable"
-                    or line == "CPT Code"
-                ):
+                # Header in this PDF is split across multiple lines
+                if is_header_fragment(line):
                     inside_table = True
                     continue
 
-                # Stop reading after the reimbursement tables section
-                if re.match(r"^1001\.(8|9|10|11|12|13|14|15)\b", line):
-                    inside_table = False
-                    continue
-
-                # Skip section titles like:
-                # 1001.1. Nursing Services
-                # 1001.7. Speech-Language Pathology Services
-                if re.match(r"^1001\.\d+\.\s+.*Services$", line):
+                if is_section_title(line):
                     continue
 
                 if not inside_table:
                     continue
 
-                parsed = parse_table_data_line(line)
+                if line.startswith("Page "):
+                    continue
 
-                if parsed:
-                    if current_row:
-                        rows.append([
-                            SCH_NAME,
-                            current_row["procedure_code"],
-                            current_row["modifier1"],
-                            current_row["modifier2"],
-                            "",
-                            "",
-                            effective_date,
-                            END_DATE,
-                            PRICING_METHOD,
-                            current_row["new_rate"],
-                            OLD_RATE,
-                            COMMENTS,
-                            current_row["page_number"]
-                        ])
+                tokens = line.split()
+                if not tokens:
+                    continue
 
-                    current_row = {
-                        **parsed,
-                        "page_number": page_number
-                    }
+                first = tokens[0]
 
-                else:
-                    # continuation line for service limits
-                    if current_row:
-                        if (
-                            not line.startswith("Page ")
-                            and line != "Compliant Allowable"
-                            and line != "CPT Code"
-                            and not line.startswith("HIPAA ")
-                            and not re.match(r"^1001\.\d+\.", line)
-                        ):
-                            current_row["service_limits"] = (
-                                current_row["service_limits"] + " " + line
-                            ).strip()
+                # Case 1: new code begins
+                if looks_like_code(first):
+                    # finalize previous row if complete
+                    pending = finalize_pending_row(pending, rows, effective_date)
 
-        # append final pending row
-        if current_row:
-            rows.append([
-                SCH_NAME,
-                current_row["procedure_code"],
-                current_row["modifier1"],
-                current_row["modifier2"],
-                "",
-                "",
-                effective_date,
-                END_DATE,
-                PRICING_METHOD,
-                current_row["new_rate"],
-                OLD_RATE,
-                COMMENTS,
-                current_row["page_number"]
-            ])
+                    pending = start_new_pending_row(first, page_number)
+                    absorb_tokens_into_pending(tokens[1:], pending)
+                    continue
+
+                # Case 2: continuation of previous row
+                if pending:
+                    absorb_tokens_into_pending(tokens, pending)
+
+        pending = finalize_pending_row(pending, rows, effective_date)
 
     return rows
 
 
-# =========================================================
-# WRITE EXCEL
-# =========================================================
 def write_to_excel(rows, output_file: Path):
     wb = Workbook()
     ws = wb.active
@@ -268,11 +266,9 @@ def write_to_excel(rows, output_file: Path):
     for row in rows:
         ws.append(row)
 
-    # Format New Rate column
     for r in range(2, ws.max_row + 1):
         ws.cell(r, 10).number_format = "0.0000"
 
-    # Auto-width
     for col in ws.columns:
         max_len = 0
         col_letter = col[0].column_letter
@@ -284,9 +280,6 @@ def write_to_excel(rows, output_file: Path):
     wb.save(output_file)
 
 
-# =========================================================
-# MAIN
-# =========================================================
 def main():
     OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
 
