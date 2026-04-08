@@ -29,8 +29,7 @@ def normalize_text(value):
         return ""
     value = str(value).replace("\xa0", " ")
     value = value.replace("–", "-").replace("—", "-")
-    value = value.replace("\n", " ").strip()
-    value = re.sub(r"\s+", " ", value)
+    value = re.sub(r"\s+", " ", value.strip())
     return value
 
 
@@ -53,98 +52,55 @@ def extract_effective_date(pdf_path: Path) -> str:
     return f"{dt.month}/{dt.day}/{dt.year}"
 
 
-def is_valid_code(token: str) -> bool:
-    token = normalize_text(token)
-    return bool(re.fullmatch(r"[A-Z]?\d{4,5}", token))
+def looks_like_code(value: str) -> bool:
+    return bool(re.fullmatch(r"[A-Z]?\d{4,5}", normalize_text(value)))
 
 
-def is_modifier(token: str) -> bool:
-    token = normalize_text(token)
-    return bool(re.fullmatch(r"[A-Z0-9]{2}", token))
+def looks_like_modifier(value: str) -> bool:
+    return bool(re.fullmatch(r"[A-Z0-9]{2}", normalize_text(value)))
 
 
-def looks_like_rate(token: str) -> bool:
-    token = normalize_text(token)
-    return bool(re.fullmatch(r"\$?\d+(?:\.\d+)?(?:/unit)?", token))
+def looks_like_money(value: str) -> bool:
+    value = normalize_text(value)
+    return bool(re.fullmatch(r"\$?\d+(?:\.\d+)?(?:/unit)?", value))
 
 
-def parse_rate(rate_text: str):
-    rate_text = normalize_text(rate_text).replace("$", "").replace("/unit", "")
-    if not rate_text:
+def parse_money(value: str):
+    value = normalize_text(value).replace("$", "").replace("/unit", "")
+    if not value:
         return None
     try:
-        return float(Decimal(rate_text))
+        return float(Decimal(value))
     except (InvalidOperation, ValueError):
         return None
 
 
-def is_table_header_line(line: str) -> bool:
-    line = normalize_text(line).upper()
-    return "HIPAA" in line and "CPT" in line and "MODIFIER" in line
-
-
-def is_new_section_line(line: str) -> bool:
+def parse_table_data_line(line: str):
     """
-    Matches:
-    1001.1. Nursing Services
-    1001.4. Audiology Services
-    1001.7. Speech-Language Pathology Services
-    """
-    line = normalize_text(line)
-    return bool(re.match(r"^1001\.\d+\.\s+", line))
-
-
-def is_non_table_note_line(line: str) -> bool:
-    """
-    Stops capture when narrative text begins after the tables.
-    Example:
-    1001.8. Providers cannot use code ...
-    Appendix A
-    """
-    line = normalize_text(line)
-
-    if line.startswith("Appendix A"):
-        return True
-
-    # Section after the reimb tables but not a table itself
-    if re.match(r"^1001\.(8|9|10|11|12|13|14|15)\b", line):
-        return True
-
-    return False
-
-
-def parse_data_line(line: str):
-    """
-    Parse a single row line like:
-    92507 GN HA $65.64 8 visits per ...
-    92521 HA $113.99 2 units per ...
+    Example lines:
     T1502 HA TD $5.78
+    97803 HA TS $23.94 12 visits per year
+    92507 GN HA $65.64 8 visits per calendar month; 1 unit per visit
     """
-    line = normalize_text(line)
-    tokens = line.split()
-
+    tokens = normalize_text(line).split()
     if not tokens:
         return None
 
     code = tokens[0]
-    if not is_valid_code(code):
-        return None
-
-    # Reject section-like numbers accidentally matching
-    if "." in code:
+    if not looks_like_code(code):
         return None
 
     modifiers = []
     rate = None
     service_limit_tokens = []
 
-    for tok in tokens[1:]:
-        if rate is None and is_modifier(tok) and len(modifiers) < 2:
-            modifiers.append(tok)
-        elif rate is None and looks_like_rate(tok):
-            rate = parse_rate(tok)
+    for token in tokens[1:]:
+        if rate is None and looks_like_modifier(token) and len(modifiers) < 2:
+            modifiers.append(token)
+        elif rate is None and looks_like_money(token):
+            rate = parse_money(token)
         else:
-            service_limit_tokens.append(tok)
+            service_limit_tokens.append(token)
 
     if rate is None:
         return None
@@ -166,10 +122,10 @@ def extract_rows_from_pdf(pdf_path: Path, effective_date: str):
 
     with pdfplumber.open(str(pdf_path)) as pdf:
         inside_chapter_1000 = False
-        inside_reimbursement_table = False
+        inside_table = False
         current_row = None
 
-        for page_index, page in enumerate(pdf.pages, start=1):
+        for page_number, page in enumerate(pdf.pages, start=1):
             text = page.extract_text() or ""
             if not text.strip():
                 continue
@@ -177,53 +133,47 @@ def extract_rows_from_pdf(pdf_path: Path, effective_date: str):
             lines = [normalize_text(x) for x in text.splitlines() if normalize_text(x)]
 
             for line in lines:
-                # Start at Chapter 1000
-                if not inside_chapter_1000 and "Chapter 1000: Basis For Reimbursement" in line:
+                # Start Chapter 1000 processing
+                if "Chapter 1000: Basis For Reimbursement" in line:
                     inside_chapter_1000 = True
 
                 if not inside_chapter_1000:
                     continue
 
-                # Stop after Chapter 1000 tables section
-                if is_non_table_note_line(line):
-                    if current_row:
-                        rows.append([
-                            SCH_NAME,
-                            current_row["procedure_code"],
-                            current_row["modifier1"],
-                            current_row["modifier2"],
-                            "",
-                            "",
-                            effective_date,
-                            END_DATE,
-                            PRICING_METHOD,
-                            current_row["new_rate"],
-                            OLD_RATE,
-                            COMMENTS,
-                            current_row["page_number"]
-                        ])
-                        current_row = None
-                    inside_reimbursement_table = False
+                # End when Appendix A starts
+                if line.startswith("Appendix A"):
+                    inside_table = False
+                    break
+
+                # Header is split across multiple lines in the PDF:
+                # HIPAA 1st Modifier 2nd Modifier Maximum Service Limits
+                # Compliant Allowable
+                # CPT Code
+                if (
+                    line.startswith("HIPAA ")
+                    or line == "Compliant Allowable"
+                    or line == "CPT Code"
+                ):
+                    inside_table = True
                     continue
 
-                # Detect table header
-                if is_table_header_line(line):
-                    inside_reimbursement_table = True
+                # Stop reading after the reimbursement tables section
+                if re.match(r"^1001\.(8|9|10|11|12|13|14|15)\b", line):
+                    inside_table = False
                     continue
 
-                # New reimbursement subsection
-                if is_new_section_line(line):
-                    # don't turn off capture, because table may follow immediately
+                # Skip section titles like:
+                # 1001.1. Nursing Services
+                # 1001.7. Speech-Language Pathology Services
+                if re.match(r"^1001\.\d+\.\s+.*Services$", line):
                     continue
 
-                # Ignore until first header appears
-                if not inside_reimbursement_table:
+                if not inside_table:
                     continue
 
-                parsed = parse_data_line(line)
+                parsed = parse_table_data_line(line)
 
                 if parsed:
-                    # Save previous row before starting a new one
                     if current_row:
                         rows.append([
                             SCH_NAME,
@@ -243,31 +193,24 @@ def extract_rows_from_pdf(pdf_path: Path, effective_date: str):
 
                     current_row = {
                         **parsed,
-                        "page_number": page_index
+                        "page_number": page_number
                     }
 
                 else:
-                    # Continuation of service limit text for the previous valid row
+                    # continuation line for service limits
                     if current_row:
-                        # Skip page footer text
-                        if re.match(r"^Page \d+ of \d+$", line):
-                            continue
+                        if (
+                            not line.startswith("Page ")
+                            and line != "Compliant Allowable"
+                            and line != "CPT Code"
+                            and not line.startswith("HIPAA ")
+                            and not re.match(r"^1001\.\d+\.", line)
+                        ):
+                            current_row["service_limits"] = (
+                                current_row["service_limits"] + " " + line
+                            ).strip()
 
-                        # Skip broken header fragments
-                        upper = line.upper()
-                        if "HIPAA" in upper or "CPT CODE" in upper or "MAXIMUM" in upper or "ALLOWABLE" in upper:
-                            continue
-
-                        # Skip subsection titles
-                        if is_new_section_line(line):
-                            continue
-
-                        # Append continuation text only if it doesn't look like narrative
-                        if not is_non_table_note_line(line):
-                            existing = current_row["service_limits"]
-                            current_row["service_limits"] = (existing + " " + line).strip()
-
-        # Final pending row
+        # append final pending row
         if current_row:
             rows.append([
                 SCH_NAME,
@@ -289,7 +232,7 @@ def extract_rows_from_pdf(pdf_path: Path, effective_date: str):
 
 
 # =========================================================
-# EXCEL WRITER
+# WRITE EXCEL
 # =========================================================
 def write_to_excel(rows, output_file: Path):
     wb = Workbook()
@@ -325,16 +268,18 @@ def write_to_excel(rows, output_file: Path):
     for row in rows:
         ws.append(row)
 
+    # Format New Rate column
     for r in range(2, ws.max_row + 1):
         ws.cell(r, 10).number_format = "0.0000"
 
-    for column_cells in ws.columns:
-        max_length = 0
-        col_letter = column_cells[0].column_letter
-        for cell in column_cells:
+    # Auto-width
+    for col in ws.columns:
+        max_len = 0
+        col_letter = col[0].column_letter
+        for cell in col:
             cell_value = "" if cell.value is None else str(cell.value)
-            max_length = max(max_length, len(cell_value))
-        ws.column_dimensions[col_letter].width = min(max_length + 2, 35)
+            max_len = max(max_len, len(cell_value))
+        ws.column_dimensions[col_letter].width = min(max_len + 2, 40)
 
     wb.save(output_file)
 
