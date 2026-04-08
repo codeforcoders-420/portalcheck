@@ -5,15 +5,15 @@ from decimal import Decimal, InvalidOperation
 
 import pdfplumber
 from openpyxl import Workbook
-from openpyxl.styles import NamedStyle
-from openpyxl.utils import get_column_letter
+from openpyxl.styles import Font, PatternFill
 
 
-# ============================================================
+# =========================================================
 # CONFIG
-# ============================================================
-PDF_PATH = r"/mnt/data/Children Intervention Services (CIS) Q2- April 2026 20260313195324.pdf"
-OUTPUT_XLSX = r"/mnt/data/GA_CIS_Output.xlsx"
+# =========================================================
+INPUT_FOLDER = Path(r"C:\Users\rajas")
+OUTPUT_FOLDER = Path(r"C:\Users\rajas\Output")
+
 SCH_NAME = "GA CIS"
 END_DATE = "12/31/9999"
 PRICING_METHOD = "Allowed"
@@ -21,251 +21,146 @@ OLD_RATE = "N/A"
 COMMENTS = "New Code"
 
 
-# ============================================================
+# =========================================================
 # HELPERS
-# ============================================================
-def normalize_spaces(text: str) -> str:
-    if not text:
+# =========================================================
+def normalize_text(value):
+    if value is None:
         return ""
-    text = text.replace("\u00a0", " ")
-    text = text.replace("–", "-").replace("—", "-")
-    return re.sub(r"[ \t]+", " ", text).strip()
+    value = str(value).replace("\xa0", " ")
+    value = value.replace("\n", " ").strip()
+    value = re.sub(r"\s+", " ", value)
+    return value
 
 
-def parse_version_date(first_page_text: str) -> str:
-    """
-    Example expected:
-    Version Date: April 1, 2026
-    """
-    m = re.search(r"Version Date:\s*([A-Za-z]+ \d{1,2}, \d{4})", first_page_text, re.IGNORECASE)
-    if not m:
+def find_latest_pdf(folder: Path) -> Path:
+    pdf_files = list(folder.glob("*.pdf"))
+    if not pdf_files:
+        raise FileNotFoundError(f"No PDF files found in: {folder}")
+    return max(pdf_files, key=lambda p: p.stat().st_mtime)
+
+
+def extract_effective_date(pdf_path: Path) -> str:
+    with pdfplumber.open(str(pdf_path)) as pdf:
+        first_page_text = pdf.pages[0].extract_text() or ""
+
+    match = re.search(r"Version Date:\s*([A-Za-z]+ \d{1,2}, \d{4})", first_page_text)
+    if not match:
         raise ValueError("Could not find 'Version Date' on page 1.")
-    dt = datetime.strptime(m.group(1), "%B %d, %Y")
+
+    dt = datetime.strptime(match.group(1), "%B %d, %Y")
     return f"{dt.month}/{dt.day}/{dt.year}"
 
 
-def extract_chapter_1000_text(pdf_path: str) -> str:
-    """
-    Extract text from the Chapter 1000 reimbursement section.
-    We start when 'Chapter 1000: Basis For Reimbursement' appears.
-    We stop before Appendix A.
-    """
-    all_parts = []
-    started = False
-
-    with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            text = page.extract_text() or ""
-            text = text.replace("\x00", "")
-
-            if not started and "Chapter 1000: Basis For Reimbursement" in text:
-                started = True
-
-            if started:
-                if "Appendix A" in text:
-                    text = text.split("Appendix A")[0]
-                    all_parts.append(text)
-                    break
-                all_parts.append(text)
-
-    if not all_parts:
-        raise ValueError("Could not locate Chapter 1000 section in the PDF.")
-
-    return "\n".join(all_parts)
+def is_header_row(row):
+    if not row:
+        return False
+    joined = " ".join(normalize_text(x) for x in row).upper()
+    return "HIPAA" in joined and "CPT" in joined and "MODIFIER" in joined
 
 
-def split_sections(chapter_text: str):
-    """
-    Split into sections like:
-    1001.1. Nursing Services
-    1001.3. Counseling Services
-    1001.4. Audiology Services
-    ...
-    """
-    pattern = re.compile(r"(?m)^(1001\.\d+\.)\s+(.*Services)\s*$")
-    matches = list(pattern.finditer(chapter_text))
-
-    sections = []
-    for i, m in enumerate(matches):
-        start = m.start()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(chapter_text)
-        section_no = m.group(1).strip()
-        section_name = normalize_spaces(m.group(2))
-        block = chapter_text[start:end]
-        sections.append((section_no, section_name, block))
-
-    return sections
+def is_valid_code(code: str) -> bool:
+    code = normalize_text(code)
+    return bool(re.fullmatch(r"[A-Z]?\d{4,5}", code))
 
 
-def is_probable_code(token: str) -> bool:
-    """
-    Accept HCPCS/CPT-like codes:
-    - T1502
-    - 97802
-    - 92507
-    - 98980
-    """
-    return bool(re.fullmatch(r"[A-Z]?\d{4,5}", token))
+def is_rate(rate_text: str) -> bool:
+    rate_text = normalize_text(rate_text)
+    return bool(re.fullmatch(r"\$?\d+(\.\d+)?(/unit)?", rate_text))
 
 
-def is_modifier(token: str) -> bool:
-    """
-    Modifiers are usually 2 chars like HA, TD, UC, GO, GP, GN, TS, U1, etc.
-    """
-    return bool(re.fullmatch(r"[A-Z0-9]{2}", token))
-
-
-def looks_like_rate(token: str) -> bool:
-    return bool(re.fullmatch(r"\$?\d+(?:\.\d+)?(?:/unit)?", token))
-
-
-def clean_rate(rate_token: str) -> str:
-    """
-    Convert values like:
-    $5.78 -> 5.7800
-    $52.51/unit -> 52.5100
-    """
-    value = rate_token.replace("$", "").replace("/unit", "").strip()
+def parse_rate(rate_text: str):
+    rate_text = normalize_text(rate_text).replace("$", "").replace("/unit", "")
+    if not rate_text:
+        return None
     try:
-        d = Decimal(value)
-        return f"{d:.4f}"
-    except InvalidOperation:
-        return value
+        return float(Decimal(rate_text))
+    except (InvalidOperation, ValueError):
+        return None
 
 
-def clean_service_limit_text(lines):
+def row_looks_like_data(row):
     """
-    Join service limit lines cleanly.
+    Expected columns:
+    0 = CPT Code
+    1 = 1st Modifier
+    2 = 2nd Modifier
+    3 = Maximum Allowable
+    4 = Service Limits
     """
-    text = " ".join(normalize_spaces(x) for x in lines if normalize_spaces(x))
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+    if not row or len(row) < 5:
+        return False
+
+    code = normalize_text(row[0])
+    rate = normalize_text(row[3])
+
+    if not is_valid_code(code):
+        return False
+
+    if not is_rate(rate):
+        return False
+
+    # Prevent accidental section text like 1001. or 1001.1.
+    if "." in code:
+        return False
+
+    return True
 
 
-def parse_rows_from_section(section_name: str, block: str):
-    """
-    Parse table rows from a section block.
+def extract_rows_from_pdf(pdf_path: Path, effective_date: str):
+    extracted_rows = []
 
-    Logic:
-    - Find table header line around:
-      HIPAA Compliant CPT Code / 1st Modifier / 2nd Modifier / Maximum Allowable / Service Limits
-    - Then parse row-like lines until next section.
-    - Supports rows broken over multiple lines.
-    """
-    lines = [normalize_spaces(x) for x in block.splitlines()]
-    lines = [x for x in lines if x]
+    with pdfplumber.open(str(pdf_path)) as pdf:
+        for page_index, page in enumerate(pdf.pages, start=1):
+            tables = page.extract_tables()
 
-    # Find the first line after header area
-    start_idx = 0
-    for i, line in enumerate(lines):
-        if "HIPAA" in line and "CPT Code" in line:
-            start_idx = i + 1
-            break
+            if not tables:
+                continue
 
-    # If not found, fallback to after section title
-    if start_idx == 0:
-        for i, line in enumerate(lines):
-            if line.endswith("Services"):
-                start_idx = i + 1
-                break
+            for table in tables:
+                if not table:
+                    continue
 
-    data_lines = lines[start_idx:]
+                # If table has a header row, skip it during row loop.
+                start_idx = 1 if is_header_row(table[0]) else 0
 
-    rows = []
-    i = 0
-    current = None
+                for row in table[start_idx:]:
+                    if not row or len(row) < 5:
+                        continue
 
-    def flush_current():
-        nonlocal current
-        if current:
-            current["Service Limits"] = clean_service_limit_text(current["Service Limits"])
-            rows.append(current)
-            current = None
+                    row = [normalize_text(cell) for cell in row[:5]]
 
-    while i < len(data_lines):
-        line = data_lines[i]
+                    if not row_looks_like_data(row):
+                        continue
 
-        # Stop if next numbered section starts
-        if re.match(r"^1001\.\d+\.", line):
-            flush_current()
-            break
+                    procedure_code = row[0]
+                    modifier1 = row[1]
+                    modifier2 = row[2]
+                    new_rate = parse_rate(row[3])
 
-        # Tokenize
-        tokens = line.split()
+                    extracted_rows.append([
+                        SCH_NAME,
+                        procedure_code,
+                        modifier1,
+                        modifier2,
+                        "",                 # Modifier3
+                        "",                 # Modifier4
+                        effective_date,
+                        END_DATE,
+                        PRICING_METHOD,
+                        new_rate,
+                        OLD_RATE,
+                        COMMENTS,
+                        page_index
+                    ])
 
-        # Check whether this line starts a new data row
-        if tokens and is_probable_code(tokens[0]):
-            # save previous
-            flush_current()
-
-            code = tokens[0]
-            mods = []
-            rate = None
-            extra_tokens = []
-
-            for tok in tokens[1:]:
-                if rate is None and looks_like_rate(tok):
-                    rate = tok
-                elif rate is None and is_modifier(tok) and len(mods) < 2:
-                    mods.append(tok)
-                else:
-                    extra_tokens.append(tok)
-
-            current = {
-                "Section": section_name,
-                "HIPAA Compliant CPT Code": code,
-                "1st Modifier": mods[0] if len(mods) > 0 else "",
-                "2nd Modifier": mods[1] if len(mods) > 1 else "",
-                "Maximum Allowable": clean_rate(rate) if rate else "",
-                "Service Limits": extra_tokens[:] if extra_tokens else []
-            }
-
-        else:
-            # Continuation line:
-            # - could contain missing modifier/rate for previous row
-            # - or service limit continuation
-            if current:
-                tokens = line.split()
-
-                for tok in tokens:
-                    if not current["1st Modifier"] and is_modifier(tok):
-                        current["1st Modifier"] = tok
-                    elif not current["2nd Modifier"] and is_modifier(tok):
-                        current["2nd Modifier"] = tok
-                    elif not current["Maximum Allowable"] and looks_like_rate(tok):
-                        current["Maximum Allowable"] = clean_rate(tok)
-                    else:
-                        current["Service Limits"].append(tok)
-
-        i += 1
-
-    flush_current()
-    return rows
+    return extracted_rows
 
 
-def extract_all_rows(pdf_path: str):
-    with pdfplumber.open(pdf_path) as pdf:
-        first_page_text = pdf.pages[0].extract_text() or ""
-
-    effective_date = parse_version_date(first_page_text)
-    chapter_text = extract_chapter_1000_text(pdf_path)
-    sections = split_sections(chapter_text)
-
-    all_rows = []
-    for section_no, section_name, block in sections:
-        # Only sections that truly contain tabular reimbursement rows
-        rows = parse_rows_from_section(section_name, block)
-        for row in rows:
-            row["Effective Date"] = effective_date
-            all_rows.append(row)
-
-    return all_rows, effective_date
-
-
-def write_excel(rows, output_xlsx):
+def write_to_excel(rows, output_file: Path):
     wb = Workbook()
     ws = wb.active
-    ws.title = "GA CIS Output"
+    ws.title = "Output"
 
     headers = [
         "SCH_NAME",
@@ -280,81 +175,67 @@ def write_excel(rows, output_xlsx):
         "New Rate",
         "Old Rate",
         "Comments",
-        "Source Section",
-        "Service Limits"
+        "Page Number"
     ]
+
     ws.append(headers)
 
-    # Text style
-    text_style = NamedStyle(name="text_style")
-    text_style.number_format = "@"
+    # Header styling
+    header_fill = PatternFill(fill_type="solid", fgColor="D9EAD3")
+    header_font = Font(bold=True)
 
-    # Date as text style
-    date_text_style = NamedStyle(name="date_text_style")
-    date_text_style.number_format = "@"
-
-    # 0.0000 text-looking numeric format
-    rate_style = NamedStyle(name="rate_style")
-    rate_style.number_format = "0.0000"
-
-    style_names = {s.name for s in wb.named_styles}
-    if "text_style" not in style_names:
-        wb.add_named_style(text_style)
-    if "date_text_style" not in style_names:
-        wb.add_named_style(date_text_style)
-    if "rate_style" not in style_names:
-        wb.add_named_style(rate_style)
+    for col_num, header in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col_num)
+        cell.fill = header_fill
+        cell.font = header_font
 
     for row in rows:
-        new_row = [
-            SCH_NAME,
-            row.get("HIPAA Compliant CPT Code", ""),
-            row.get("1st Modifier", ""),
-            row.get("2nd Modifier", ""),
-            "",  # Modifier3
-            "",  # Modifier4
-            row.get("Effective Date", ""),
-            END_DATE,
-            PRICING_METHOD,
-            float(row["Maximum Allowable"]) if row.get("Maximum Allowable") else None,
-            OLD_RATE,
-            COMMENTS,
-            row.get("Section", ""),
-            row.get("Service Limits", "")
-        ]
-        ws.append(new_row)
+        ws.append(row)
 
-    # Apply styles
+    # Format New Rate column as 0.0000
     for r in range(2, ws.max_row + 1):
-        # text columns
-        for c in [1, 2, 3, 4, 5, 6, 8, 9, 11, 12, 13, 14]:
-            ws.cell(r, c).style = "text_style"
+        ws.cell(r, 10).number_format = "0.0000"
 
-        # effective date as text
-        ws.cell(r, 7).style = "date_text_style"
+    # Auto width
+    for column_cells in ws.columns:
+        max_length = 0
+        col_letter = column_cells[0].column_letter
+        for cell in column_cells:
+            cell_value = "" if cell.value is None else str(cell.value)
+            if len(cell_value) > max_length:
+                max_length = len(cell_value)
+        ws.column_dimensions[col_letter].width = min(max_length + 2, 35)
 
-        # new rate
-        ws.cell(r, 10).style = "rate_style"
-
-    # auto-width
-    for col_idx, col_name in enumerate(headers, start=1):
-        max_len = len(col_name)
-        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=col_idx, max_col=col_idx):
-            value = row[0].value
-            if value is not None:
-                max_len = max(max_len, len(str(value)))
-        ws.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 2, 40)
-
-    wb.save(output_xlsx)
+    wb.save(output_file)
 
 
-# ============================================================
+# =========================================================
 # MAIN
-# ============================================================
-if __name__ == "__main__":
-    rows, effective_date = extract_all_rows(PDF_PATH)
-    write_excel(rows, OUTPUT_XLSX)
+# =========================================================
+def main():
+    OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
 
-    print(f"Effective Date extracted from PDF: {effective_date}")
-    print(f"Total rows written: {len(rows)}")
-    print(f"Output saved to: {OUTPUT_XLSX}")
+    pdf_path = find_latest_pdf(INPUT_FOLDER)
+    effective_date = extract_effective_date(pdf_path)
+    rows = extract_rows_from_pdf(pdf_path, effective_date)
+
+    if not rows:
+        raise ValueError("No valid table rows were extracted from the PDF.")
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_file = OUTPUT_FOLDER / f"GA_CIS_Output_{timestamp}.xlsx"
+
+    write_to_excel(rows, output_file)
+
+    print(f"Input PDF   : {pdf_path}")
+    print(f"Rows found  : {len(rows)}")
+    print(f"Output file : {output_file}")
+
+
+if __name__ == "__main__":
+    main()
+
+
+*****************************
+
+pip install pdfplumber openpyxl
