@@ -8,16 +8,22 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 
 
+# =========================================================
+# CONFIG
+# =========================================================
 INPUT_FOLDER = Path(r"C:\Users\rajas")
 OUTPUT_FOLDER = Path(r"C:\Users\rajas\Output")
 
-SCH_NAME = "GA CIS"
+SCH_NAME = "GA CISS"
 END_DATE = "12/31/9999"
 PRICING_METHOD = "Allowed"
 OLD_RATE = "N/A"
 COMMENTS = "New Code"
 
 
+# =========================================================
+# HELPERS
+# =========================================================
 def normalize_text(value):
     if value is None:
         return ""
@@ -40,7 +46,7 @@ def extract_effective_date(pdf_path: Path) -> str:
 
     match = re.search(r"Version Date:\s*([A-Za-z]+ \d{1,2}, \d{4})", first_page_text)
     if not match:
-        raise ValueError("Could not find 'Version Date' on page 1.")
+        raise ValueError("Could not find Version Date on page 1.")
 
     dt = datetime.strptime(match.group(1), "%B %d, %Y")
     return f"{dt.month}/{dt.day}/{dt.year}"
@@ -55,8 +61,7 @@ def looks_like_modifier(value: str) -> bool:
 
 
 def looks_like_money(value: str) -> bool:
-    value = normalize_text(value)
-    return bool(re.fullmatch(r"\$?\d+(?:\.\d+)?(?:/unit)?", value))
+    return bool(re.fullmatch(r"\$?\d+(?:\.\d+)?(?:/unit)?", normalize_text(value)))
 
 
 def parse_money(value: str):
@@ -77,22 +82,28 @@ def is_post_table_policy_line(line: str) -> bool:
     line = normalize_text(line)
     if line.startswith("Appendix A"):
         return True
-    return bool(re.match(r"^1001\.(8|9|10|11|12|13|14|15)\b", line))
+    return bool(re.match(r"^1001\.(8|9|10|11|12|13|14)\b", line))
 
 
 def is_header_fragment(line: str) -> bool:
     line = normalize_text(line)
-    return line in {
-        "HIPAA",
-        "Compliant",
-        "CPT Code",
-        "1st Modifier 2nd Modifier Maximum",
-        "Allowable",
-        "Service Limits",
-        "1st Modifier",
-        "2nd Modifier",
-        "Maximum",
-    } or line.startswith("HIPAA ")
+    return (
+        line in {
+            "HIPAA",
+            "Compliant",
+            "CPT Code",
+            "1 st Modifier 2 nd Modifier Maximum",
+            "1st Modifier 2nd Modifier Maximum",
+            "Allowable",
+            "Maximum Allowable",
+            "1 st Modifier",
+            "2 nd Modifier",
+            "1st Modifier",
+            "2nd Modifier",
+            "Maximum",
+        }
+        or line.startswith("HIPAA ")
+    )
 
 
 def start_new_pending_row(code: str, page_number: int):
@@ -101,8 +112,7 @@ def start_new_pending_row(code: str, page_number: int):
         "modifier1": "",
         "modifier2": "",
         "new_rate": None,
-        "service_limits": "",
-        "page_number": page_number
+        "page_number": page_number,
     }
 
 
@@ -132,36 +142,25 @@ def finalize_pending_row(pending, rows, effective_date):
 
 
 def absorb_tokens_into_pending(tokens, pending):
-    """
-    Handles cases like:
-    92652
-    HA
-    $100.94 3 per year
-    """
-    idx = 0
-    while idx < len(tokens):
-        token = tokens[idx]
+    for token in tokens:
+        token = normalize_text(token)
+        if not token:
+            continue
 
         if looks_like_modifier(token):
             if not pending["modifier1"]:
                 pending["modifier1"] = token
             elif not pending["modifier2"]:
                 pending["modifier2"] = token
-            else:
-                pending["service_limits"] = (pending["service_limits"] + " " + token).strip()
 
         elif looks_like_money(token):
             if pending["new_rate"] is None:
                 pending["new_rate"] = parse_money(token)
-            else:
-                pending["service_limits"] = (pending["service_limits"] + " " + token).strip()
-
-        else:
-            pending["service_limits"] = (pending["service_limits"] + " " + token).strip()
-
-        idx += 1
 
 
+# =========================================================
+# EXTRACTION LOGIC
+# =========================================================
 def extract_rows_from_pdf(pdf_path: Path, effective_date: str):
     rows = []
 
@@ -178,15 +177,10 @@ def extract_rows_from_pdf(pdf_path: Path, effective_date: str):
             lines = [normalize_text(x) for x in text.splitlines() if normalize_text(x)]
 
             for line in lines:
-                if "Chapter 1000: Basis For Reimbursement" in line:
+                if "CHAPTER 1000: Basis For Reimbursement" in line or "Chapter 1000: Basis For Reimbursement" in line:
                     inside_chapter_1000 = True
 
                 if not inside_chapter_1000:
-                    continue
-
-                if is_post_table_policy_line(line):
-                    pending = finalize_pending_row(pending, rows, effective_date)
-                    inside_table = False
                     continue
 
                 if line.startswith("Appendix A"):
@@ -194,7 +188,11 @@ def extract_rows_from_pdf(pdf_path: Path, effective_date: str):
                     inside_table = False
                     break
 
-                # Header in this PDF is split across multiple lines
+                if is_post_table_policy_line(line):
+                    pending = finalize_pending_row(pending, rows, effective_date)
+                    inside_table = False
+                    continue
+
                 if is_header_fragment(line):
                     inside_table = True
                     continue
@@ -214,16 +212,14 @@ def extract_rows_from_pdf(pdf_path: Path, effective_date: str):
 
                 first = tokens[0]
 
-                # Case 1: new code begins
+                # New code row starts
                 if looks_like_code(first):
-                    # finalize previous row if complete
                     pending = finalize_pending_row(pending, rows, effective_date)
-
                     pending = start_new_pending_row(first, page_number)
                     absorb_tokens_into_pending(tokens[1:], pending)
                     continue
 
-                # Case 2: continuation of previous row
+                # Continuation line for previous code row
                 if pending:
                     absorb_tokens_into_pending(tokens, pending)
 
@@ -232,7 +228,10 @@ def extract_rows_from_pdf(pdf_path: Path, effective_date: str):
     return rows
 
 
-def write_to_excel(rows, output_file: Path):
+# =========================================================
+# EXCEL WRITER
+# =========================================================
+def write_to_excel(rows, output_path: Path):
     wb = Workbook()
     ws = wb.active
     ws.title = "Output"
@@ -252,16 +251,15 @@ def write_to_excel(rows, output_file: Path):
         "Comments",
         "Page Number"
     ]
-
     ws.append(headers)
 
-    header_fill = PatternFill(fill_type="solid", fgColor="D9EAD3")
-    header_font = Font(bold=True)
+    fill = PatternFill(fill_type="solid", fgColor="D9EAD3")
+    bold = Font(bold=True)
 
-    for col_num, header in enumerate(headers, start=1):
-        cell = ws.cell(row=1, column=col_num)
-        cell.fill = header_fill
-        cell.font = header_font
+    for c, header in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=c)
+        cell.fill = fill
+        cell.font = bold
 
     for row in rows:
         ws.append(row)
@@ -270,16 +268,15 @@ def write_to_excel(rows, output_file: Path):
         ws.cell(r, 10).number_format = "0.0000"
 
     for col in ws.columns:
-        max_len = 0
-        col_letter = col[0].column_letter
-        for cell in col:
-            cell_value = "" if cell.value is None else str(cell.value)
-            max_len = max(max_len, len(cell_value))
-        ws.column_dimensions[col_letter].width = min(max_len + 2, 40)
+        width = max(len(str(cell.value)) if cell.value is not None else 0 for cell in col) + 2
+        ws.column_dimensions[col[0].column_letter].width = min(width, 40)
 
-    wb.save(output_file)
+    wb.save(output_path)
 
 
+# =========================================================
+# MAIN
+# =========================================================
 def main():
     OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
 
@@ -291,7 +288,7 @@ def main():
         raise ValueError("No valid table rows were extracted from the PDF.")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = OUTPUT_FOLDER / f"GA_CIS_Output_{timestamp}.xlsx"
+    output_file = OUTPUT_FOLDER / f"GA_CISS_Output_{timestamp}.xlsx"
 
     write_to_excel(rows, output_file)
 
