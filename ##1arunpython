@@ -1,301 +1,981 @@
 import re
+import sys
+import math
+import traceback
 from pathlib import Path
-from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from datetime import datetime, timedelta
+from urllib.parse import urljoin, unquote
 
-import pdfplumber
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
+import requests
+import pandas as pd
+from openpyxl import load_workbook
 
-
-# =========================================================
+# ============================================================
 # CONFIG
-# =========================================================
-INPUT_FOLDER = Path(r"C:\Users\rajas")
-OUTPUT_FOLDER = Path(r"C:\Users\rajas\Output")
+# ============================================================
 
-SCH_NAME = "GA CISS"
-END_DATE = "12/31/9999"
-PRICING_METHOD = "Allowed"
-OLD_RATE = "N/A"
-COMMENTS = "New Code"
+BASE_URL = "https://www.nevadamedicaid.nv.gov/resources/rates/fee-schedules/"
+ROOT_DIR = Path(r"C:\Users\rajas\Nevada")
 
+REQUEST_TIMEOUT = 60
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0.0.0 Safari/537.36"
+)
 
-# =========================================================
+OUTPUT_HEADERS = [
+    "SCH_NAME",
+    "Procedure Code",
+    "Modifier1",
+    "Modifier2",
+    "Modifier3",
+    "Modifier4",
+    "Effective Date",
+    "End Date",
+    "Pricing Method",
+    "New Rate",
+    "Old Rate",
+    "Comments",
+    "Differences"
+]
+
+HEADER_ALIASES = {
+    "proc": [
+        "proc", "procedure", "procedure code", "code", "cpt", "cpt code",
+        "hcpcs", "hcpcs code", "proc code"
+    ],
+    "mod": [
+        "mod", "modifier", "modifier 1", "mod 1", "mod1"
+    ],
+    "rate_type": [
+        "rate type",
+        "enhancement",
+        "pricing method",
+        "rate methodology",
+        "pricing type",
+        "reimbursement method"
+    ],
+    "rate": [
+        "rate", "fee", "amount", "payment amount", "max fee"
+    ],
+    "rate_begin_date": [
+        "rate begin date", "begin date", "effective date", "eff date",
+        "start date", "rate effective date", "effective"
+    ],
+    "rate_end_date": [
+        "rate end date", "end date", "termination date", "term date",
+        "stop date", "expiration date", "through date"
+    ],
+    "specialty": [
+        "specialty", "spec", "provider specialty"
+    ],
+    "desc": [
+        "desc", "description"
+    ]
+}
+
+REQUIRED_CANONICAL_FIELDS = {"proc", "mod", "rate_type", "rate", "rate_begin_date"}
+
+# ============================================================
 # HELPERS
-# =========================================================
+# ============================================================
+
+def log(message: str):
+    print(message, flush=True)
+
 def normalize_text(value):
     if value is None:
         return ""
-    value = str(value).replace("\xa0", " ")
-    value = value.replace("–", "-").replace("—", "-")
-    value = re.sub(r"\s+", " ", value.strip())
-    return value
+    if isinstance(value, float) and math.isnan(value):
+        return ""
+    text = str(value).strip()
+    text = re.sub(r"\s+", " ", text)
+    return text
 
+def normalize_col_name(col):
+    c = normalize_text(col).lower()
+    c = c.replace("_", " ")
+    c = c.replace("-", " ")
+    c = c.replace("\n", " ")
+    c = c.replace("/", " ")
+    c = re.sub(r"\s+", " ", c).strip()
+    return c
 
-def find_latest_pdf(folder: Path) -> Path:
-    pdf_files = list(folder.glob("*.pdf"))
-    if not pdf_files:
-        raise FileNotFoundError(f"No PDF files found in: {folder}")
-    return max(pdf_files, key=lambda p: p.stat().st_mtime)
+def normalize_value(value):
+    if value is None:
+        return ""
+    if isinstance(value, float) and math.isnan(value):
+        return ""
+    text = str(value).strip()
+    text = re.sub(r"\s+", " ", text)
+    return text
 
-
-def extract_effective_date(pdf_path: Path) -> str:
-    with pdfplumber.open(str(pdf_path)) as pdf:
-        first_page_text = pdf.pages[0].extract_text() or ""
-
-    match = re.search(r"Version Date:\s*([A-Za-z]+ \d{1,2}, \d{4})", first_page_text)
-    if not match:
-        raise ValueError("Could not find Version Date on page 1.")
-
-    dt = datetime.strptime(match.group(1), "%B %d, %Y")
-    return f"{dt.month}/{dt.day}/{dt.year}"
-
-
-def looks_like_code(value: str) -> bool:
-    return bool(re.fullmatch(r"[A-Z]?\d{4,5}", normalize_text(value)))
-
-
-def looks_like_modifier(value: str) -> bool:
-    return bool(re.fullmatch(r"[A-Z0-9]{2}", normalize_text(value)))
-
-
-def looks_like_money(value: str) -> bool:
-    return bool(re.fullmatch(r"\$?\d+(?:\.\d+)?(?:/unit)?", normalize_text(value)))
-
-
-def parse_money(value: str):
-    value = normalize_text(value).replace("$", "").replace("/unit", "")
-    if not value:
-        return None
+def normalize_rate(value):
+    text = normalize_value(value)
+    if text == "":
+        return ""
+    text = text.replace("$", "").replace(",", "").strip()
     try:
-        return float(Decimal(value))
-    except (InvalidOperation, ValueError):
+        return f"{float(text):.4f}"
+    except Exception:
+        return text
+
+def normalize_date(value):
+    if value is None:
+        return ""
+    if isinstance(value, float) and math.isnan(value):
+        return ""
+
+    if isinstance(value, datetime):
+        return value.strftime("%m/%d/%Y")
+
+    text = str(value).strip()
+    if text == "":
+        return ""
+
+    try:
+        dt = pd.to_datetime(text, errors="coerce")
+        if pd.notna(dt):
+            return dt.strftime("%m/%d/%Y")
+    except Exception:
+        pass
+
+    return text
+
+def safe_filename(name):
+    name = unquote(name)
+    name = re.sub(r'[<>:"/\\|?*]+', "_", name)
+    return name.strip()
+
+def ensure_dir(path: Path):
+    path.mkdir(parents=True, exist_ok=True)
+
+def get_today_yesterday_folder_names():
+    today_dt = datetime.today()
+    yesterday_dt = today_dt - timedelta(days=1)
+    return today_dt.strftime("%m%d%Y"), yesterday_dt.strftime("%m%d%Y")
+
+def parse_folder_date(folder_name: str):
+    try:
+        return datetime.strptime(folder_name, "%m%d%Y")
+    except Exception:
         return None
 
-
-def is_section_title(line: str) -> bool:
-    return bool(re.match(r"^1001\.\d+\.\s+.*Services$", normalize_text(line)))
-
-
-def is_post_table_policy_line(line: str) -> bool:
-    line = normalize_text(line)
-    if line.startswith("Appendix A"):
-        return True
-    return bool(re.match(r"^1001\.(8|9|10|11|12|13|14)\b", line))
-
-
-def is_header_fragment(line: str) -> bool:
-    line = normalize_text(line)
-    return (
-        line in {
-            "HIPAA",
-            "Compliant",
-            "CPT Code",
-            "1 st Modifier 2 nd Modifier Maximum",
-            "1st Modifier 2nd Modifier Maximum",
-            "Allowable",
-            "Maximum Allowable",
-            "1 st Modifier",
-            "2 nd Modifier",
-            "1st Modifier",
-            "2nd Modifier",
-            "Maximum",
-        }
-        or line.startswith("HIPAA ")
-    )
-
-
-def start_new_pending_row(code: str, page_number: int):
-    return {
-        "procedure_code": code,
-        "modifier1": "",
-        "modifier2": "",
-        "new_rate": None,
-        "page_number": page_number,
-    }
-
-
-def finalize_pending_row(pending, rows, effective_date):
-    if not pending:
+def find_latest_available_previous_folder(root_dir: Path, today_folder_name: str):
+    """
+    Find the latest available previous dated folder under root_dir.
+    Example:
+      today folder = 04172026
+      available folders = 04092026, 04082026
+      returns folder 04092026
+    """
+    today_dt = parse_folder_date(today_folder_name)
+    if today_dt is None:
         return None
 
-    if not pending["procedure_code"] or pending["new_rate"] is None:
-        return pending
+    candidate_folders = []
 
-    rows.append([
-        SCH_NAME,
-        pending["procedure_code"],
-        pending["modifier1"],
-        pending["modifier2"],
-        "",
-        "",
-        effective_date,
-        END_DATE,
-        PRICING_METHOD,
-        pending["new_rate"],
-        OLD_RATE,
-        COMMENTS,
-        pending["page_number"]
-    ])
-    return None
+    if not root_dir.exists():
+        return None
 
-
-def absorb_tokens_into_pending(tokens, pending):
-    for token in tokens:
-        token = normalize_text(token)
-        if not token:
+    for child in root_dir.iterdir():
+        if not child.is_dir():
             continue
 
-        if looks_like_modifier(token):
-            if not pending["modifier1"]:
-                pending["modifier1"] = token
-            elif not pending["modifier2"]:
-                pending["modifier2"] = token
+        folder_dt = parse_folder_date(child.name)
+        if folder_dt is None:
+            continue
 
-        elif looks_like_money(token):
-            if pending["new_rate"] is None:
-                pending["new_rate"] = parse_money(token)
+        if folder_dt < today_dt:
+            candidate_folders.append((folder_dt, child))
 
+    if not candidate_folders:
+        return None
 
-# =========================================================
-# EXTRACTION LOGIC
-# =========================================================
-def extract_rows_from_pdf(pdf_path: Path, effective_date: str):
-    rows = []
+    candidate_folders.sort(key=lambda x: x[0], reverse=True)
+    return candidate_folders[0][1]
 
-    with pdfplumber.open(str(pdf_path)) as pdf:
-        inside_chapter_1000 = False
-        inside_table = False
-        pending = None
+def tokenize_header(text):
+    return set(normalize_col_name(text).split())
 
-        for page_number, page in enumerate(pdf.pages, start=1):
-            text = page.extract_text() or ""
-            if not text.strip():
+def header_match_score(actual_header, alias):
+    """
+    Stronger header scoring to avoid bad matches like:
+      rate -> rate begin date
+    """
+    actual = normalize_col_name(actual_header)
+    alias_norm = normalize_col_name(alias)
+
+    if not actual or not alias_norm:
+        return -1
+
+    if actual == alias_norm:
+        return 100
+
+    actual_tokens = tokenize_header(actual)
+    alias_tokens = tokenize_header(alias_norm)
+
+    if actual_tokens == alias_tokens:
+        return 95
+
+    if alias_norm in actual and len(alias_tokens) >= 2:
+        return 80
+
+    if len(alias_tokens) >= 2 and alias_tokens.issubset(actual_tokens):
+        return 75
+
+    if len(alias_tokens) == 1:
+        alias_token = next(iter(alias_tokens))
+        if alias_token in actual_tokens:
+            return 70
+
+    return -1
+
+def best_alias_score(actual_header, alias_list):
+    best = -1
+    for alias in alias_list:
+        score = header_match_score(actual_header, alias)
+        if score > best:
+            best = score
+    return best
+
+def identify_header_fields(row_values):
+    found_fields = {}
+
+    for idx, value in enumerate(row_values):
+        cell = normalize_col_name(value)
+        if not cell:
+            continue
+
+        best_field = None
+        best_score = -1
+
+        for canonical_name, aliases in HEADER_ALIASES.items():
+            if canonical_name in found_fields:
+                continue
+            score = best_alias_score(cell, aliases)
+            if score > best_score:
+                best_score = score
+                best_field = canonical_name
+
+        if best_field is not None and best_score >= 70:
+            found_fields[best_field] = idx
+
+    return found_fields
+
+# ============================================================
+# DOWNLOAD SECTION
+# ============================================================
+
+def get_session():
+    session = requests.Session()
+    session.headers.update({"User-Agent": USER_AGENT})
+    return session
+
+def extract_excel_links(html, page_url):
+    hrefs = set()
+    for match in re.finditer(r'href=["\']([^"\']+)["\']', html, re.IGNORECASE):
+        href = match.group(1).strip()
+        href_lower = href.lower()
+        if ".xlsx" in href_lower or ".xls" in href_lower:
+            hrefs.add(urljoin(page_url, href))
+    return sorted(hrefs)
+
+def download_file(session, url, dest_folder: Path):
+    filename = safe_filename(Path(url.split("?")[0]).name)
+    dest = dest_folder / filename
+
+    log(f"Downloading: {filename}")
+    with session.get(url, stream=True, timeout=REQUEST_TIMEOUT) as response:
+        response.raise_for_status()
+        with open(dest, "wb") as file_obj:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                if chunk:
+                    file_obj.write(chunk)
+
+    return dest
+
+def download_all_excel_files():
+    today_folder_name, _ = get_today_yesterday_folder_names()
+    today_folder = ROOT_DIR / today_folder_name
+    ensure_dir(today_folder)
+
+    session = get_session()
+    response = session.get(BASE_URL, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+
+    links = extract_excel_links(response.text, BASE_URL)
+    if not links:
+        raise RuntimeError("No Excel links found on the fee schedule page.")
+
+    downloaded_files = []
+    failures = []
+
+    for link in links:
+        try:
+            downloaded_files.append(download_file(session, link, today_folder))
+        except Exception as exc:
+            failures.append((link, str(exc)))
+            log(f"FAILED DOWNLOAD: {link} -> {exc}")
+
+    return today_folder, downloaded_files, failures
+
+# ============================================================
+# EXCEL PARSING SECTION
+# ============================================================
+
+def workbook_sheet_names(file_path: Path):
+    workbook = load_workbook(file_path, data_only=True, read_only=True)
+    names = workbook.sheetnames
+    workbook.close()
+    return names
+
+def find_header_row_in_sheet(file_path: Path, sheet_name: str, scan_limit=120):
+    df = pd.read_excel(
+        file_path,
+        sheet_name=sheet_name,
+        header=None,
+        dtype=object,
+        engine="openpyxl"
+    )
+
+    best_row_idx = None
+    best_score = -1
+
+    max_rows = min(scan_limit, len(df))
+
+    for i in range(max_rows):
+        row_values = df.iloc[i].tolist()
+        found_fields = identify_header_fields(row_values)
+        score = len(REQUIRED_CANONICAL_FIELDS.intersection(found_fields.keys()))
+
+        if score == len(REQUIRED_CANONICAL_FIELDS):
+            return i, found_fields
+
+        if score > best_score:
+            best_score = score
+            best_row_idx = i
+
+    if best_score >= 4 and best_row_idx is not None:
+        row_values = df.iloc[best_row_idx].tolist()
+        return best_row_idx, identify_header_fields(row_values)
+
+    return None, None
+
+def map_columns(actual_headers):
+    """
+    Robust canonical mapping with best-score selection and no duplicate reuse.
+    """
+    mapping = {}
+    used_headers = set()
+
+    for canonical_name, aliases in HEADER_ALIASES.items():
+        best_header = None
+        best_score = -1
+
+        for actual in actual_headers:
+            if actual in used_headers:
                 continue
 
-            lines = [normalize_text(x) for x in text.splitlines() if normalize_text(x)]
+            score = best_alias_score(actual, aliases)
+            actual_norm = normalize_col_name(actual)
 
-            for line in lines:
-                if "CHAPTER 1000: Basis For Reimbursement" in line or "Chapter 1000: Basis For Reimbursement" in line:
-                    inside_chapter_1000 = True
+            if canonical_name == "rate" and any(
+                x in actual_norm for x in [
+                    "begin date", "end date", "effective date",
+                    "term date", "termination date"
+                ]
+            ):
+                continue
 
-                if not inside_chapter_1000:
-                    continue
+            if canonical_name == "rate_begin_date" and "end date" in actual_norm:
+                continue
 
-                if line.startswith("Appendix A"):
-                    pending = finalize_pending_row(pending, rows, effective_date)
-                    inside_table = False
-                    break
+            if canonical_name == "rate_end_date" and any(
+                x in actual_norm for x in ["begin date", "effective date", "start date"]
+            ):
+                continue
 
-                if is_post_table_policy_line(line):
-                    pending = finalize_pending_row(pending, rows, effective_date)
-                    inside_table = False
-                    continue
+            if score > best_score:
+                best_score = score
+                best_header = actual
 
-                if is_header_fragment(line):
-                    inside_table = True
-                    continue
+        if best_header is not None and best_score >= 70:
+            mapping[canonical_name] = best_header
+            used_headers.add(best_header)
+        else:
+            mapping[canonical_name] = None
 
-                if is_section_title(line):
-                    continue
+    return mapping
 
-                if not inside_table:
-                    continue
+def read_schedule_file(file_path: Path):
+    sheet_errors = []
 
-                if line.startswith("Page "):
-                    continue
+    for sheet_name in workbook_sheet_names(file_path):
+        try:
+            header_idx, _ = find_header_row_in_sheet(file_path, sheet_name)
+            if header_idx is None:
+                sheet_errors.append(f"{sheet_name}: header not found")
+                continue
 
-                tokens = line.split()
-                if not tokens:
-                    continue
+            df = pd.read_excel(
+                file_path,
+                sheet_name=sheet_name,
+                header=header_idx,
+                dtype=object,
+                engine="openpyxl"
+            )
 
-                first = tokens[0]
+            df = df.dropna(how="all")
+            df = df.loc[:, ~df.columns.isna()]
+            df.columns = [normalize_text(col) for col in df.columns]
 
-                # New code row starts
-                if looks_like_code(first):
-                    pending = finalize_pending_row(pending, rows, effective_date)
-                    pending = start_new_pending_row(first, page_number)
-                    absorb_tokens_into_pending(tokens[1:], pending)
-                    continue
+            col_map = map_columns(list(df.columns))
 
-                # Continuation line for previous code row
-                if pending:
-                    absorb_tokens_into_pending(tokens, pending)
+            required_missing = [
+                key for key in ["proc", "mod", "rate_type", "rate", "rate_begin_date"]
+                if not col_map.get(key)
+            ]
+            if required_missing:
+                sheet_errors.append(
+                    f"{sheet_name}: required columns missing after mapping -> {required_missing}; "
+                    f"mapped={col_map}"
+                )
+                continue
 
-        pending = finalize_pending_row(pending, rows, effective_date)
+            output_df = pd.DataFrame()
+            output_df["proc"] = df[col_map["proc"]].map(normalize_value)
+            output_df["mod"] = df[col_map["mod"]].map(normalize_value)
+            output_df["rate_type"] = df[col_map["rate_type"]].map(normalize_value)
+            output_df["rate"] = df[col_map["rate"]].map(normalize_rate)
+            output_df["rate_begin_date"] = df[col_map["rate_begin_date"]].map(normalize_date)
 
-    return rows
+            if col_map.get("rate_end_date"):
+                output_df["rate_end_date"] = df[col_map["rate_end_date"]].map(normalize_date)
+            else:
+                output_df["rate_end_date"] = ""
 
+            if col_map.get("specialty"):
+                output_df["specialty"] = df[col_map["specialty"]].map(normalize_value)
+                specialty_exists = True
+            else:
+                output_df["specialty"] = ""
+                specialty_exists = False
 
-# =========================================================
-# EXCEL WRITER
-# =========================================================
-def write_to_excel(rows, output_path: Path):
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Output"
+            output_df = output_df[
+                ~(
+                    (output_df["proc"] == "") &
+                    (output_df["mod"] == "") &
+                    (output_df["rate_type"] == "") &
+                    (output_df["rate"] == "") &
+                    (output_df["rate_begin_date"] == "")
+                )
+            ].copy()
 
-    headers = [
-        "SCH_NAME",
-        "Procedure Code",
-        "Modifier1",
-        "Modifier2",
-        "Modifier3",
-        "Modifier4",
-        "Effective Date",
-        "End Date",
-        "Pricing Method",
-        "New Rate",
-        "Old Rate",
-        "Comments",
-        "Page Number"
-    ]
-    ws.append(headers)
+            output_df = output_df[
+                ~(
+                    output_df["proc"].str.lower().isin(["proc", "procedure", "procedure code", "code"]) |
+                    output_df["rate_type"].str.lower().isin(["rate type", "pricing method", "enhancement"])
+                )
+            ].copy()
 
-    fill = PatternFill(fill_type="solid", fgColor="D9EAD3")
-    bold = Font(bold=True)
+            output_df["sch_name"] = file_path.name
 
-    for c, header in enumerate(headers, start=1):
-        cell = ws.cell(row=1, column=c)
-        cell.fill = fill
-        cell.font = bold
+            if output_df.empty:
+                sheet_errors.append(f"{sheet_name}: parsed but no usable data rows")
+                continue
 
-    for row in rows:
-        ws.append(row)
+            return {
+                "file_path": file_path,
+                "sheet_name": sheet_name,
+                "specialty_exists": specialty_exists,
+                "data": output_df.reset_index(drop=True)
+            }
 
-    for r in range(2, ws.max_row + 1):
-        ws.cell(r, 10).number_format = "0.0000"
+        except Exception as exc:
+            sheet_errors.append(f"{sheet_name}: {str(exc)}")
+            continue
 
-    for col in ws.columns:
-        width = max(len(str(cell.value)) if cell.value is not None else 0 for cell in col) + 2
-        ws.column_dimensions[col[0].column_letter].width = min(width, 40)
+    raise ValueError(
+        f"Could not find valid table in any sheet: {file_path.name}\n"
+        f"Sheet diagnostics: {' | '.join(sheet_errors)}"
+    )
 
-    wb.save(output_path)
+# ============================================================
+# COMPARISON SECTION
+# ============================================================
 
+def to_output_row(
+    sch_name,
+    proc,
+    mod,
+    eff_date,
+    end_date,
+    pricing_method,
+    new_rate,
+    old_rate,
+    comments,
+    differences
+):
+    return {
+        "SCH_NAME": sch_name,
+        "Procedure Code": proc,
+        "Modifier1": mod,
+        "Modifier2": "",
+        "Modifier3": "",
+        "Modifier4": "",
+        "Effective Date": eff_date,
+        "End Date": end_date,
+        "Pricing Method": pricing_method,
+        "New Rate": new_rate,
+        "Old Rate": old_rate,
+        "Comments": comments,
+        "Differences": differences
+    }
 
-# =========================================================
+def compare_two_files(today_meta, yesterday_meta):
+    today_df = today_meta["data"].copy()
+    yesterday_df = yesterday_meta["data"].copy()
+
+    specialty_exists = today_meta["specialty_exists"] or yesterday_meta["specialty_exists"]
+
+    for df in [today_df, yesterday_df]:
+        for col in [
+            "proc", "mod", "rate_type", "rate", "rate_begin_date",
+            "rate_end_date", "specialty", "sch_name"
+        ]:
+            if col not in df.columns:
+                df[col] = ""
+
+        for col in [
+            "proc", "mod", "rate_type", "rate", "rate_begin_date",
+            "rate_end_date", "specialty", "sch_name"
+        ]:
+            df[col] = df[col].fillna("").astype(str).str.strip()
+
+    def build_full_sig_vectorized(df, use_specialty):
+        cols = ["proc", "mod", "rate_type", "rate", "rate_begin_date"]
+        if use_specialty:
+            cols.append("specialty")
+        return df[cols].astype(str).agg("||".join, axis=1)
+
+    def build_match_key_vectorized(df, use_specialty):
+        cols = ["proc", "mod", "rate_type"]
+        if use_specialty:
+            cols.append("specialty")
+        return df[cols].astype(str).agg("||".join, axis=1)
+
+    today_df["full_sig"] = build_full_sig_vectorized(today_df, specialty_exists)
+    yesterday_df["full_sig"] = build_full_sig_vectorized(yesterday_df, specialty_exists)
+
+    exact_common = set(today_df["full_sig"]).intersection(set(yesterday_df["full_sig"]))
+
+    today_mismatch = today_df[~today_df["full_sig"].isin(exact_common)].copy()
+    yesterday_mismatch = yesterday_df[~yesterday_df["full_sig"].isin(exact_common)].copy()
+
+    if today_mismatch.empty:
+        today_mismatch["match_key"] = pd.Series(dtype="object")
+    else:
+        today_mismatch["match_key"] = build_match_key_vectorized(today_mismatch, specialty_exists)
+
+    if yesterday_mismatch.empty:
+        yesterday_mismatch["match_key"] = pd.Series(dtype="object")
+    else:
+        yesterday_mismatch["match_key"] = build_match_key_vectorized(yesterday_mismatch, specialty_exists)
+
+    today_map = {}
+    if not today_mismatch.empty:
+        for key, group in today_mismatch.groupby("match_key", dropna=False):
+            today_map[key] = group.iloc[0]
+
+    yesterday_map = {}
+    if not yesterday_mismatch.empty:
+        for key, group in yesterday_mismatch.groupby("match_key", dropna=False):
+            yesterday_map[key] = group.iloc[0]
+
+    all_keys = sorted(set(today_map.keys()).union(set(yesterday_map.keys())))
+    results = []
+
+    for key in all_keys:
+        today_row = today_map.get(key)
+        yesterday_row = yesterday_map.get(key)
+
+        if today_row is not None and yesterday_row is not None:
+            changed_fields = []
+
+            if today_row["rate"] != yesterday_row["rate"]:
+                changed_fields.append("Rate")
+            if today_row["rate_begin_date"] != yesterday_row["rate_begin_date"]:
+                changed_fields.append("Rate Begin Date")
+            if today_row["rate_end_date"] != yesterday_row["rate_end_date"]:
+                changed_fields.append("Rate End Date")
+            if specialty_exists and today_row["specialty"] != yesterday_row["specialty"]:
+                changed_fields.append("Specialty")
+
+            if not changed_fields:
+                continue
+
+            comments = []
+            if "Rate" in changed_fields:
+                comments.append("Rate Change")
+            if "Rate Begin Date" in changed_fields:
+                comments.append("Effective date change")
+            if "Rate End Date" in changed_fields:
+                comments.append("End date change")
+            if "Specialty" in changed_fields:
+                comments.append("Specialty change")
+
+            results.append(
+                to_output_row(
+                    sch_name=today_row["sch_name"],
+                    proc=today_row["proc"],
+                    mod=today_row["mod"],
+                    eff_date=today_row["rate_begin_date"],
+                    end_date=today_row["rate_end_date"],
+                    pricing_method=today_row["rate_type"],
+                    new_rate=today_row["rate"],
+                    old_rate=yesterday_row["rate"],
+                    comments=" | ".join(comments),
+                    differences=", ".join(changed_fields)
+                )
+            )
+
+        elif today_row is not None and yesterday_row is None:
+            results.append(
+                to_output_row(
+                    sch_name=today_row["sch_name"],
+                    proc=today_row["proc"],
+                    mod=today_row["mod"],
+                    eff_date=today_row["rate_begin_date"],
+                    end_date=today_row["rate_end_date"],
+                    pricing_method=today_row["rate_type"],
+                    new_rate=today_row["rate"],
+                    old_rate="",
+                    comments="New Code",
+                    differences="New Code"
+                )
+            )
+
+        elif today_row is None and yesterday_row is not None:
+            results.append(
+                to_output_row(
+                    sch_name=yesterday_row["sch_name"],
+                    proc=yesterday_row["proc"],
+                    mod=yesterday_row["mod"],
+                    eff_date=yesterday_row["rate_begin_date"],
+                    end_date=yesterday_row["rate_end_date"],
+                    pricing_method=yesterday_row["rate_type"],
+                    new_rate="",
+                    old_rate=yesterday_row["rate"],
+                    comments="Terminate",
+                    differences="Terminate"
+                )
+            )
+
+    diff_df = pd.DataFrame(results, columns=OUTPUT_HEADERS)
+    diff_summary = build_diff_summary(diff_df)
+    return diff_df, diff_summary
+
+def build_diff_summary(diff_df: pd.DataFrame):
+    if diff_df.empty:
+        return {
+            "total_differences": 0,
+            "rate_change_count": 0,
+            "effective_date_change_count": 0,
+            "new_code_count": 0,
+            "terminate_count": 0,
+            "end_date_change_count": 0,
+            "specialty_change_count": 0,
+        }
+
+    comments_series = diff_df["Comments"].fillna("").astype(str)
+
+    return {
+        "total_differences": len(diff_df),
+        "rate_change_count": comments_series.str.contains(r"\bRate Change\b", case=False, regex=True).sum(),
+        "effective_date_change_count": comments_series.str.contains(r"\bEffective date change\b", case=False, regex=True).sum(),
+        "new_code_count": comments_series.str.contains(r"\bNew Code\b", case=False, regex=True).sum(),
+        "terminate_count": comments_series.str.contains(r"\bTerminate\b", case=False, regex=True).sum(),
+        "end_date_change_count": comments_series.str.contains(r"\bEnd date change\b", case=False, regex=True).sum(),
+        "specialty_change_count": comments_series.str.contains(r"\bSpecialty change\b", case=False, regex=True).sum(),
+    }
+
+# ============================================================
+# FILE MATCHING / OUTPUT
+# ============================================================
+
+def extract_provider_type_key(file_path: Path):
+    """
+    Extract normalized provider type key from filename.
+    Examples:
+      pt-12-fee-schedule-042026.xlsx           -> PT-12
+      pt-12-fee-schedule-04082026-042026.xlsx  -> PT-12
+      PT 12 fee schedule-042026.xlsx           -> PT-12
+    """
+    name = file_path.stem.lower()
+    normalized = re.sub(r"[_\s]+", "-", name)
+    normalized = re.sub(r"-+", "-", normalized)
+
+    match = re.search(r"\bpt[- ]?(\d+)\b", normalized, re.IGNORECASE)
+    if match:
+        return f"PT-{match.group(1)}"
+
+    return None
+
+def find_matching_yesterday_file(today_file: Path, comparison_folder: Path):
+    """
+    Match previous file using:
+    1. exact filename
+    2. Provider Type key (PT + number)
+    3. loose normalized filename fallback
+    """
+    exact_match = comparison_folder / today_file.name
+    if exact_match.exists():
+        return exact_match
+
+    today_pt_key = extract_provider_type_key(today_file)
+    if today_pt_key:
+        candidates = []
+        for candidate in comparison_folder.glob("*.xls*"):
+            candidate_pt_key = extract_provider_type_key(candidate)
+            if candidate_pt_key == today_pt_key:
+                candidates.append(candidate)
+
+        if len(candidates) == 1:
+            return candidates[0]
+
+        if len(candidates) > 1:
+            candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            return candidates[0]
+
+    today_norm = today_file.stem.lower()
+    today_norm = re.sub(r'[\s_]+', '-', today_norm)
+    today_norm = re.sub(r'\d{8}', '', today_norm)
+    today_norm = re.sub(r'\d{6}', '', today_norm)
+    today_norm = re.sub(r'-+', '-', today_norm).strip('-')
+
+    candidates = []
+    for candidate in comparison_folder.glob("*.xls*"):
+        candidate_norm = candidate.stem.lower()
+        candidate_norm = re.sub(r'[\s_]+', '-', candidate_norm)
+        candidate_norm = re.sub(r'\d{8}', '', candidate_norm)
+        candidate_norm = re.sub(r'\d{6}', '', candidate_norm)
+        candidate_norm = re.sub(r'-+', '-', candidate_norm).strip('-')
+
+        if candidate_norm == today_norm:
+            candidates.append(candidate)
+
+    if len(candidates) == 1:
+        return candidates[0]
+
+    if len(candidates) > 1:
+        candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        return candidates[0]
+
+    return None
+
+def write_difference_file(diff_df: pd.DataFrame, today_file: Path, output_folder: Path):
+    ensure_dir(output_folder)
+
+    if diff_df.empty:
+        return None
+
+    out_path = output_folder / f"{today_file.stem}_Differences.xlsx"
+
+    with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
+        diff_df.to_excel(writer, index=False, sheet_name="Differences")
+
+    return out_path
+
+def write_summary_workbook(summary_rows, overall_info, output_folder: Path):
+    ensure_dir(output_folder)
+    summary_path = output_folder / "Nevada_FeeSchedule_Comparison_Summary.xlsx"
+
+    summary_df = pd.DataFrame(summary_rows, columns=[
+        "Today File",
+        "Yesterday File",
+        "Status",
+        "Difference File",
+        "Total Differences",
+        "Rate Change",
+        "Effective date change",
+        "New Code",
+        "Terminate",
+        "End date change",
+        "Specialty change",
+        "Remarks"
+    ])
+
+    overall_df = pd.DataFrame([
+        {"Metric": "Today Folder", "Value": overall_info["today_folder"]},
+        {"Metric": "Comparison Folder", "Value": overall_info["yesterday_folder"]},
+        {"Metric": "Downloaded Files", "Value": overall_info["downloaded_files"]},
+        {"Metric": "Download Failures", "Value": overall_info["download_failures"]},
+        {"Metric": "Compared Successfully", "Value": overall_info["compared_successfully"]},
+        {"Metric": "Comparison Failures", "Value": overall_info["comparison_failures"]},
+        {"Metric": "Skipped - No Previous Match", "Value": overall_info["skipped_no_yesterday_match"]},
+    ])
+
+    with pd.ExcelWriter(summary_path, engine="openpyxl") as writer:
+        overall_df.to_excel(writer, index=False, sheet_name="Overall Summary")
+        summary_df.to_excel(writer, index=False, sheet_name="File Summary")
+
+    return summary_path
+
+# ============================================================
 # MAIN
-# =========================================================
+# ============================================================
+
 def main():
-    OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
+    try:
+        ensure_dir(ROOT_DIR)
 
-    pdf_path = find_latest_pdf(INPUT_FOLDER)
-    effective_date = extract_effective_date(pdf_path)
-    rows = extract_rows_from_pdf(pdf_path, effective_date)
+        today_folder_name, yesterday_folder_name = get_today_yesterday_folder_names()
+        today_folder = ROOT_DIR / today_folder_name
 
-    if not rows:
-        raise ValueError("No valid table rows were extracted from the PDF.")
+        expected_yesterday_folder = ROOT_DIR / yesterday_folder_name
+        if expected_yesterday_folder.exists() and expected_yesterday_folder.is_dir():
+            comparison_folder = expected_yesterday_folder
+        else:
+            comparison_folder = find_latest_available_previous_folder(ROOT_DIR, today_folder_name)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = OUTPUT_FOLDER / f"GA_CISS_Output_{timestamp}.xlsx"
+        log("=" * 90)
+        log(f"Today folder      : {today_folder}")
+        log(f"Expected yesterday: {expected_yesterday_folder}")
+        log(f"Comparison folder : {comparison_folder}")
+        log("=" * 90)
 
-    write_to_excel(rows, output_file)
+        today_folder, downloaded_files, failures = download_all_excel_files()
+        log(f"Downloaded files count: {len(downloaded_files)}")
 
-    print(f"Input PDF   : {pdf_path}")
-    print(f"Rows found  : {len(rows)}")
-    print(f"Output file : {output_file}")
+        if comparison_folder is None or not comparison_folder.exists():
+            log("No previous folder found for comparison.")
+            return
 
+        diff_output_folder = today_folder / "Differences"
+        ensure_dir(diff_output_folder)
+
+        summary_rows = []
+        compare_success = 0
+        compare_fail = 0
+        skipped = 0
+
+        for today_file in downloaded_files:
+            if today_file.suffix.lower() not in [".xls", ".xlsx"]:
+                continue
+
+            yesterday_file = find_matching_yesterday_file(today_file, comparison_folder)
+            if not yesterday_file:
+                skipped += 1
+                summary_rows.append({
+                    "Today File": today_file.name,
+                    "Yesterday File": "",
+                    "Status": "Skipped",
+                    "Difference File": "",
+                    "Total Differences": 0,
+                    "Rate Change": 0,
+                    "Effective date change": 0,
+                    "New Code": 0,
+                    "Terminate": 0,
+                    "End date change": 0,
+                    "Specialty change": 0,
+                    "Remarks": f"Matching file not found in comparison folder {comparison_folder.name}"
+                })
+                log(f"SKIPPED: {today_file.name} -> no matching file in {comparison_folder.name}")
+                continue
+
+            try:
+                log(f"Trying to parse workbook: {today_file.name}")
+                log(f"Comparing TODAY [{today_file.name}] vs PREVIOUS [{yesterday_file.name}]")
+
+                today_meta = read_schedule_file(today_file)
+                yesterday_meta = read_schedule_file(yesterday_file)
+
+                diff_df, diff_summary = compare_two_files(today_meta, yesterday_meta)
+                diff_file_path = write_difference_file(diff_df, today_file, diff_output_folder)
+
+                if diff_summary["total_differences"] == 0:
+                    summary_rows.append({
+                        "Today File": today_file.name,
+                        "Yesterday File": yesterday_file.name,
+                        "Status": "No Differences",
+                        "Difference File": "",
+                        "Total Differences": 0,
+                        "Rate Change": 0,
+                        "Effective date change": 0,
+                        "New Code": 0,
+                        "Terminate": 0,
+                        "End date change": 0,
+                        "Specialty change": 0,
+                        "Remarks": f"Current file is identical to {comparison_folder.name}"
+                    })
+                    compare_success += 1
+                    log(f"No differences found: {today_file.name}")
+                else:
+                    summary_rows.append({
+                        "Today File": today_file.name,
+                        "Yesterday File": yesterday_file.name,
+                        "Status": "Compared",
+                        "Difference File": diff_file_path.name if diff_file_path else "",
+                        "Total Differences": diff_summary["total_differences"],
+                        "Rate Change": diff_summary["rate_change_count"],
+                        "Effective date change": diff_summary["effective_date_change_count"],
+                        "New Code": diff_summary["new_code_count"],
+                        "Terminate": diff_summary["terminate_count"],
+                        "End date change": diff_summary["end_date_change_count"],
+                        "Specialty change": diff_summary["specialty_change_count"],
+                        "Remarks": f"Compared against folder {comparison_folder.name}"
+                    })
+                    compare_success += 1
+                    log(f"Difference file created: {diff_file_path}")
+
+            except Exception as exc:
+                compare_fail += 1
+                summary_rows.append({
+                    "Today File": today_file.name,
+                    "Yesterday File": yesterday_file.name if yesterday_file else "",
+                    "Status": "Failed",
+                    "Difference File": "",
+                    "Total Differences": 0,
+                    "Rate Change": 0,
+                    "Effective date change": 0,
+                    "New Code": 0,
+                    "Terminate": 0,
+                    "End date change": 0,
+                    "Specialty change": 0,
+                    "Remarks": str(exc)
+                })
+                log(f"FAILED COMPARISON: {today_file.name} -> {exc}")
+                traceback.print_exc()
+
+        overall_info = {
+            "today_folder": str(today_folder),
+            "yesterday_folder": str(comparison_folder),
+            "downloaded_files": len(downloaded_files),
+            "download_failures": len(failures),
+            "compared_successfully": compare_success,
+            "comparison_failures": compare_fail,
+            "skipped_no_yesterday_match": skipped,
+        }
+
+        summary_path = write_summary_workbook(summary_rows, overall_info, diff_output_folder)
+
+        log("\n" + "=" * 90)
+        log("PROCESS COMPLETED")
+        log(f"Downloaded                : {len(downloaded_files)}")
+        log(f"Download failures         : {len(failures)}")
+        log(f"Compared successfully     : {compare_success}")
+        log(f"Comparison failures       : {compare_fail}")
+        log(f"Skipped                   : {skipped}")
+        log(f"Comparison folder used    : {comparison_folder}")
+        log(f"Summary workbook          : {summary_path}")
+        log("=" * 90)
+
+    except Exception as exc:
+        log(f"FATAL ERROR: {exc}")
+        traceback.print_exc()
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
