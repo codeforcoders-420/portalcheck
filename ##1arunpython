@@ -128,22 +128,22 @@
         .info-badge {
             background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
             border: 2px solid #cbd5e1;
-            padding: 12px 20px;
-            border-radius: 12px;
+            padding: 8px 16px;
+            border-radius: 10px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
         }
         
         .info-badge-label {
-            font-size: 11px;
+            font-size: 9px;
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.05em;
             color: #64748b;
-            margin-bottom: 6px;
+            margin-bottom: 4px;
         }
         
         .info-badge-value {
-            font-size: 13px;
+            font-size: 11px;
             font-weight: 700;
             color: #1e293b;
         }
@@ -161,23 +161,87 @@
             color: #064e3b;
         }
         
+        .info-badge.fee-schedule {
+            background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+            border-color: #93c5fd;
+        }
+        
+        .info-badge.fee-schedule .info-badge-label {
+            color: #1e40af;
+        }
+        
+        .info-badge.fee-schedule .info-badge-value {
+            color: #1e3a8a;
+        }
+        
         .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: rgba(148, 163, 184, 0.1); border-radius: 10px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #667eea 0%, #764ba2 100%); border-radius: 10px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #764ba2 0%, #667eea 100%); }
         
-        .loader { 
-            border: 4px solid #f3f3f3; 
-            border-top-color: #667eea; 
-            border-radius: 50%; 
-            width: 48px; 
-            height: 48px; 
-            animation: spin 1s linear infinite; 
+        /* Premium Loader */
+        .premium-loader {
+            display: inline-block;
+            width: 60px;
+            height: 60px;
+            position: relative;
         }
         
-        @keyframes spin { 
-            0% { transform: rotate(0deg); } 
-            100% { transform: rotate(360deg); } 
+        .premium-loader::after {
+            content: '';
+            display: block;
+            width: 50px;
+            height: 50px;
+            margin: 5px;
+            border-radius: 50%;
+            border: 5px solid transparent;
+            border-top-color: #667eea;
+            border-bottom-color: #764ba2;
+            animation: premium-spin 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+        }
+        
+        @keyframes premium-spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .loader-dots {
+            display: inline-flex;
+            gap: 8px;
+            align-items: center;
+        }
+        
+        .loader-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            animation: dot-bounce 1.4s infinite ease-in-out both;
+        }
+        
+        .loader-dot:nth-child(1) {
+            animation-delay: -0.32s;
+        }
+        
+        .loader-dot:nth-child(2) {
+            animation-delay: -0.16s;
+        }
+        
+        @keyframes dot-bounce {
+            0%, 80%, 100% { 
+                transform: scale(0);
+                opacity: 0.5;
+            }
+            40% { 
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+        
+        .processing-alert {
+            background: linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%);
+            border: 2px solid #c4b5fd;
+            box-shadow: 0 4px 16px rgba(139, 92, 246, 0.2);
         }
         
         .chat-container { scroll-behavior: smooth; }
@@ -246,6 +310,12 @@
             box-shadow: 0 4px 16px rgba(16, 185, 129, 0.2);
         }
         
+        .info-alert {
+            background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+            border: 2px solid #93c5fd;
+            box-shadow: 0 4px 16px rgba(59, 130, 246, 0.2);
+        }
+        
         .logo-text {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             -webkit-background-clip: text;
@@ -282,6 +352,10 @@
         
         .brand-gradient {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .content-wrapper {
+            zoom: 0.9;
         }
     </style>
 </head>
@@ -324,13 +398,17 @@
                             Back to Home
                         </button>
                     </div>
-                    <div class="flex gap-4">
+                    <div class="flex gap-3">
+                        <div class="info-badge fee-schedule">
+                            <div class="info-badge-label">Fee Schedule</div>
+                            <div class="info-badge-value">FS-2024-001</div>
+                        </div>
                         <div class="info-badge">
                             <div class="info-badge-label">Config Last Updated</div>
                             <div class="info-badge-value">2024-01-15 14:30</div>
                         </div>
                         <div class="info-badge">
-                            <div class="info-badge-label">Config Last Updated By</div>
+                            <div class="info-badge-label">Config Updated By</div>
                             <div class="info-badge-value">John Smith</div>
                         </div>
                         <div class="info-badge prod">
@@ -338,7 +416,7 @@
                             <div class="info-badge-value">2024-01-14 09:15</div>
                         </div>
                         <div class="info-badge prod">
-                            <div class="info-badge-label">PROD Last Updated By</div>
+                            <div class="info-badge-label">PROD Updated By</div>
                             <div class="info-badge-value">Jane Doe</div>
                         </div>
                     </div>
@@ -347,7 +425,7 @@
 
             <!-- Content Area -->
             <div class="flex-1 overflow-y-auto px-4 pb-4 custom-scrollbar">
-                <div id="app-content" class="max-w-5xl mx-auto">
+                <div id="app-content" class="max-w-5xl mx-auto content-wrapper">
                     <div class="content-card rounded-2xl p-12 text-center">
                         <div class="text-gray-400">
                             <i data-lucide="layout-dashboard" class="w-20 h-20 mx-auto mb-6 opacity-50"></i>
@@ -522,6 +600,62 @@
             lucide.createIcons();
         }
 
+        // Show loader in application
+        function showLoader(processingText = 'Processing') {
+            const messageContainer = document.getElementById('message-container');
+            if (messageContainer) {
+                messageContainer.innerHTML = `
+                    <div class="processing-alert rounded-xl p-6 mt-6">
+                        <div class="flex items-center justify-center gap-4">
+                            <div class="premium-loader"></div>
+                            <div class="text-center">
+                                <p class="text-base font-bold text-purple-900 mb-2">${processingText}</p>
+                                <div class="loader-dots">
+                                    <div class="loader-dot"></div>
+                                    <div class="loader-dot"></div>
+                                    <div class="loader-dot"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                messageContainer.style.display = 'block';
+            }
+        }
+
+        // Show message in application
+        function showMessage(message, type = 'info') {
+            const messageContainer = document.getElementById('message-container');
+            if (messageContainer) {
+                const iconName = type === 'success' ? 'check-circle' : type === 'error' ? 'alert-circle' : 'info';
+                const alertClass = type === 'success' ? 'success-alert' : type === 'error' ? 'error-alert' : 'info-alert';
+                const iconColor = type === 'success' ? 'text-green-600' : type === 'error' ? 'text-red-600' : 'text-blue-600';
+                const textColor = type === 'success' ? 'text-green-900' : type === 'error' ? 'text-red-900' : 'text-blue-900';
+                
+                messageContainer.innerHTML = `
+                    <div class="${alertClass} rounded-xl p-5 mt-6">
+                        <div class="flex items-start gap-4">
+                            <i data-lucide="${iconName}" class="w-6 h-6 ${iconColor} mt-0.5"></i>
+                            <div>
+                                <p class="text-sm font-semibold ${textColor}">${message}</p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                messageContainer.style.display = 'block';
+                lucide.createIcons();
+                
+                // Auto hide after 5 seconds for success/info messages
+                if (type !== 'error') {
+                    setTimeout(() => {
+                        if (messageContainer) {
+                            messageContainer.style.display = 'none';
+                        }
+                    }, 5000);
+                }
+            }
+        }
+
         // Back to Home function
         function backToHome() {
             activeAppId = null;
@@ -660,17 +794,7 @@
                             </button>
                         </div>
 
-                        <div id="output-location-1" class="mt-8" style="display: none;">
-                            <div class="success-alert rounded-xl p-5">
-                                <div class="flex items-start gap-4">
-                                    <i data-lucide="check-circle" class="w-6 h-6 text-green-600 mt-0.5"></i>
-                                    <div>
-                                        <h4 class="text-base font-bold text-green-900 mb-2">Processing Complete</h4>
-                                        <p class="text-sm text-green-700">Output saved to: <span class="font-mono font-semibold" id="output-path-1"></span></p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        <div id="message-container" style="display: none;"></div>
                     </div>
                 `;
             } else if (activeAppId === 2) {
@@ -733,17 +857,7 @@
                             </button>
                         </div>
 
-                        <div id="output-location-2" class="mt-8" style="display: none;">
-                            <div class="success-alert rounded-xl p-5">
-                                <div class="flex items-start gap-4">
-                                    <i data-lucide="check-circle" class="w-6 h-6 text-green-600 mt-0.5"></i>
-                                    <div>
-                                        <h4 class="text-base font-bold text-green-900 mb-2">Comparison Complete</h4>
-                                        <p class="text-sm text-green-700">Differences report saved to: <span class="font-mono font-semibold" id="output-path-2"></span></p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        <div id="message-container" style="display: none;"></div>
                     </div>
                 `;
             } else if (activeAppId === 3) {
@@ -804,6 +918,8 @@
                                 Use GenAI
                             </button>
                         </div>
+
+                        <div id="message-container" style="display: none;"></div>
                     </div>
                 `;
             } else if (activeAppId === 4) {
@@ -872,6 +988,8 @@
                                 Reset
                             </button>
                         </div>
+
+                        <div id="message-container" style="display: none;"></div>
                     </div>
                 `;
             } else if (activeAppId === 5) {
@@ -907,6 +1025,8 @@
                                 Convert to Standard Format
                             </button>
                         </div>
+
+                        <div id="message-container" style="display: none;"></div>
                     </div>
                 `;
             } else if (activeAppId === 6) {
@@ -966,6 +1086,8 @@
                                 Validate
                             </button>
                         </div>
+
+                        <div id="message-container" style="display: none;"></div>
                     </div>
                 `;
             } else if (activeAppId === 7) {
@@ -1030,6 +1152,8 @@
                                 Create IR Form
                             </button>
                         </div>
+
+                        <div id="message-container" style="display: none;"></div>
                     </div>
                 `;
             } else if (activeAppId === 8) {
@@ -1076,6 +1200,8 @@
                                 Generate Report
                             </button>
                         </div>
+
+                        <div id="message-container" style="display: none;"></div>
                     </div>
                 `;
             } else if (activeAppId === 9) {
@@ -1130,6 +1256,8 @@
                                 Compare Reports
                             </button>
                         </div>
+
+                        <div id="message-container" style="display: none;"></div>
                     </div>
                 `;
             } else if (activeAppId === 10) {
@@ -1193,6 +1321,8 @@
                                 Execute Query
                             </button>
                         </div>
+
+                        <div id="message-container" style="display: none;"></div>
                     </div>
                 `;
             } else if (activeAppId === 11) {
@@ -1244,6 +1374,8 @@
                                 Attach to TFS with Comment
                             </button>
                         </div>
+
+                        <div id="message-container" style="display: none;"></div>
                     </div>
                 `;
             } else {
@@ -1295,7 +1427,6 @@
             document.getElementById('file-display-1').innerHTML = '';
             document.getElementById('fee-schedule-display').style.display = 'none';
             document.getElementById('run-scrub-btn').disabled = true;
-            document.getElementById('output-location-1').style.display = 'none';
         }
 
         // File handling for Application 2
@@ -1477,31 +1608,37 @@
         function runScrubAnalysis() {
             if (!selectedFile) return;
             
-            const outputDiv = document.getElementById('output-location-1');
-            const outputPath = document.getElementById('output-path-1');
+            showLoader('Running Scrub Analysis...');
             
-            outputDiv.style.display = 'block';
-            outputPath.textContent = '/output/change_files/scrub_analysis_' + new Date().getTime() + '.csv';
-            appFolderStatus[1] = true;
-            renderSidebar();
+            setTimeout(() => {
+                const outputPath = '/output/change_files/scrub_analysis_' + new Date().getTime() + '.csv';
+                showMessage('Processing Complete! Output saved to: ' + outputPath, 'success');
+                appFolderStatus[1] = true;
+                renderSidebar();
+            }, 2500);
         }
 
         function compareFiles() {
             if (!selectedFile1 || !selectedFile2) return;
             
-            const outputDiv = document.getElementById('output-location-2');
-            const outputPath = document.getElementById('output-path-2');
+            showLoader('Comparing Files...');
             
-            outputDiv.style.display = 'block';
-            outputPath.textContent = '/output/comparisons/file_diff_' + new Date().getTime() + '.txt';
-            appFolderStatus[2] = true;
-            renderSidebar();
+            setTimeout(() => {
+                const outputPath = '/output/comparisons/file_diff_' + new Date().getTime() + '.txt';
+                showMessage('Comparison Complete! Differences report saved to: ' + outputPath, 'success');
+                appFolderStatus[2] = true;
+                renderSidebar();
+            }, 2500);
         }
 
         function generateDTFile() {
-            alert('DT File generated successfully!');
-            appFolderStatus[3] = true;
-            renderSidebar();
+            showLoader('Generating DT File...');
+            
+            setTimeout(() => {
+                showMessage('DT File generated successfully!', 'success');
+                appFolderStatus[3] = true;
+                renderSidebar();
+            }, 2500);
         }
 
         function selectAllTargets() {
@@ -1516,68 +1653,106 @@
         }
 
         function compareDB() {
-            alert('Database comparison initiated!');
-            appFolderStatus[4] = true;
-            renderSidebar();
+            showLoader('Comparing Databases...');
+            
+            setTimeout(() => {
+                showMessage('Database comparison completed successfully!', 'success');
+                appFolderStatus[4] = true;
+                renderSidebar();
+            }, 3000);
         }
 
         function resetDBForm() {
             document.querySelectorAll('input[name="source-env"]').forEach(radio => radio.checked = false);
             document.querySelectorAll('.target-env').forEach(checkbox => checkbox.checked = false);
+            showMessage('Form reset successfully', 'info');
         }
 
         function convertStandardFile() {
-            alert('File converted to standard format!');
-            appFolderStatus[5] = true;
-            renderSidebar();
+            showLoader('Converting File...');
+            
+            setTimeout(() => {
+                showMessage('File converted to standard format successfully!', 'success');
+                appFolderStatus[5] = true;
+                renderSidebar();
+            }, 2500);
         }
 
         function autoSelectLatestFile(appId) {
-            alert('Latest file auto-selected from folder');
-            if (appId === 6) {
-                document.getElementById('validate-btn-6').disabled = false;
-            } else if (appId === 8) {
-                document.getElementById('generate-btn-8').disabled = false;
-            }
+            showLoader('Searching for Latest File...');
+            
+            setTimeout(() => {
+                showMessage('Latest file auto-selected from folder', 'info');
+                if (appId === 6) {
+                    document.getElementById('validate-btn-6').disabled = false;
+                } else if (appId === 8) {
+                    document.getElementById('generate-btn-8').disabled = false;
+                }
+            }, 1500);
         }
 
         function validatePeerReview() {
-            alert('Peer review validation complete!');
-            appFolderStatus[6] = true;
-            renderSidebar();
+            showLoader('Validating Peer Review...');
+            
+            setTimeout(() => {
+                showMessage('Peer review validation complete!', 'success');
+                appFolderStatus[6] = true;
+                renderSidebar();
+            }, 2500);
         }
 
         function createIRForm() {
-            alert('IR Form created successfully!');
-            appFolderStatus[7] = true;
-            renderSidebar();
+            showLoader('Creating IR Form...');
+            
+            setTimeout(() => {
+                showMessage('IR Form created successfully!', 'success');
+                appFolderStatus[7] = true;
+                renderSidebar();
+            }, 2500);
         }
 
         function generateImpactReport() {
-            alert('Impact report generated!');
-            appFolderStatus[8] = true;
-            renderSidebar();
+            showLoader('Generating Impact Report...');
+            
+            setTimeout(() => {
+                showMessage('Impact report generated successfully!', 'success');
+                appFolderStatus[8] = true;
+                renderSidebar();
+            }, 2500);
         }
 
         function autoSelectLatestClaimsFile() {
-            alert('Latest claims file auto-selected');
+            showLoader('Searching for Latest Claims File...');
+            
+            setTimeout(() => {
+                showMessage('Latest claims file auto-selected', 'info');
+            }, 1500);
         }
 
         function compareImpactReports() {
-            alert('Impact reports compared successfully!');
-            appFolderStatus[9] = true;
-            renderSidebar();
+            showLoader('Comparing Impact Reports...');
+            
+            setTimeout(() => {
+                showMessage('Impact reports compared successfully!', 'success');
+                appFolderStatus[9] = true;
+                renderSidebar();
+            }, 2500);
         }
 
         function executeSQLQuery() {
             const selectedQuery = document.querySelector('input[name="sql-query"]:checked');
             if (!selectedQuery) {
-                alert('Please select a SQL query to execute');
+                showMessage('Please select a SQL query to execute', 'info');
                 return;
             }
-            alert('Query executed! Output saved to Excel file.');
-            appFolderStatus[10] = true;
-            renderSidebar();
+            
+            showLoader('Executing SQL Query...');
+            
+            setTimeout(() => {
+                showMessage('Query executed successfully! Output saved to Excel file.', 'success');
+                appFolderStatus[10] = true;
+                renderSidebar();
+            }, 2500);
         }
 
         function listFilesToAttach() {
@@ -1617,18 +1792,22 @@
             const comment = document.getElementById('tfs-comment').value;
             
             if (selectedFiles.length === 0) {
-                alert('Please select at least one file to attach');
+                showMessage('Please select at least one file to attach', 'info');
                 return;
             }
             
             if (!comment.trim()) {
-                alert('Please enter a comment for the attachment');
+                showMessage('Please enter a comment for the attachment', 'info');
                 return;
             }
             
-            alert(`${selectedFiles.length} file(s) attached to TFS with comment!`);
-            appFolderStatus[11] = true;
-            renderSidebar();
+            showLoader('Attaching Files to TFS...');
+            
+            setTimeout(() => {
+                showMessage(`${selectedFiles.length} file(s) attached to TFS with comment successfully!`, 'success');
+                appFolderStatus[11] = true;
+                renderSidebar();
+            }, 2500);
         }
 
         // AI Modal functions
