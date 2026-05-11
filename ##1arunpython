@@ -6,80 +6,354 @@
     <title>TFS Workflow Applications</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #334155; border-radius: 20px; }
-        .loader { border: 3px solid #f3f3f3; border-bottom-color: #2563eb; border-radius: 50%; width: 48px; height: 48px; animation: spin 1s linear infinite; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        * {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-attachment: fixed;
+        }
+        
+        .sidebar-gradient {
+            background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+            box-shadow: 4px 0 24px rgba(0, 0, 0, 0.12);
+        }
+        
+        .header-card {
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+        }
+        
+        .content-card {
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+        }
+        
+        .app-button {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .app-button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+            transition: left 0.5s;
+        }
+        
+        .app-button:hover::before {
+            left: 100%;
+        }
+        
+        .app-button.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+        }
+        
+        .app-button.completed {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        }
+        
+        .app-button:hover {
+            transform: translateX(4px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        
+        .primary-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+            transition: all 0.3s ease;
+        }
+        
+        .primary-button:hover {
+            box-shadow: 0 6px 24px rgba(102, 126, 234, 0.6);
+            transform: translateY(-2px);
+        }
+        
+        .secondary-button {
+            background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
+            box-shadow: 0 4px 16px rgba(139, 92, 246, 0.4);
+            transition: all 0.3s ease;
+        }
+        
+        .secondary-button:hover {
+            box-shadow: 0 6px 24px rgba(139, 92, 246, 0.6);
+            transform: translateY(-2px);
+        }
+        
+        .success-button {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            box-shadow: 0 4px 16px rgba(16, 185, 129, 0.4);
+            transition: all 0.3s ease;
+        }
+        
+        .success-button:hover {
+            box-shadow: 0 6px 24px rgba(16, 185, 129, 0.6);
+            transform: translateY(-2px);
+        }
+        
+        .home-button {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            box-shadow: 0 4px 16px rgba(239, 68, 68, 0.4);
+            transition: all 0.3s ease;
+        }
+        
+        .home-button:hover {
+            box-shadow: 0 6px 24px rgba(239, 68, 68, 0.6);
+            transform: translateY(-2px);
+        }
+        
+        .file-drop-zone {
+            transition: all 0.3s ease;
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            border: 2px dashed #cbd5e1;
+        }
+        
+        .file-drop-zone:hover {
+            background: linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%);
+            border-color: #8b5cf6;
+            transform: scale(1.01);
+        }
+        
+        .info-badge {
+            background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+            border: 2px solid #cbd5e1;
+            padding: 12px 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        }
+        
+        .info-badge-label {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #64748b;
+            margin-bottom: 6px;
+        }
+        
+        .info-badge-value {
+            font-size: 13px;
+            font-weight: 700;
+            color: #1e293b;
+        }
+        
+        .info-badge.prod {
+            background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+            border-color: #6ee7b7;
+        }
+        
+        .info-badge.prod .info-badge-label {
+            color: #065f46;
+        }
+        
+        .info-badge.prod .info-badge-value {
+            color: #064e3b;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(148, 163, 184, 0.1); border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #667eea 0%, #764ba2 100%); border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #764ba2 0%, #667eea 100%); }
+        
+        .loader { 
+            border: 4px solid #f3f3f3; 
+            border-top-color: #667eea; 
+            border-radius: 50%; 
+            width: 48px; 
+            height: 48px; 
+            animation: spin 1s linear infinite; 
+        }
+        
+        @keyframes spin { 
+            0% { transform: rotate(0deg); } 
+            100% { transform: rotate(360deg); } 
+        }
+        
         .chat-container { scroll-behavior: smooth; }
-        .file-drop-zone { transition: all 0.3s ease; }
-        .file-drop-zone:hover { background-color: #f1f5f9; border-color: #2563eb; }
-        .modal { display: none; }
-        .modal.active { display: flex; }
-        .app-completed { position: relative; }
+        
+        .modal { 
+            display: none; 
+            animation: fadeIn 0.3s ease;
+        }
+        
+        .modal.active { 
+            display: flex; 
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
         .app-completed::after { 
             content: ''; 
             position: absolute; 
-            right: 8px; 
+            right: 12px; 
             top: 50%; 
             transform: translateY(-50%); 
-            width: 8px; 
-            height: 8px; 
-            background-color: #10b981; 
+            width: 10px; 
+            height: 10px; 
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
             border-radius: 50%; 
+            box-shadow: 0 0 12px rgba(16, 185, 129, 0.6);
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .category-title {
+            color: #94a3b8;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            font-size: 11px;
+        }
+        
+        input[type="text"],
+        input[type="date"],
+        textarea,
+        select {
+            transition: all 0.3s ease;
+            border: 2px solid #e2e8f0;
+            background: white;
+        }
+        
+        input[type="text"]:focus,
+        input[type="date"]:focus,
+        textarea:focus,
+        select:focus {
+            border-color: #8b5cf6;
+            box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.1);
+            outline: none;
+        }
+        
+        .success-alert {
+            background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+            border: 2px solid #6ee7b7;
+            box-shadow: 0 4px 16px rgba(16, 185, 129, 0.2);
+        }
+        
+        .logo-text {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            font-weight: 800;
+        }
+        
+        .radio-custom:checked {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-color: #667eea;
+        }
+        
+        .checkbox-custom:checked {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-color: #667eea;
+        }
+        
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .input-group {
+            position: relative;
+        }
+        
+        .input-group input,
+        .input-group select,
+        .input-group textarea {
+            background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+        }
+        
+        .brand-gradient {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         }
     </style>
 </head>
-<body class="bg-gray-50">
+<body>
     <div class="flex h-screen">
         <!-- Sidebar -->
-        <div class="w-64 bg-white border-r border-gray-200 flex flex-col">
-            <div class="p-6 border-b border-gray-200">
-                <h1 class="text-xl font-bold text-gray-900">TFS Workflow</h1>
-                <p class="text-sm text-gray-500 mt-1">Applications Portal</p>
+        <div class="w-64 sidebar-gradient flex flex-col">
+            <div class="p-6 border-b border-gray-700">
+                <h1 class="text-2xl font-bold text-white mb-1">TFS Workflow</h1>
+                <p class="text-sm text-gray-400">Premium Portal</p>
             </div>
             <nav class="flex-1 p-4 overflow-y-auto custom-scrollbar" id="sidebar">
                 <!-- Sidebar items rendered by JavaScript -->
             </nav>
+            <div class="p-4 border-t border-gray-700">
+                <div class="text-xs text-gray-400 text-center">
+                    <p>© 2024 TFS Systems</p>
+                    <p class="mt-1">v3.2.1</p>
+                </div>
+            </div>
         </div>
 
         <!-- Main Content -->
         <div class="flex-1 flex flex-col overflow-hidden">
             <!-- Header -->
-            <div class="bg-white border-b border-gray-200 p-6">
-                <div class="flex items-center justify-between mb-4">
-                    <div>
-                        <h2 class="text-2xl font-bold text-gray-900" id="app-title">Select an Application</h2>
-                        <p class="text-sm text-gray-500 mt-1" id="app-description">Choose from the sidebar</p>
+            <div class="header-card p-6 m-4 rounded-2xl">
+                <div class="flex items-center justify-between mb-6">
+                    <div class="flex items-center gap-4">
+                        <div>
+                            <h2 class="text-3xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent" id="app-title">Select an Application</h2>
+                            <p class="text-sm text-gray-600 mt-2" id="app-description">Choose from the sidebar</p>
+                        </div>
+                        <button 
+                            id="back-home-btn"
+                            onclick="backToHome()" 
+                            class="home-button px-6 py-3 text-white rounded-xl flex items-center gap-2 font-semibold text-sm"
+                            style="display: none;"
+                        >
+                            <i data-lucide="home" class="w-4 h-4"></i>
+                            Back to Home
+                        </button>
                     </div>
-                    <div class="flex gap-3">
-                        <div class="text-right">
-                            <div class="text-xs text-gray-500">Config Last Updated</div>
-                            <div class="inline-block px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded mt-1">2024-01-15 14:30</div>
+                    <div class="flex gap-4">
+                        <div class="info-badge">
+                            <div class="info-badge-label">Config Last Updated</div>
+                            <div class="info-badge-value">2024-01-15 14:30</div>
                         </div>
-                        <div class="text-right">
-                            <div class="text-xs text-gray-500">Config Last Updated By</div>
-                            <div class="inline-block px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded mt-1">John Smith</div>
+                        <div class="info-badge">
+                            <div class="info-badge-label">Config Last Updated By</div>
+                            <div class="info-badge-value">John Smith</div>
                         </div>
-                        <div class="text-right">
-                            <div class="text-xs text-gray-500">PROD Last Updated</div>
-                            <div class="inline-block px-2 py-1 bg-green-100 text-green-700 text-xs rounded mt-1">2024-01-14 09:15</div>
+                        <div class="info-badge prod">
+                            <div class="info-badge-label">PROD Last Updated</div>
+                            <div class="info-badge-value">2024-01-14 09:15</div>
                         </div>
-                        <div class="text-right">
-                            <div class="text-xs text-gray-500">PROD Last Updated By</div>
-                            <div class="inline-block px-2 py-1 bg-green-100 text-green-700 text-xs rounded mt-1">Jane Doe</div>
+                        <div class="info-badge prod">
+                            <div class="info-badge-label">PROD Last Updated By</div>
+                            <div class="info-badge-value">Jane Doe</div>
                         </div>
                     </div>
                 </div>
             </div>
 
             <!-- Content Area -->
-            <div class="flex-1 overflow-y-auto p-6 custom-scrollbar">
-                <div id="app-content" class="max-w-4xl mx-auto">
-                    <div class="text-center text-gray-400 py-12">
-                        <i data-lucide="inbox" class="w-16 h-16 mx-auto mb-4"></i>
-                        <p>Select an application from the sidebar to get started</p>
+            <div class="flex-1 overflow-y-auto px-4 pb-4 custom-scrollbar">
+                <div id="app-content" class="max-w-5xl mx-auto">
+                    <div class="content-card rounded-2xl p-12 text-center">
+                        <div class="text-gray-400">
+                            <i data-lucide="layout-dashboard" class="w-20 h-20 mx-auto mb-6 opacity-50"></i>
+                            <p class="text-lg font-medium">Select an application from the sidebar to get started</p>
+                            <p class="text-sm mt-2 text-gray-500">Access powerful workflow tools and automation</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -87,32 +361,37 @@
     </div>
 
     <!-- AI Modal -->
-    <div id="ai-modal" class="modal fixed inset-0 bg-black bg-opacity-50 items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 flex flex-col" style="max-height: 80vh;">
-            <div class="flex items-center justify-between p-4 border-b border-gray-200">
-                <div class="flex items-center gap-2">
-                    <i data-lucide="sparkles" class="w-5 h-5 text-blue-600"></i>
-                    <h3 class="text-lg font-semibold text-gray-900">AI Assistant</h3>
+    <div id="ai-modal" class="modal fixed inset-0 bg-black bg-opacity-60 items-center justify-center z-50 backdrop-blur-sm">
+        <div class="glass-effect rounded-2xl shadow-2xl w-full max-w-3xl mx-4 flex flex-col" style="max-height: 85vh;">
+            <div class="flex items-center justify-between p-6 border-b border-gray-200">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl brand-gradient flex items-center justify-center">
+                        <i data-lucide="sparkles" class="w-6 h-6 text-white"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-bold text-gray-900">AI Assistant</h3>
+                        <p class="text-xs text-gray-500">Powered by Advanced AI</p>
+                    </div>
                 </div>
-                <button onclick="closeAIModal()" class="text-gray-400 hover:text-gray-600">
-                    <i data-lucide="x" class="w-5 h-5"></i>
+                <button onclick="closeAIModal()" class="text-gray-400 hover:text-gray-600 transition-colors">
+                    <i data-lucide="x" class="w-6 h-6"></i>
                 </button>
             </div>
-            <div id="chat-messages" class="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar chat-container">
+            <div id="chat-messages" class="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar chat-container">
                 <!-- Chat messages rendered by JavaScript -->
             </div>
-            <div class="p-4 border-t border-gray-200">
-                <div class="flex gap-2">
+            <div class="p-6 border-t border-gray-200 bg-gray-50 rounded-b-2xl">
+                <div class="flex gap-3">
                     <input 
                         type="text" 
                         id="user-input" 
                         placeholder="Ask me anything..." 
-                        class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        class="flex-1 px-5 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm"
                         onkeypress="if(event.key === 'Enter') sendMessage()"
                     >
                     <button 
                         onclick="sendMessage()" 
-                        class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                        class="px-6 py-3 secondary-button text-white rounded-xl flex items-center gap-2 font-semibold"
                     >
                         <i data-lucide="send" class="w-4 h-4"></i>
                         Send
@@ -225,18 +504,8 @@
 
         // Track which applications have files in their folders (mock state)
         const appFolderStatus = {
-            1: false,
-            2: false,
-            3: false,
-            4: false,
-            5: false,
-            6: false,
-            7: false,
-            8: false,
-            9: false,
-            10: false,
-            11: false,
-            12: false
+            1: false, 2: false, 3: false, 4: false, 5: false, 6: false,
+            7: false, 8: false, 9: false, 10: false, 11: false, 12: false
         };
 
         let activeAppId = null;
@@ -253,6 +522,33 @@
             lucide.createIcons();
         }
 
+        // Back to Home function
+        function backToHome() {
+            activeAppId = null;
+            selectedFile = null;
+            selectedFile1 = null;
+            selectedFile2 = null;
+            selectedFiles = [];
+            
+            document.getElementById('app-title').textContent = 'Select an Application';
+            document.getElementById('app-description').textContent = 'Choose from the sidebar';
+            document.getElementById('back-home-btn').style.display = 'none';
+            
+            const content = document.getElementById('app-content');
+            content.innerHTML = `
+                <div class="content-card rounded-2xl p-12 text-center">
+                    <div class="text-gray-400">
+                        <i data-lucide="layout-dashboard" class="w-20 h-20 mx-auto mb-6 opacity-50"></i>
+                        <p class="text-lg font-medium">Select an application from the sidebar to get started</p>
+                        <p class="text-sm mt-2 text-gray-500">Access powerful workflow tools and automation</p>
+                    </div>
+                </div>
+            `;
+            
+            renderSidebar();
+            lucide.createIcons();
+        }
+
         // Render sidebar
         function renderSidebar() {
             const sidebar = document.getElementById('sidebar');
@@ -260,27 +556,30 @@
             
             let html = '';
             categories.forEach(category => {
-                html += `<div class="mb-4">`;
-                html += `<h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">${category}</h3>`;
+                html += `<div class="mb-6">`;
+                html += `<h3 class="category-title mb-3">${category}</h3>`;
                 
                 const categoryApps = applications.filter(app => app.category === category);
                 categoryApps.forEach(app => {
                     const isActive = activeAppId === app.id;
                     const hasFiles = appFolderStatus[app.id];
                     const completedClass = hasFiles ? 'app-completed' : '';
+                    const activeClass = isActive ? 'active' : '';
+                    const completedBg = hasFiles && !isActive ? 'completed' : '';
+                    
                     html += `
                         <button 
                             onclick="switchApp(${app.id})"
-                            class="w-full flex items-center gap-3 px-3 py-2 rounded-lg mb-1 transition-colors ${completedClass} ${
+                            class="app-button w-full flex items-center gap-3 px-4 py-3 rounded-xl mb-2 transition-all ${completedClass} ${activeClass} ${completedBg} ${
                                 isActive 
-                                    ? 'bg-blue-50 text-blue-600' 
+                                    ? 'text-white' 
                                     : hasFiles
-                                    ? 'text-gray-700 hover:bg-gray-100 bg-green-50'
-                                    : 'text-gray-700 hover:bg-gray-100'
+                                    ? 'text-white'
+                                    : 'text-gray-300 hover:text-white hover:bg-gray-700'
                             }"
                         >
-                            <i data-lucide="${app.icon}" class="w-4 h-4"></i>
-                            <span class="text-sm">${app.name}</span>
+                            <i data-lucide="${app.icon}" class="w-5 h-5"></i>
+                            <span class="text-sm font-semibold">${app.name}</span>
                         </button>
                     `;
                 });
@@ -298,6 +597,7 @@
             selectedFile1 = null;
             selectedFile2 = null;
             selectedFiles = [];
+            document.getElementById('back-home-btn').style.display = 'flex';
             renderSidebar();
             renderAppContent();
         }
@@ -315,53 +615,58 @@
             if (activeAppId === 1) {
                 // Application 1: Change File Generator
                 content.innerHTML = `
-                    <div class="bg-white rounded-lg shadow-sm p-6">
-                        <h3 class="text-lg font-semibold text-gray-900 mb-4">Upload Source File</h3>
+                    <div class="content-card rounded-2xl p-8">
+                        <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                            <div class="w-12 h-12 rounded-xl brand-gradient flex items-center justify-center">
+                                <i data-lucide="file-text" class="w-6 h-6 text-white"></i>
+                            </div>
+                            Upload Source File
+                        </h3>
                         
-                        <div class="mb-6">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Select File</label>
-                            <div class="file-drop-zone border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer" onclick="document.getElementById('file-input-1').click()">
-                                <i data-lucide="upload" class="w-12 h-12 mx-auto text-gray-400 mb-2"></i>
-                                <p class="text-sm text-gray-600">Click to upload or drag and drop</p>
-                                <p class="text-xs text-gray-400 mt-1">CSV, XLS, XLSX files supported</p>
+                        <div class="mb-8">
+                            <label class="block text-sm font-bold text-gray-700 mb-3">Select File</label>
+                            <div class="file-drop-zone rounded-xl p-8 text-center cursor-pointer" onclick="document.getElementById('file-input-1').click()">
+                                <i data-lucide="upload" class="w-16 h-16 mx-auto text-gray-400 mb-3"></i>
+                                <p class="text-base font-semibold text-gray-700">Click to upload or drag and drop</p>
+                                <p class="text-sm text-gray-500 mt-2">CSV, XLS, XLSX files supported</p>
                             </div>
                             <input type="file" id="file-input-1" class="hidden" accept=".csv,.xls,.xlsx" onchange="handleFileSelect(event)">
-                            <div id="file-display-1" class="mt-3"></div>
+                            <div id="file-display-1" class="mt-4"></div>
                         </div>
 
-                        <div id="fee-schedule-display" class="mb-6" style="display: none;">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Fee Schedule ID</label>
-                            <div class="px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg">
-                                <span id="fee-schedule-id" class="text-blue-900 font-medium">FS-2024-001</span>
+                        <div id="fee-schedule-display" class="mb-8" style="display: none;">
+                            <label class="block text-sm font-bold text-gray-700 mb-3">Fee Schedule ID</label>
+                            <div class="px-5 py-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl">
+                                <span id="fee-schedule-id" class="text-blue-900 font-bold text-lg">FS-2024-001</span>
                             </div>
                         </div>
 
-                        <div class="flex gap-3">
+                        <div class="flex gap-4">
                             <button 
                                 id="run-scrub-btn"
                                 onclick="runScrubAnalysis()" 
-                                class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
+                                class="px-8 py-3 primary-button text-white rounded-xl disabled:bg-gray-300 disabled:cursor-not-allowed disabled:shadow-none flex items-center gap-3 font-semibold text-base"
                                 disabled
                             >
-                                <i data-lucide="play" class="w-4 h-4"></i>
+                                <i data-lucide="play" class="w-5 h-5"></i>
                                 Run Scrub Analysis
                             </button>
                             <button 
                                 onclick="openAIModal()" 
-                                class="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center gap-2"
+                                class="px-8 py-3 secondary-button text-white rounded-xl flex items-center gap-3 font-semibold text-base"
                             >
-                                <i data-lucide="sparkles" class="w-4 h-4"></i>
+                                <i data-lucide="sparkles" class="w-5 h-5"></i>
                                 Use GenAI
                             </button>
                         </div>
 
-                        <div id="output-location-1" class="mt-6" style="display: none;">
-                            <div class="bg-green-50 border border-green-200 rounded-lg p-4">
-                                <div class="flex items-start gap-3">
-                                    <i data-lucide="check-circle" class="w-5 h-5 text-green-600 mt-0.5"></i>
+                        <div id="output-location-1" class="mt-8" style="display: none;">
+                            <div class="success-alert rounded-xl p-5">
+                                <div class="flex items-start gap-4">
+                                    <i data-lucide="check-circle" class="w-6 h-6 text-green-600 mt-0.5"></i>
                                     <div>
-                                        <h4 class="text-sm font-semibold text-green-900 mb-1">Processing Complete</h4>
-                                        <p class="text-sm text-green-700">Output saved to: <span class="font-mono" id="output-path-1"></span></p>
+                                        <h4 class="text-base font-bold text-green-900 mb-2">Processing Complete</h4>
+                                        <p class="text-sm text-green-700">Output saved to: <span class="font-mono font-semibold" id="output-path-1"></span></p>
                                     </div>
                                 </div>
                             </div>
@@ -371,65 +676,70 @@
             } else if (activeAppId === 2) {
                 // Application 2: File to File Compare
                 content.innerHTML = `
-                    <div class="bg-white rounded-lg shadow-sm p-6">
-                        <h3 class="text-lg font-semibold text-gray-900 mb-4">Upload Files to Compare</h3>
+                    <div class="content-card rounded-2xl p-8">
+                        <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                            <div class="w-12 h-12 rounded-xl brand-gradient flex items-center justify-center">
+                                <i data-lucide="git-compare" class="w-6 h-6 text-white"></i>
+                            </div>
+                            Upload Files to Compare
+                        </h3>
                         
-                        <div class="grid grid-cols-2 gap-4 mb-6">
+                        <div class="grid grid-cols-2 gap-6 mb-8">
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
-                                    <i data-lucide="file" class="w-4 h-4 text-blue-600"></i>
+                                <label class="block text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+                                    <i data-lucide="file" class="w-5 h-5 text-blue-600"></i>
                                     File 1
                                 </label>
-                                <div class="file-drop-zone border-2 border-dashed border-blue-300 rounded-lg p-6 text-center cursor-pointer" onclick="document.getElementById('file-input-2a').click()">
-                                    <i data-lucide="upload" class="w-12 h-12 mx-auto text-blue-400 mb-2"></i>
-                                    <p class="text-sm text-gray-600">Click to upload</p>
-                                    <p class="text-xs text-gray-400 mt-1">First file</p>
+                                <div class="file-drop-zone border-blue-300 rounded-xl p-8 text-center cursor-pointer" onclick="document.getElementById('file-input-2a').click()">
+                                    <i data-lucide="upload" class="w-14 h-14 mx-auto text-blue-400 mb-3"></i>
+                                    <p class="text-sm font-semibold text-gray-700">Click to upload</p>
+                                    <p class="text-xs text-gray-500 mt-1">First file</p>
                                 </div>
                                 <input type="file" id="file-input-2a" class="hidden" accept=".csv,.xls,.xlsx,.txt" onchange="handleFile1Select(event)">
                                 <div id="file-display-2a" class="mt-3"></div>
                             </div>
 
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
-                                    <i data-lucide="file" class="w-4 h-4 text-purple-600"></i>
+                                <label class="block text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+                                    <i data-lucide="file" class="w-5 h-5 text-purple-600"></i>
                                     File 2
                                 </label>
-                                <div class="file-drop-zone border-2 border-dashed border-purple-300 rounded-lg p-6 text-center cursor-pointer" onclick="document.getElementById('file-input-2b').click()">
-                                    <i data-lucide="upload" class="w-12 h-12 mx-auto text-purple-400 mb-2"></i>
-                                    <p class="text-sm text-gray-600">Click to upload</p>
-                                    <p class="text-xs text-gray-400 mt-1">Second file</p>
+                                <div class="file-drop-zone border-purple-300 rounded-xl p-8 text-center cursor-pointer" onclick="document.getElementById('file-input-2b').click()">
+                                    <i data-lucide="upload" class="w-14 h-14 mx-auto text-purple-400 mb-3"></i>
+                                    <p class="text-sm font-semibold text-gray-700">Click to upload</p>
+                                    <p class="text-xs text-gray-500 mt-1">Second file</p>
                                 </div>
                                 <input type="file" id="file-input-2b" class="hidden" accept=".csv,.xls,.xlsx,.txt" onchange="handleFile2Select(event)">
                                 <div id="file-display-2b" class="mt-3"></div>
                             </div>
                         </div>
 
-                        <div class="flex gap-3">
+                        <div class="flex gap-4">
                             <button 
                                 id="compare-files-btn"
                                 onclick="compareFiles()" 
-                                class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
+                                class="px-8 py-3 primary-button text-white rounded-xl disabled:bg-gray-300 disabled:cursor-not-allowed disabled:shadow-none flex items-center gap-3 font-semibold text-base"
                                 disabled
                             >
-                                <i data-lucide="git-compare" class="w-4 h-4"></i>
+                                <i data-lucide="git-compare" class="w-5 h-5"></i>
                                 Compare Files
                             </button>
                             <button 
                                 onclick="openAIModal()" 
-                                class="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center gap-2"
+                                class="px-8 py-3 secondary-button text-white rounded-xl flex items-center gap-3 font-semibold text-base"
                             >
-                                <i data-lucide="sparkles" class="w-4 h-4"></i>
+                                <i data-lucide="sparkles" class="w-5 h-5"></i>
                                 Use GenAI
                             </button>
                         </div>
 
-                        <div id="output-location-2" class="mt-6" style="display: none;">
-                            <div class="bg-green-50 border border-green-200 rounded-lg p-4">
-                                <div class="flex items-start gap-3">
-                                    <i data-lucide="check-circle" class="w-5 h-5 text-green-600 mt-0.5"></i>
+                        <div id="output-location-2" class="mt-8" style="display: none;">
+                            <div class="success-alert rounded-xl p-5">
+                                <div class="flex items-start gap-4">
+                                    <i data-lucide="check-circle" class="w-6 h-6 text-green-600 mt-0.5"></i>
                                     <div>
-                                        <h4 class="text-sm font-semibold text-green-900 mb-1">Comparison Complete</h4>
-                                        <p class="text-sm text-green-700">Differences report saved to: <span class="font-mono" id="output-path-2"></span></p>
+                                        <h4 class="text-base font-bold text-green-900 mb-2">Comparison Complete</h4>
+                                        <p class="text-sm text-green-700">Differences report saved to: <span class="font-mono font-semibold" id="output-path-2"></span></p>
                                     </div>
                                 </div>
                             </div>
@@ -439,53 +749,58 @@
             } else if (activeAppId === 3) {
                 // Application 3: DT File Generate
                 content.innerHTML = `
-                    <div class="bg-white rounded-lg shadow-sm p-6">
-                        <h3 class="text-lg font-semibold text-gray-900 mb-4">DT File Generator</h3>
+                    <div class="content-card rounded-2xl p-8">
+                        <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                            <div class="w-12 h-12 rounded-xl brand-gradient flex items-center justify-center">
+                                <i data-lucide="file-spreadsheet" class="w-6 h-6 text-white"></i>
+                            </div>
+                            DT File Generator
+                        </h3>
                         
-                        <div class="mb-6">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Select Excel Files (1-50 files)</label>
-                            <div class="file-drop-zone border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer" onclick="document.getElementById('file-input-3').click()">
-                                <i data-lucide="upload" class="w-12 h-12 mx-auto text-gray-400 mb-2"></i>
-                                <p class="text-sm text-gray-600">Click to upload multiple files</p>
-                                <p class="text-xs text-gray-400 mt-1">Excel files (.xls, .xlsx)</p>
+                        <div class="mb-8">
+                            <label class="block text-sm font-bold text-gray-700 mb-3">Select Excel Files (1-50 files)</label>
+                            <div class="file-drop-zone rounded-xl p-8 text-center cursor-pointer" onclick="document.getElementById('file-input-3').click()">
+                                <i data-lucide="upload" class="w-16 h-16 mx-auto text-gray-400 mb-3"></i>
+                                <p class="text-base font-semibold text-gray-700">Click to upload multiple files</p>
+                                <p class="text-sm text-gray-500 mt-2">Excel files (.xls, .xlsx)</p>
                             </div>
                             <input type="file" id="file-input-3" class="hidden" accept=".xls,.xlsx" multiple onchange="handleMultipleFilesSelect(event)">
-                            <div id="file-display-3" class="mt-3"></div>
+                            <div id="file-display-3" class="mt-4"></div>
                         </div>
 
-                        <div class="grid grid-cols-3 gap-4 mb-6">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">Selection Type</label>
-                                <select class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <div class="grid grid-cols-3 gap-6 mb-8">
+                            <div class="input-group">
+                                <label class="block text-sm font-bold text-gray-700 mb-3">Selection Type</label>
+                                <select class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500">
                                     <option>Default</option>
                                     <option>GA</option>
                                     <option>IN</option>
                                     <option>KY</option>
                                 </select>
                             </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">Row #</label>
-                                <input type="text" placeholder="Enter row number" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <div class="input-group">
+                                <label class="block text-sm font-bold text-gray-700 mb-3">Row #</label>
+                                <input type="text" placeholder="Enter row number" class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500">
                             </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">Column Number</label>
-                                <input type="text" placeholder="Enter column number" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <div class="input-group">
+                                <label class="block text-sm font-bold text-gray-700 mb-3">Column Number</label>
+                                <input type="text" placeholder="Enter column number" class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500">
                             </div>
                         </div>
 
-                        <div class="flex gap-3">
+                        <div class="flex gap-4">
                             <button 
                                 onclick="generateDTFile()" 
-                                class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                                class="px-8 py-3 primary-button text-white rounded-xl flex items-center gap-3 font-semibold text-base"
                             >
-                                <i data-lucide="file-output" class="w-4 h-4"></i>
+                                <i data-lucide="file-output" class="w-5 h-5"></i>
                                 Generate DT File
                             </button>
                             <button 
                                 onclick="openAIModal()" 
-                                class="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center gap-2"
+                                class="px-8 py-3 secondary-button text-white rounded-xl flex items-center gap-3 font-semibold text-base"
                             >
-                                <i data-lucide="sparkles" class="w-4 h-4"></i>
+                                <i data-lucide="sparkles" class="w-5 h-5"></i>
                                 Use GenAI
                             </button>
                         </div>
@@ -494,145 +809,66 @@
             } else if (activeAppId === 4) {
                 // Application 4: DB to DB Compare
                 content.innerHTML = `
-                    <div class="bg-white rounded-lg shadow-sm p-6">
-                        <h3 class="text-lg font-semibold text-gray-900 mb-4">Database to Database Compare</h3>
+                    <div class="content-card rounded-2xl p-8">
+                        <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                            <div class="w-12 h-12 rounded-xl brand-gradient flex items-center justify-center">
+                                <i data-lucide="database" class="w-6 h-6 text-white"></i>
+                            </div>
+                            Database to Database Compare
+                        </h3>
                         
-                        <div class="mb-6">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Comparison Type</label>
-                            <select class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <div class="mb-8">
+                            <label class="block text-sm font-bold text-gray-700 mb-3">Comparison Type</label>
+                            <select class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500">
                                 <option>PreDev</option>
                                 <option>Post Dev</option>
                                 <option>Post PROD</option>
                             </select>
                         </div>
 
-                        <div class="mb-6">
-                            <label class="block text-sm font-medium text-gray-700 mb-3">Source Environment (Select One)</label>
+                        <div class="mb-8">
+                            <label class="block text-sm font-bold text-gray-700 mb-4">Source Environment (Select One)</label>
                             <div class="grid grid-cols-4 gap-3">
-                                <label class="flex items-center gap-2 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="radio" name="source-env" value="ModDev" class="text-blue-600">
-                                    <span class="text-sm">ModDev</span>
-                                </label>
-                                <label class="flex items-center gap-2 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="radio" name="source-env" value="ModPROD" class="text-blue-600">
-                                    <span class="text-sm">ModPROD</span>
-                                </label>
-                                <label class="flex items-center gap-2 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="radio" name="source-env" value="Dev" class="text-blue-600">
-                                    <span class="text-sm">Dev</span>
-                                </label>
-                                <label class="flex items-center gap-2 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="radio" name="source-env" value="vDEV" class="text-blue-600">
-                                    <span class="text-sm">vDEV</span>
-                                </label>
-                                <label class="flex items-center gap-2 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="radio" name="source-env" value="CFG" class="text-blue-600">
-                                    <span class="text-sm">CFG</span>
-                                </label>
-                                <label class="flex items-center gap-2 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="radio" name="source-env" value="vCFG" class="text-blue-600">
-                                    <span class="text-sm">vCFG</span>
-                                </label>
-                                <label class="flex items-center gap-2 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="radio" name="source-env" value="INT" class="text-blue-600">
-                                    <span class="text-sm">INT</span>
-                                </label>
-                                <label class="flex items-center gap-2 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="radio" name="source-env" value="vINT" class="text-blue-600">
-                                    <span class="text-sm">vINT</span>
-                                </label>
-                                <label class="flex items-center gap-2 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="radio" name="source-env" value="CRT" class="text-blue-600">
-                                    <span class="text-sm">CRT</span>
-                                </label>
-                                <label class="flex items-center gap-2 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="radio" name="source-env" value="vCRT" class="text-blue-600">
-                                    <span class="text-sm">vCRT</span>
-                                </label>
-                                <label class="flex items-center gap-2 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="radio" name="source-env" value="GLD" class="text-blue-600">
-                                    <span class="text-sm">GLD</span>
-                                </label>
-                                <label class="flex items-center gap-2 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="radio" name="source-env" value="PROD" class="text-blue-600">
-                                    <span class="text-sm">PROD</span>
-                                </label>
+                                ${['ModDev', 'ModPROD', 'Dev', 'vDEV', 'CFG', 'vCFG', 'INT', 'vINT', 'CRT', 'vCRT', 'GLD', 'PROD'].map(env => `
+                                    <label class="flex items-center gap-3 p-4 border-2 border-gray-300 rounded-xl hover:bg-purple-50 hover:border-purple-400 cursor-pointer transition-all">
+                                        <input type="radio" name="source-env" value="${env}" class="radio-custom w-5 h-5 text-purple-600">
+                                        <span class="text-sm font-semibold">${env}</span>
+                                    </label>
+                                `).join('')}
                             </div>
                         </div>
 
-                        <div class="mb-6">
-                            <div class="flex items-center justify-between mb-3">
-                                <label class="block text-sm font-medium text-gray-700">Target Environments (Select Multiple)</label>
-                                <button onclick="selectAllTargets()" class="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1">
+                        <div class="mb-8">
+                            <div class="flex items-center justify-between mb-4">
+                                <label class="block text-sm font-bold text-gray-700">Target Environments (Select Multiple)</label>
+                                <button onclick="selectAllTargets()" class="text-sm font-semibold text-purple-600 hover:text-purple-700 flex items-center gap-2 px-4 py-2 bg-purple-50 rounded-lg hover:bg-purple-100 transition-all">
                                     <i data-lucide="check-square" class="w-4 h-4"></i>
                                     Select All
                                 </button>
                             </div>
                             <div class="grid grid-cols-4 gap-3">
-                                <label class="flex items-center gap-2 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="checkbox" class="target-env text-blue-600 rounded" value="ModDev">
-                                    <span class="text-sm">ModDev</span>
-                                </label>
-                                <label class="flex items-center gap-2 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="checkbox" class="target-env text-blue-600 rounded" value="ModPROD">
-                                    <span class="text-sm">ModPROD</span>
-                                </label>
-                                <label class="flex items-center gap-2 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="checkbox" class="target-env text-blue-600 rounded" value="Dev">
-                                    <span class="text-sm">Dev</span>
-                                </label>
-                                <label class="flex items-center gap-2 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="checkbox" class="target-env text-blue-600 rounded" value="vDEV">
-                                    <span class="text-sm">vDEV</span>
-                                </label>
-                                <label class="flex items-center gap-2 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="checkbox" class="target-env text-blue-600 rounded" value="CFG">
-                                    <span class="text-sm">CFG</span>
-                                </label>
-                                <label class="flex items-center gap-2 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="checkbox" class="target-env text-blue-600 rounded" value="vCFG">
-                                    <span class="text-sm">vCFG</span>
-                                </label>
-                                <label class="flex items-center gap-2 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="checkbox" class="target-env text-blue-600 rounded" value="INT">
-                                    <span class="text-sm">INT</span>
-                                </label>
-                                <label class="flex items-center gap-2 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="checkbox" class="target-env text-blue-600 rounded" value="vINT">
-                                    <span class="text-sm">vINT</span>
-                                </label>
-                                <label class="flex items-center gap-2 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="checkbox" class="target-env text-blue-600 rounded" value="CRT">
-                                    <span class="text-sm">CRT</span>
-                                </label>
-                                <label class="flex items-center gap-2 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="checkbox" class="target-env text-blue-600 rounded" value="vCRT">
-                                    <span class="text-sm">vCRT</span>
-                                </label>
-                                <label class="flex items-center gap-2 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="checkbox" class="target-env text-blue-600 rounded" value="GLD">
-                                    <span class="text-sm">GLD</span>
-                                </label>
-                                <label class="flex items-center gap-2 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                    <input type="checkbox" class="target-env text-blue-600 rounded" value="PROD">
-                                    <span class="text-sm">PROD</span>
-                                </label>
+                                ${['ModDev', 'ModPROD', 'Dev', 'vDEV', 'CFG', 'vCFG', 'INT', 'vINT', 'CRT', 'vCRT', 'GLD', 'PROD'].map(env => `
+                                    <label class="flex items-center gap-3 p-4 border-2 border-gray-300 rounded-xl hover:bg-purple-50 hover:border-purple-400 cursor-pointer transition-all">
+                                        <input type="checkbox" class="target-env checkbox-custom w-5 h-5 text-purple-600 rounded" value="${env}">
+                                        <span class="text-sm font-semibold">${env}</span>
+                                    </label>
+                                `).join('')}
                             </div>
                         </div>
 
-                        <div class="flex gap-3">
+                        <div class="flex gap-4">
                             <button 
                                 onclick="compareDB()" 
-                                class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                                class="px-8 py-3 primary-button text-white rounded-xl flex items-center gap-3 font-semibold text-base"
                             >
-                                <i data-lucide="database" class="w-4 h-4"></i>
+                                <i data-lucide="database" class="w-5 h-5"></i>
                                 Compare
                             </button>
                             <button 
                                 onclick="resetDBForm()" 
-                                class="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 flex items-center gap-2"
+                                class="px-8 py-3 bg-gray-500 text-white rounded-xl hover:bg-gray-600 flex items-center gap-3 font-semibold text-base transition-all"
                             >
-                                <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+                                <i data-lucide="rotate-ccw" class="w-5 h-5"></i>
                                 Reset
                             </button>
                         </div>
@@ -641,28 +877,33 @@
             } else if (activeAppId === 5) {
                 // Application 5: Standard Change File Converter
                 content.innerHTML = `
-                    <div class="bg-white rounded-lg shadow-sm p-6">
-                        <h3 class="text-lg font-semibold text-gray-900 mb-4">Standard Change File Converter</h3>
+                    <div class="content-card rounded-2xl p-8">
+                        <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                            <div class="w-12 h-12 rounded-xl brand-gradient flex items-center justify-center">
+                                <i data-lucide="refresh-cw" class="w-6 h-6 text-white"></i>
+                            </div>
+                            Standard Change File Converter
+                        </h3>
                         
-                        <div class="mb-6">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Select Excel File</label>
-                            <div class="file-drop-zone border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer" onclick="document.getElementById('file-input-5').click()">
-                                <i data-lucide="upload" class="w-12 h-12 mx-auto text-gray-400 mb-2"></i>
-                                <p class="text-sm text-gray-600">Click to upload Excel file</p>
-                                <p class="text-xs text-gray-400 mt-1">Will be converted to standard change file format</p>
+                        <div class="mb-8">
+                            <label class="block text-sm font-bold text-gray-700 mb-3">Select Excel File</label>
+                            <div class="file-drop-zone rounded-xl p-8 text-center cursor-pointer" onclick="document.getElementById('file-input-5').click()">
+                                <i data-lucide="upload" class="w-16 h-16 mx-auto text-gray-400 mb-3"></i>
+                                <p class="text-base font-semibold text-gray-700">Click to upload Excel file</p>
+                                <p class="text-sm text-gray-500 mt-2">Will be converted to standard change file format</p>
                             </div>
                             <input type="file" id="file-input-5" class="hidden" accept=".xls,.xlsx" onchange="handleApp5FileSelect(event)">
-                            <div id="file-display-5" class="mt-3"></div>
+                            <div id="file-display-5" class="mt-4"></div>
                         </div>
 
-                        <div class="flex gap-3">
+                        <div class="flex gap-4">
                             <button 
                                 id="convert-btn-5"
                                 onclick="convertStandardFile()" 
-                                class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
+                                class="px-8 py-3 primary-button text-white rounded-xl disabled:bg-gray-300 disabled:cursor-not-allowed disabled:shadow-none flex items-center gap-3 font-semibold text-base"
                                 disabled
                             >
-                                <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                                <i data-lucide="refresh-cw" class="w-5 h-5"></i>
                                 Convert to Standard Format
                             </button>
                         </div>
@@ -671,12 +912,17 @@
             } else if (activeAppId === 6) {
                 // Application 6: Peer Review Validator
                 content.innerHTML = `
-                    <div class="bg-white rounded-lg shadow-sm p-6">
-                        <h3 class="text-lg font-semibold text-gray-900 mb-4">Peer Review Validator</h3>
+                    <div class="content-card rounded-2xl p-8">
+                        <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                            <div class="w-12 h-12 rounded-xl brand-gradient flex items-center justify-center">
+                                <i data-lucide="shield-check" class="w-6 h-6 text-white"></i>
+                            </div>
+                            Peer Review Validator
+                        </h3>
                         
-                        <div class="mb-6">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Select Environment</label>
-                            <select class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <div class="mb-8">
+                            <label class="block text-sm font-bold text-gray-700 mb-3">Select Environment</label>
+                            <select class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500">
                                 <option>ModDev</option>
                                 <option>ModPROD</option>
                                 <option>Dev</option>
@@ -692,31 +938,31 @@
                             </select>
                         </div>
 
-                        <div class="mb-6">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Select Excel File</label>
-                            <div class="file-drop-zone border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer" onclick="document.getElementById('file-input-6').click()">
-                                <i data-lucide="upload" class="w-12 h-12 mx-auto text-gray-400 mb-2"></i>
-                                <p class="text-sm text-gray-600">Click to upload Excel file</p>
+                        <div class="mb-8">
+                            <label class="block text-sm font-bold text-gray-700 mb-3">Select Excel File</label>
+                            <div class="file-drop-zone rounded-xl p-8 text-center cursor-pointer" onclick="document.getElementById('file-input-6').click()">
+                                <i data-lucide="upload" class="w-16 h-16 mx-auto text-gray-400 mb-3"></i>
+                                <p class="text-base font-semibold text-gray-700">Click to upload Excel file</p>
                             </div>
                             <input type="file" id="file-input-6" class="hidden" accept=".xls,.xlsx" onchange="handleApp6FileSelect(event)">
-                            <div id="file-display-6" class="mt-3"></div>
+                            <div id="file-display-6" class="mt-4"></div>
                         </div>
 
-                        <div class="flex gap-3">
+                        <div class="flex gap-4">
                             <button 
                                 onclick="autoSelectLatestFile(6)" 
-                                class="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center gap-2"
+                                class="px-8 py-3 bg-gray-600 text-white rounded-xl hover:bg-gray-700 flex items-center gap-3 font-semibold text-base transition-all"
                             >
-                                <i data-lucide="file-search" class="w-4 h-4"></i>
+                                <i data-lucide="file-search" class="w-5 h-5"></i>
                                 Auto Select Latest File
                             </button>
                             <button 
                                 id="validate-btn-6"
                                 onclick="validatePeerReview()" 
-                                class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
+                                class="px-8 py-3 primary-button text-white rounded-xl disabled:bg-gray-300 disabled:cursor-not-allowed disabled:shadow-none flex items-center gap-3 font-semibold text-base"
                                 disabled
                             >
-                                <i data-lucide="shield-check" class="w-4 h-4"></i>
+                                <i data-lucide="shield-check" class="w-5 h-5"></i>
                                 Validate
                             </button>
                         </div>
@@ -725,92 +971,62 @@
             } else if (activeAppId === 7) {
                 // Application 7: IR Form Generator
                 content.innerHTML = `
-                    <div class="bg-white rounded-lg shadow-sm p-6">
-                        <h3 class="text-lg font-semibold text-gray-900 mb-4">IR Form Generator</h3>
+                    <div class="content-card rounded-2xl p-8">
+                        <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                            <div class="w-12 h-12 rounded-xl brand-gradient flex items-center justify-center">
+                                <i data-lucide="file-plus" class="w-6 h-6 text-white"></i>
+                            </div>
+                            IR Form Generator
+                        </h3>
                         
-                        <div class="mb-6">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Select Excel File</label>
-                            <div class="file-drop-zone border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer" onclick="document.getElementById('file-input-7').click()">
-                                <i data-lucide="upload" class="w-12 h-12 mx-auto text-gray-400 mb-2"></i>
-                                <p class="text-sm text-gray-600">Click to upload Excel file</p>
+                        <div class="mb-8">
+                            <label class="block text-sm font-bold text-gray-700 mb-3">Select Excel File</label>
+                            <div class="file-drop-zone rounded-xl p-8 text-center cursor-pointer" onclick="document.getElementById('file-input-7').click()">
+                                <i data-lucide="upload" class="w-16 h-16 mx-auto text-gray-400 mb-3"></i>
+                                <p class="text-base font-semibold text-gray-700">Click to upload Excel file</p>
                             </div>
                             <input type="file" id="file-input-7" class="hidden" accept=".xls,.xlsx">
-                            <div id="file-display-7" class="mt-3"></div>
+                            <div id="file-display-7" class="mt-4"></div>
                         </div>
 
-                        <div class="grid grid-cols-2 gap-4 mb-6">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">Is this an Enhancement?</label>
-                                <select class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                    <option>ENR</option>
-                                    <option>BF</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">True BF?</label>
-                                <select class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                    <option>Yes</option>
-                                    <option>No</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">Root Cause Category/Classification</label>
-                                <select class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                    <option>U87</option>
-                                    <option>C87</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">Recommended ARC</label>
-                                <select class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                    <option>1</option>
-                                    <option>2</option>
-                                    <option>3</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">Request Category</label>
-                                <select class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                    <option>BF</option>
-                                    <option>Retro RG</option>
-                                    <option>Retro ENR</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">Fee Schedule TYPE</label>
-                                <select class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                    <option>Optum</option>
-                                    <option>Fee Schedule</option>
-                                    <option>RBRVS</option>
-                                </select>
-                            </div>
+                        <div class="grid grid-cols-2 gap-6 mb-8">
+                            ${[
+                                {label: 'Is this an Enhancement?', options: ['ENR', 'BF']},
+                                {label: 'True BF?', options: ['Yes', 'No']},
+                                {label: 'Root Cause Category/Classification', options: ['U87', 'C87']},
+                                {label: 'Recommended ARC', options: ['1', '2', '3']},
+                                {label: 'Request Category', options: ['BF', 'Retro RG', 'Retro ENR']},
+                                {label: 'Fee Schedule TYPE', options: ['Optum', 'Fee Schedule', 'RBRVS']}
+                            ].map(field => `
+                                <div class="input-group">
+                                    <label class="block text-sm font-bold text-gray-700 mb-3">${field.label}</label>
+                                    <select class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500">
+                                        ${field.options.map(opt => `<option>${opt}</option>`).join('')}
+                                    </select>
+                                </div>
+                            `).join('')}
                         </div>
 
-                        <div class="grid grid-cols-2 gap-4 mb-6">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">When did you become aware of issue?</label>
-                                <input type="date" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">When did you receive ticket for issue?</label>
-                                <input type="date" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">When was the issue corrected in Facets?</label>
-                                <input type="date" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">Earliest date of service on Impact Report?</label>
-                                <input type="date" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            </div>
+                        <div class="grid grid-cols-2 gap-6 mb-8">
+                            ${[
+                                'When did you become aware of issue?',
+                                'When did you receive ticket for issue?',
+                                'When was the issue corrected in Facets?',
+                                'Earliest date of service on Impact Report?'
+                            ].map(label => `
+                                <div class="input-group">
+                                    <label class="block text-sm font-bold text-gray-700 mb-3">${label}</label>
+                                    <input type="date" class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500">
+                                </div>
+                            `).join('')}
                         </div>
 
-                        <div class="flex gap-3">
+                        <div class="flex gap-4">
                             <button 
                                 onclick="createIRForm()" 
-                                class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                                class="px-8 py-3 primary-button text-white rounded-xl flex items-center gap-3 font-semibold text-base"
                             >
-                                <i data-lucide="file-plus" class="w-4 h-4"></i>
+                                <i data-lucide="file-plus" class="w-5 h-5"></i>
                                 Create IR Form
                             </button>
                         </div>
@@ -819,39 +1035,44 @@
             } else if (activeAppId === 8) {
                 // Application 8: Impact Report Generator
                 content.innerHTML = `
-                    <div class="bg-white rounded-lg shadow-sm p-6">
-                        <h3 class="text-lg font-semibold text-gray-900 mb-4">Impact Report Generator</h3>
+                    <div class="content-card rounded-2xl p-8">
+                        <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                            <div class="w-12 h-12 rounded-xl brand-gradient flex items-center justify-center">
+                                <i data-lucide="file-bar-chart" class="w-6 h-6 text-white"></i>
+                            </div>
+                            Impact Report Generator
+                        </h3>
                         
-                        <div class="mb-6">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Select Excel File</label>
-                            <div class="file-drop-zone border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer" onclick="document.getElementById('file-input-8').click()">
-                                <i data-lucide="upload" class="w-12 h-12 mx-auto text-gray-400 mb-2"></i>
-                                <p class="text-sm text-gray-600">Click to upload Excel file</p>
+                        <div class="mb-8">
+                            <label class="block text-sm font-bold text-gray-700 mb-3">Select Excel File</label>
+                            <div class="file-drop-zone rounded-xl p-8 text-center cursor-pointer" onclick="document.getElementById('file-input-8').click()">
+                                <i data-lucide="upload" class="w-16 h-16 mx-auto text-gray-400 mb-3"></i>
+                                <p class="text-base font-semibold text-gray-700">Click to upload Excel file</p>
                             </div>
                             <input type="file" id="file-input-8" class="hidden" accept=".xls,.xlsx" onchange="handleApp8FileSelect(event)">
-                            <div id="file-display-8" class="mt-3"></div>
+                            <div id="file-display-8" class="mt-4"></div>
                         </div>
 
-                        <div class="mb-6">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Deployed Date</label>
-                            <input type="date" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <div class="mb-8">
+                            <label class="block text-sm font-bold text-gray-700 mb-3">Deployed Date</label>
+                            <input type="date" class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500">
                         </div>
 
-                        <div class="flex gap-3">
+                        <div class="flex gap-4">
                             <button 
                                 onclick="autoSelectLatestFile(8)" 
-                                class="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center gap-2"
+                                class="px-8 py-3 bg-gray-600 text-white rounded-xl hover:bg-gray-700 flex items-center gap-3 font-semibold text-base transition-all"
                             >
-                                <i data-lucide="file-search" class="w-4 h-4"></i>
+                                <i data-lucide="file-search" class="w-5 h-5"></i>
                                 Auto Select Latest File
                             </button>
                             <button 
                                 id="generate-btn-8"
                                 onclick="generateImpactReport()" 
-                                class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
+                                class="px-8 py-3 primary-button text-white rounded-xl disabled:bg-gray-300 disabled:cursor-not-allowed disabled:shadow-none flex items-center gap-3 font-semibold text-base"
                                 disabled
                             >
-                                <i data-lucide="file-bar-chart" class="w-4 h-4"></i>
+                                <i data-lucide="file-bar-chart" class="w-5 h-5"></i>
                                 Generate Report
                             </button>
                         </div>
@@ -860,47 +1081,52 @@
             } else if (activeAppId === 9) {
                 // Application 9: Impact Report Compare
                 content.innerHTML = `
-                    <div class="bg-white rounded-lg shadow-sm p-6">
-                        <h3 class="text-lg font-semibold text-gray-900 mb-4">Impact Report Compare</h3>
+                    <div class="content-card rounded-2xl p-8">
+                        <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                            <div class="w-12 h-12 rounded-xl brand-gradient flex items-center justify-center">
+                                <i data-lucide="file-diff" class="w-6 h-6 text-white"></i>
+                            </div>
+                            Impact Report Compare
+                        </h3>
                         
-                        <div class="mb-6">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Select Excel File</label>
-                            <div class="file-drop-zone border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer" onclick="document.getElementById('file-input-9a').click()">
-                                <i data-lucide="upload" class="w-12 h-12 mx-auto text-gray-400 mb-2"></i>
-                                <p class="text-sm text-gray-600">Click to upload Excel file</p>
+                        <div class="mb-8">
+                            <label class="block text-sm font-bold text-gray-700 mb-3">Select Excel File</label>
+                            <div class="file-drop-zone rounded-xl p-8 text-center cursor-pointer" onclick="document.getElementById('file-input-9a').click()">
+                                <i data-lucide="upload" class="w-16 h-16 mx-auto text-gray-400 mb-3"></i>
+                                <p class="text-base font-semibold text-gray-700">Click to upload Excel file</p>
                             </div>
                             <input type="file" id="file-input-9a" class="hidden" accept=".xls,.xlsx" onchange="handleApp9File1Select(event)">
-                            <div id="file-display-9a" class="mt-3"></div>
+                            <div id="file-display-9a" class="mt-4"></div>
                         </div>
 
-                        <div class="mb-6">
+                        <div class="mb-8">
                             <button 
                                 onclick="autoSelectLatestClaimsFile()" 
-                                class="w-full px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center justify-center gap-2"
+                                class="w-full px-8 py-4 bg-gray-600 text-white rounded-xl hover:bg-gray-700 flex items-center justify-center gap-3 font-semibold text-base transition-all"
                             >
-                                <i data-lucide="file-search" class="w-5 h-5"></i>
+                                <i data-lucide="file-search" class="w-6 h-6"></i>
                                 Auto Select Latest Claims File
                             </button>
                         </div>
 
-                        <div class="mb-6">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Select IR Teams Excel File</label>
-                            <div class="file-drop-zone border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer" onclick="document.getElementById('file-input-9b').click()">
-                                <i data-lucide="upload" class="w-12 h-12 mx-auto text-gray-400 mb-2"></i>
-                                <p class="text-sm text-gray-600">Click to upload IR Teams Excel file</p>
+                        <div class="mb-8">
+                            <label class="block text-sm font-bold text-gray-700 mb-3">Select IR Teams Excel File</label>
+                            <div class="file-drop-zone rounded-xl p-8 text-center cursor-pointer" onclick="document.getElementById('file-input-9b').click()">
+                                <i data-lucide="upload" class="w-16 h-16 mx-auto text-gray-400 mb-3"></i>
+                                <p class="text-base font-semibold text-gray-700">Click to upload IR Teams Excel file</p>
                             </div>
                             <input type="file" id="file-input-9b" class="hidden" accept=".xls,.xlsx" onchange="handleApp9File2Select(event)">
-                            <div id="file-display-9b" class="mt-3"></div>
+                            <div id="file-display-9b" class="mt-4"></div>
                         </div>
 
-                        <div class="flex gap-3">
+                        <div class="flex gap-4">
                             <button 
                                 id="compare-btn-9"
                                 onclick="compareImpactReports()" 
-                                class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
+                                class="px-8 py-3 primary-button text-white rounded-xl disabled:bg-gray-300 disabled:cursor-not-allowed disabled:shadow-none flex items-center gap-3 font-semibold text-base"
                                 disabled
                             >
-                                <i data-lucide="file-diff" class="w-4 h-4"></i>
+                                <i data-lucide="file-diff" class="w-5 h-5"></i>
                                 Compare Reports
                             </button>
                         </div>
@@ -909,12 +1135,17 @@
             } else if (activeAppId === 10) {
                 // Application 10: Standard SQL Queries
                 content.innerHTML = `
-                    <div class="bg-white rounded-lg shadow-sm p-6">
-                        <h3 class="text-lg font-semibold text-gray-900 mb-4">Standard SQL Queries</h3>
+                    <div class="content-card rounded-2xl p-8">
+                        <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                            <div class="w-12 h-12 rounded-xl brand-gradient flex items-center justify-center">
+                                <i data-lucide="terminal" class="w-6 h-6 text-white"></i>
+                            </div>
+                            Standard SQL Queries
+                        </h3>
                         
-                        <div class="mb-6">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Select Environment</label>
-                            <select id="sql-env-select" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <div class="mb-8">
+                            <label class="block text-sm font-bold text-gray-700 mb-3">Select Environment</label>
+                            <select id="sql-env-select" class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500">
                                 <option>ModDev</option>
                                 <option>ModPROD</option>
                                 <option>Dev</option>
@@ -930,55 +1161,35 @@
                             </select>
                         </div>
 
-                        <div class="mb-6">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Pre-Stored SQL Queries</label>
-                            <div class="border border-gray-300 rounded-lg p-4 max-h-96 overflow-y-auto custom-scrollbar">
-                                <div class="space-y-2">
-                                    <label class="flex items-start gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                        <input type="radio" name="sql-query" value="q1" class="mt-1 text-blue-600">
-                                        <div>
-                                            <p class="text-sm font-medium text-gray-900">Fee Schedule Details</p>
-                                            <p class="text-xs text-gray-500">SELECT * FROM fee_schedule WHERE status = 'ACTIVE'</p>
-                                        </div>
-                                    </label>
-                                    <label class="flex items-start gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                        <input type="radio" name="sql-query" value="q2" class="mt-1 text-blue-600">
-                                        <div>
-                                            <p class="text-sm font-medium text-gray-900">Claims by Date Range</p>
-                                            <p class="text-xs text-gray-500">SELECT * FROM claims WHERE created_date >= SYSDATE-30</p>
-                                        </div>
-                                    </label>
-                                    <label class="flex items-start gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                        <input type="radio" name="sql-query" value="q3" class="mt-1 text-blue-600">
-                                        <div>
-                                            <p class="text-sm font-medium text-gray-900">Provider Configuration</p>
-                                            <p class="text-xs text-gray-500">SELECT provider_id, provider_name, config_status FROM provider_config</p>
-                                        </div>
-                                    </label>
-                                    <label class="flex items-start gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                        <input type="radio" name="sql-query" value="q4" class="mt-1 text-blue-600">
-                                        <div>
-                                            <p class="text-sm font-medium text-gray-900">Pending Transactions</p>
-                                            <p class="text-xs text-gray-500">SELECT * FROM transactions WHERE status = 'PENDING'</p>
-                                        </div>
-                                    </label>
-                                    <label class="flex items-start gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                                        <input type="radio" name="sql-query" value="q5" class="mt-1 text-blue-600">
-                                        <div>
-                                            <p class="text-sm font-medium text-gray-900">Error Log Summary</p>
-                                            <p class="text-xs text-gray-500">SELECT error_type, COUNT(*) FROM error_log GROUP BY error_type</p>
-                                        </div>
-                                    </label>
+                        <div class="mb-8">
+                            <label class="block text-sm font-bold text-gray-700 mb-3">Pre-Stored SQL Queries</label>
+                            <div class="border-2 border-gray-300 rounded-xl p-4 max-h-96 overflow-y-auto custom-scrollbar bg-gray-50">
+                                <div class="space-y-3">
+                                    ${[
+                                        {name: 'Fee Schedule Details', query: "SELECT * FROM fee_schedule WHERE status = 'ACTIVE'"},
+                                        {name: 'Claims by Date Range', query: 'SELECT * FROM claims WHERE created_date >= SYSDATE-30'},
+                                        {name: 'Provider Configuration', query: 'SELECT provider_id, provider_name, config_status FROM provider_config'},
+                                        {name: 'Pending Transactions', query: "SELECT * FROM transactions WHERE status = 'PENDING'"},
+                                        {name: 'Error Log Summary', query: 'SELECT error_type, COUNT(*) FROM error_log GROUP BY error_type'}
+                                    ].map((q, i) => `
+                                        <label class="flex items-start gap-4 p-4 border-2 border-gray-300 rounded-xl hover:bg-white hover:border-purple-400 cursor-pointer transition-all bg-white">
+                                            <input type="radio" name="sql-query" value="q${i+1}" class="radio-custom mt-1 w-5 h-5 text-purple-600">
+                                            <div>
+                                                <p class="text-sm font-bold text-gray-900">${q.name}</p>
+                                                <p class="text-xs text-gray-500 mt-1 font-mono">${q.query}</p>
+                                            </div>
+                                        </label>
+                                    `).join('')}
                                 </div>
                             </div>
                         </div>
 
-                        <div class="flex gap-3">
+                        <div class="flex gap-4">
                             <button 
                                 onclick="executeSQLQuery()" 
-                                class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                                class="px-8 py-3 primary-button text-white rounded-xl flex items-center gap-3 font-semibold text-base"
                             >
-                                <i data-lucide="play" class="w-4 h-4"></i>
+                                <i data-lucide="play" class="w-5 h-5"></i>
                                 Execute Query
                             </button>
                         </div>
@@ -987,44 +1198,49 @@
             } else if (activeAppId === 11) {
                 // Application 11: Upload Latest Files
                 content.innerHTML = `
-                    <div class="bg-white rounded-lg shadow-sm p-6">
-                        <h3 class="text-lg font-semibold text-gray-900 mb-4">Upload Latest Files to TFS</h3>
+                    <div class="content-card rounded-2xl p-8">
+                        <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                            <div class="w-12 h-12 rounded-xl brand-gradient flex items-center justify-center">
+                                <i data-lucide="upload-cloud" class="w-6 h-6 text-white"></i>
+                            </div>
+                            Upload Latest Files to TFS
+                        </h3>
                         
-                        <div class="mb-6">
+                        <div class="mb-8">
                             <button 
                                 onclick="listFilesToAttach()" 
-                                class="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"
+                                class="w-full px-8 py-4 primary-button text-white rounded-xl flex items-center justify-center gap-3 font-semibold text-base"
                             >
-                                <i data-lucide="list" class="w-5 h-5"></i>
+                                <i data-lucide="list" class="w-6 h-6"></i>
                                 List Files to Be Attached
                             </button>
                         </div>
 
-                        <div id="files-list-container" class="mb-6" style="display: none;">
-                            <label class="block text-sm font-medium text-gray-700 mb-3">Available Files</label>
-                            <div class="border border-gray-300 rounded-lg p-4 max-h-96 overflow-y-auto custom-scrollbar">
-                                <div id="files-list" class="space-y-2">
+                        <div id="files-list-container" class="mb-8" style="display: none;">
+                            <label class="block text-sm font-bold text-gray-700 mb-4">Available Files</label>
+                            <div class="border-2 border-gray-300 rounded-xl p-4 max-h-96 overflow-y-auto custom-scrollbar bg-gray-50">
+                                <div id="files-list" class="space-y-3">
                                     <!-- Files will be populated here -->
                                 </div>
                             </div>
                         </div>
 
-                        <div id="attach-section" class="mb-6" style="display: none;">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Comment for TFS</label>
+                        <div id="attach-section" class="mb-8" style="display: none;">
+                            <label class="block text-sm font-bold text-gray-700 mb-3">Comment for TFS</label>
                             <textarea 
                                 id="tfs-comment" 
-                                rows="4" 
+                                rows="5" 
                                 placeholder="Enter your comment for the attachment..."
-                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
                             ></textarea>
                         </div>
 
                         <div id="attach-button-container" style="display: none;">
                             <button 
                                 onclick="attachToTFS()" 
-                                class="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2"
+                                class="px-8 py-3 success-button text-white rounded-xl flex items-center gap-3 font-semibold text-base"
                             >
-                                <i data-lucide="upload-cloud" class="w-4 h-4"></i>
+                                <i data-lucide="upload-cloud" class="w-5 h-5"></i>
                                 Attach to TFS with Comment
                             </button>
                         </div>
@@ -1033,12 +1249,14 @@
             } else {
                 // Placeholder for Application 12
                 content.innerHTML = `
-                    <div class="bg-white rounded-lg shadow-sm p-6">
-                        <div class="text-center py-12">
-                            <i data-lucide="${app.icon}" class="w-16 h-16 mx-auto text-gray-300 mb-4"></i>
-                            <h3 class="text-lg font-semibold text-gray-700 mb-2">${app.name}</h3>
-                            <p class="text-gray-500">${app.description}</p>
-                            <p class="text-sm text-gray-400 mt-4">This application is under development</p>
+                    <div class="content-card rounded-2xl p-12">
+                        <div class="text-center">
+                            <div class="w-20 h-20 rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center mx-auto mb-6">
+                                <i data-lucide="${app.icon}" class="w-10 h-10 text-gray-400"></i>
+                            </div>
+                            <h3 class="text-2xl font-bold text-gray-700 mb-3">${app.name}</h3>
+                            <p class="text-gray-500 mb-6">${app.description}</p>
+                            <p class="text-sm text-gray-400 px-6 py-3 bg-gray-100 rounded-lg inline-block">This application is under development</p>
                         </div>
                     </div>
                 `;
@@ -1052,14 +1270,16 @@
             selectedFile = event.target.files[0];
             if (selectedFile) {
                 document.getElementById('file-display-1').innerHTML = `
-                    <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                        <i data-lucide="file-text" class="w-5 h-5 text-blue-600"></i>
-                        <div class="flex-1">
-                            <p class="text-sm font-medium text-gray-900">${selectedFile.name}</p>
-                            <p class="text-xs text-gray-500">${(selectedFile.size / 1024).toFixed(2)} KB</p>
+                    <div class="flex items-center gap-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl">
+                        <div class="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center">
+                            <i data-lucide="file-text" class="w-6 h-6 text-white"></i>
                         </div>
-                        <button onclick="clearFile()" class="text-gray-400 hover:text-gray-600">
-                            <i data-lucide="x" class="w-4 h-4"></i>
+                        <div class="flex-1">
+                            <p class="text-sm font-bold text-gray-900">${selectedFile.name}</p>
+                            <p class="text-xs text-gray-600 mt-1">${(selectedFile.size / 1024).toFixed(2)} KB</p>
+                        </div>
+                        <button onclick="clearFile()" class="text-gray-400 hover:text-red-600 transition-colors">
+                            <i data-lucide="x" class="w-5 h-5"></i>
                         </button>
                     </div>
                 `;
@@ -1083,11 +1303,13 @@
             selectedFile1 = event.target.files[0];
             if (selectedFile1) {
                 document.getElementById('file-display-2a').innerHTML = `
-                    <div class="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                        <i data-lucide="file-text" class="w-5 h-5 text-blue-600"></i>
+                    <div class="flex items-center gap-4 p-4 bg-gradient-to-r from-blue-50 to-blue-100 border-2 border-blue-300 rounded-xl">
+                        <div class="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center">
+                            <i data-lucide="file-text" class="w-6 h-6 text-white"></i>
+                        </div>
                         <div class="flex-1">
-                            <p class="text-sm font-medium text-gray-900">${selectedFile1.name}</p>
-                            <p class="text-xs text-gray-500">${(selectedFile1.size / 1024).toFixed(2)} KB</p>
+                            <p class="text-sm font-bold text-gray-900">${selectedFile1.name}</p>
+                            <p class="text-xs text-gray-600 mt-1">${(selectedFile1.size / 1024).toFixed(2)} KB</p>
                         </div>
                     </div>
                 `;
@@ -1100,11 +1322,13 @@
             selectedFile2 = event.target.files[0];
             if (selectedFile2) {
                 document.getElementById('file-display-2b').innerHTML = `
-                    <div class="flex items-center gap-3 p-3 bg-purple-50 rounded-lg border border-purple-200">
-                        <i data-lucide="file-text" class="w-5 h-5 text-purple-600"></i>
+                    <div class="flex items-center gap-4 p-4 bg-gradient-to-r from-purple-50 to-purple-100 border-2 border-purple-300 rounded-xl">
+                        <div class="w-12 h-12 rounded-xl bg-purple-600 flex items-center justify-center">
+                            <i data-lucide="file-text" class="w-6 h-6 text-white"></i>
+                        </div>
                         <div class="flex-1">
-                            <p class="text-sm font-medium text-gray-900">${selectedFile2.name}</p>
-                            <p class="text-xs text-gray-500">${(selectedFile2.size / 1024).toFixed(2)} KB</p>
+                            <p class="text-sm font-bold text-gray-900">${selectedFile2.name}</p>
+                            <p class="text-xs text-gray-600 mt-1">${(selectedFile2.size / 1024).toFixed(2)} KB</p>
                         </div>
                     </div>
                 `;
@@ -1124,19 +1348,23 @@
         function handleMultipleFilesSelect(event) {
             selectedFiles = Array.from(event.target.files).slice(0, 50);
             if (selectedFiles.length > 0) {
-                let html = '<div class="space-y-2">';
+                let html = '<div class="space-y-3">';
                 selectedFiles.forEach((file, index) => {
                     html += `
-                        <div class="flex items-center gap-3 p-2 bg-gray-50 rounded-lg">
-                            <i data-lucide="file-text" class="w-4 h-4 text-blue-600"></i>
+                        <div class="flex items-center gap-4 p-3 bg-gradient-to-r from-gray-50 to-gray-100 border-2 border-gray-300 rounded-xl">
+                            <div class="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center">
+                                <i data-lucide="file-text" class="w-5 h-5 text-white"></i>
+                            </div>
                             <div class="flex-1">
-                                <p class="text-sm text-gray-900">${file.name}</p>
+                                <p class="text-sm font-semibold text-gray-900">${file.name}</p>
                             </div>
                         </div>
                     `;
                 });
                 html += '</div>';
-                html += `<p class="text-sm text-gray-600 mt-2">${selectedFiles.length} file(s) selected</p>`;
+                html += `<div class="mt-4 px-5 py-3 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl">
+                    <p class="text-sm font-bold text-blue-900">${selectedFiles.length} file(s) selected</p>
+                </div>`;
                 document.getElementById('file-display-3').innerHTML = html;
                 lucide.createIcons();
             }
@@ -1147,11 +1375,13 @@
             selectedFile = event.target.files[0];
             if (selectedFile) {
                 document.getElementById('file-display-5').innerHTML = `
-                    <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                        <i data-lucide="file-text" class="w-5 h-5 text-blue-600"></i>
+                    <div class="flex items-center gap-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl">
+                        <div class="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center">
+                            <i data-lucide="file-text" class="w-6 h-6 text-white"></i>
+                        </div>
                         <div class="flex-1">
-                            <p class="text-sm font-medium text-gray-900">${selectedFile.name}</p>
-                            <p class="text-xs text-gray-500">${(selectedFile.size / 1024).toFixed(2)} KB</p>
+                            <p class="text-sm font-bold text-gray-900">${selectedFile.name}</p>
+                            <p class="text-xs text-gray-600 mt-1">${(selectedFile.size / 1024).toFixed(2)} KB</p>
                         </div>
                     </div>
                 `;
@@ -1164,11 +1394,13 @@
             selectedFile = event.target.files[0];
             if (selectedFile) {
                 document.getElementById('file-display-6').innerHTML = `
-                    <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                        <i data-lucide="file-text" class="w-5 h-5 text-blue-600"></i>
+                    <div class="flex items-center gap-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl">
+                        <div class="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center">
+                            <i data-lucide="file-text" class="w-6 h-6 text-white"></i>
+                        </div>
                         <div class="flex-1">
-                            <p class="text-sm font-medium text-gray-900">${selectedFile.name}</p>
-                            <p class="text-xs text-gray-500">${(selectedFile.size / 1024).toFixed(2)} KB</p>
+                            <p class="text-sm font-bold text-gray-900">${selectedFile.name}</p>
+                            <p class="text-xs text-gray-600 mt-1">${(selectedFile.size / 1024).toFixed(2)} KB</p>
                         </div>
                     </div>
                 `;
@@ -1181,11 +1413,13 @@
             selectedFile = event.target.files[0];
             if (selectedFile) {
                 document.getElementById('file-display-8').innerHTML = `
-                    <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                        <i data-lucide="file-text" class="w-5 h-5 text-blue-600"></i>
+                    <div class="flex items-center gap-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl">
+                        <div class="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center">
+                            <i data-lucide="file-text" class="w-6 h-6 text-white"></i>
+                        </div>
                         <div class="flex-1">
-                            <p class="text-sm font-medium text-gray-900">${selectedFile.name}</p>
-                            <p class="text-xs text-gray-500">${(selectedFile.size / 1024).toFixed(2)} KB</p>
+                            <p class="text-sm font-bold text-gray-900">${selectedFile.name}</p>
+                            <p class="text-xs text-gray-600 mt-1">${(selectedFile.size / 1024).toFixed(2)} KB</p>
                         </div>
                     </div>
                 `;
@@ -1198,11 +1432,13 @@
             selectedFile1 = event.target.files[0];
             if (selectedFile1) {
                 document.getElementById('file-display-9a').innerHTML = `
-                    <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                        <i data-lucide="file-text" class="w-5 h-5 text-blue-600"></i>
+                    <div class="flex items-center gap-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl">
+                        <div class="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center">
+                            <i data-lucide="file-text" class="w-6 h-6 text-white"></i>
+                        </div>
                         <div class="flex-1">
-                            <p class="text-sm font-medium text-gray-900">${selectedFile1.name}</p>
-                            <p class="text-xs text-gray-500">${(selectedFile1.size / 1024).toFixed(2)} KB</p>
+                            <p class="text-sm font-bold text-gray-900">${selectedFile1.name}</p>
+                            <p class="text-xs text-gray-600 mt-1">${(selectedFile1.size / 1024).toFixed(2)} KB</p>
                         </div>
                     </div>
                 `;
@@ -1215,11 +1451,13 @@
             selectedFile2 = event.target.files[0];
             if (selectedFile2) {
                 document.getElementById('file-display-9b').innerHTML = `
-                    <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                        <i data-lucide="file-text" class="w-5 h-5 text-blue-600"></i>
+                    <div class="flex items-center gap-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl">
+                        <div class="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center">
+                            <i data-lucide="file-text" class="w-6 h-6 text-white"></i>
+                        </div>
                         <div class="flex-1">
-                            <p class="text-sm font-medium text-gray-900">${selectedFile2.name}</p>
-                            <p class="text-xs text-gray-500">${(selectedFile2.size / 1024).toFixed(2)} KB</p>
+                            <p class="text-sm font-bold text-gray-900">${selectedFile2.name}</p>
+                            <p class="text-xs text-gray-600 mt-1">${(selectedFile2.size / 1024).toFixed(2)} KB</p>
                         </div>
                     </div>
                 `;
@@ -1354,12 +1592,14 @@
             let html = '';
             mockFiles.forEach((file, index) => {
                 html += `
-                    <label class="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                        <input type="checkbox" class="tfs-file text-blue-600 rounded" value="${file.name}">
-                        <i data-lucide="file-text" class="w-5 h-5 text-blue-600"></i>
+                    <label class="flex items-center gap-4 p-4 border-2 border-gray-300 rounded-xl hover:bg-white hover:border-purple-400 cursor-pointer transition-all bg-white">
+                        <input type="checkbox" class="tfs-file checkbox-custom w-5 h-5 text-purple-600 rounded" value="${file.name}">
+                        <div class="w-12 h-12 rounded-lg bg-blue-600 flex items-center justify-center">
+                            <i data-lucide="file-text" class="w-6 h-6 text-white"></i>
+                        </div>
                         <div class="flex-1">
-                            <p class="text-sm font-medium text-gray-900">${file.name}</p>
-                            <p class="text-xs text-gray-500">${file.size} • ${file.date}</p>
+                            <p class="text-sm font-bold text-gray-900">${file.name}</p>
+                            <p class="text-xs text-gray-500 mt-1">${file.size} • ${file.date}</p>
                         </div>
                     </label>
                 `;
@@ -1395,7 +1635,6 @@
         function openAIModal() {
             aiMessages = [];
             
-            // Add welcome message based on active application
             const app = applications.find(a => a.id === activeAppId);
             if (app) {
                 let welcomeMsg = '';
@@ -1457,16 +1696,16 @@
                 if (msg.role === 'user') {
                     html += `
                         <div class="flex justify-end">
-                            <div class="max-w-[80%] bg-blue-600 text-white rounded-lg px-4 py-2">
-                                <p class="text-sm">${msg.content}</p>
+                            <div class="max-w-[75%] bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-2xl px-5 py-3 shadow-lg">
+                                <p class="text-sm leading-relaxed">${msg.content}</p>
                             </div>
                         </div>
                     `;
                 } else {
                     html += `
                         <div class="flex justify-start">
-                            <div class="max-w-[80%] bg-gray-100 text-gray-900 rounded-lg px-4 py-2">
-                                <p class="text-sm">${msg.content}</p>
+                            <div class="max-w-[75%] bg-white text-gray-900 rounded-2xl px-5 py-3 shadow-md border border-gray-200">
+                                <p class="text-sm leading-relaxed">${msg.content}</p>
                             </div>
                         </div>
                     `;
@@ -1502,7 +1741,6 @@
             
             if (!app) return 'I\'m here to help! Ask me about the current application.';
             
-            // Application-specific responses
             if (activeAppId === 1) {
                 if (lowerMessage.includes('format') || lowerMessage.includes('file')) {
                     return 'The Change File Generator accepts CSV, XLS, and XLSX files. Make sure your source file includes a Fee Schedule ID in the header row.';
