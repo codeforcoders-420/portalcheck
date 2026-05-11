@@ -4,35 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TFS Workflow Applications</title>
-    <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-        /* Custom scrollbar for sidebar */
-        .custom-scrollbar::-webkit-scrollbar {
-            width: 6px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-            background: transparent;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-            background-color: #334155;
-            border-radius: 20px;
-        }
-        /* Loader animation */
-        .loader {
-            border: 3px solid #f3f3f3;
-            border-bottom-color: #2563eb;
-            border-radius: 50%;
-            width: 48px;
-            height: 48px;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #334155; border-radius: 20px; }
+        .loader { border: 3px solid #f3f3f3; border-bottom-color: #2563eb; border-radius: 50%; width: 48px; height: 48px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .chat-container { scroll-behavior: smooth; }
     </style>
 </head>
 <body class="flex h-screen bg-slate-50 font-sans text-slate-800 overflow-hidden">
@@ -43,9 +23,7 @@
             <h2 class="text-slate-400 text-[11px] font-bold tracking-widest uppercase">Applications</h2>
         </div>
         <div class="flex-1 overflow-y-auto py-2 custom-scrollbar">
-            <nav class="flex flex-col px-3 gap-0.5" id="app-nav">
-                <!-- Navigation items will be injected by JavaScript -->
-            </nav>
+            <nav class="flex flex-col px-3 gap-0.5" id="app-nav"></nav>
         </div>
     </div>
 
@@ -60,9 +38,7 @@
                 </button>
                 <div class="h-full w-px bg-gray-300 self-stretch"></div>
                 <div class="flex flex-col gap-2">
-                    <h1 class="text-lg font-semibold text-indigo-950">
-                        Workflow of TFS #####
-                    </h1>
+                    <h1 class="text-lg font-semibold text-indigo-950">Workflow of TFS #####</h1>
                     <div class="flex items-center gap-3 text-[12px] flex-wrap">
                         <div class="flex items-center gap-1.5 bg-blue-50/50 text-blue-700 px-2.5 py-1 rounded-md border border-blue-100/50 shadow-sm">
                             <span class="text-blue-500/90 font-medium">Fee Schedule:</span>
@@ -87,36 +63,57 @@
                     </div>
                 </div>
             </div>
-            <div class="text-sm font-medium text-gray-400 mt-1">
-                MN Team Portal
-            </div>
+            <div class="text-sm font-medium text-gray-400 mt-1">MN Team Portal</div>
         </header>
 
         <!-- Scrollable Form Content -->
         <div class="flex-1 overflow-y-auto p-6 md:p-10 relative bg-[#f4f7fa]">
-            <!-- Main Card -->
             <div class="max-w-[900px] mx-auto bg-white rounded-2xl shadow-sm border border-gray-200/60 p-8 md:p-10 relative overflow-hidden">
-
-                <!-- Loader Overlay -->
                 <div id="loader-overlay" class="hidden absolute inset-0 bg-white/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center transition-opacity">
                     <div class="loader mb-4"></div>
                     <h3 class="text-xl font-semibold text-gray-800 mb-2">Running <span id="running-app-name">Application</span>...</h3>
                     <p class="text-gray-500 text-sm">Please wait while the process completes.</p>
                 </div>
-
                 <div class="mb-8 border-b border-gray-100 pb-6">
                     <h2 id="app-title" class="text-2xl font-bold text-gray-900 mb-1">Change File Generator</h2>
                     <p id="app-desc" class="text-gray-500 text-sm">Select source file and run scrub analysis to generate change files.</p>
                 </div>
-
-                <!-- Content Container for Dynamic Forms -->
                 <div id="form-container"></div>
             </div>
         </div>
     </div>
 
+    <!-- AI Agent Modal -->
+    <div id="ai-modal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-purple-50 to-blue-50">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 flex items-center justify-center">
+                        <i data-lucide="sparkles" class="w-5 h-5 text-white"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-bold text-gray-900">AI Scrub Assistant</h3>
+                        <p class="text-xs text-gray-600">Processing: <span id="ai-file-name"></span></p>
+                    </div>
+                </div>
+                <button onclick="closeAIModal()" class="w-8 h-8 rounded-full hover:bg-gray-200 flex items-center justify-center transition-colors">
+                    <i data-lucide="x" class="w-5 h-5 text-gray-600"></i>
+                </button>
+            </div>
+            <div id="ai-messages" class="flex-1 overflow-y-auto p-6 space-y-4 chat-container"></div>
+            <div class="border-t border-gray-200 p-4 bg-gray-50">
+                <div class="flex gap-3">
+                    <input type="text" id="ai-prompt-input" onkeypress="if(event.key==='Enter') sendAIPrompt()" placeholder="Describe how you want to scrub the file..." class="flex-1 bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 block p-3 transition-all outline-none placeholder:text-gray-400" />
+                    <button onclick="sendAIPrompt()" class="inline-flex items-center gap-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white text-sm font-semibold py-3 px-6 rounded-lg transition-all focus:ring-4 focus:ring-purple-200 shadow-sm">
+                        <i data-lucide="send" class="w-4 h-4"></i> Send
+                    </button>
+                </div>
+                <p class="text-xs text-gray-500 mt-2">Try: "Remove all PII data and mask credit cards" or "Filter records from 2024 only"</p>
+            </div>
+        </div>
+    </div>
+
     <script>
-        // Application Data
         const applications = [
             { id: 1, name: 'Change File Generator', title: 'Change File Generator', desc: 'Select source file and run scrub analysis to generate change files.', icon: 'file-text' },
             { id: 2, name: 'Application 2', title: 'Application 2 - Database Sync', desc: 'Synchronize database records across environments.', icon: 'database' },
@@ -132,12 +129,9 @@
             { id: 12, name: 'Application 12', title: 'Application 12 - Security Scan', desc: 'Run security vulnerability scans on workflows.', icon: 'shield' },
         ];
 
-        let activeAppId = 1;
-        let selectedFile = null;
-        let outputLocation = '';
+        let activeAppId = 1, selectedFile = null, outputLocation = '', aiMessages = [];
         const navContainer = document.getElementById('app-nav');
 
-        // Function to update header values from database
         function updateHeaderValues(feeSchedule, configLastUpdated, configLastUpdatedBy, prodLastUpdated, prodLastUpdatedBy) {
             if (feeSchedule) document.getElementById('fee-schedule-value').textContent = feeSchedule;
             if (configLastUpdated) document.getElementById('config-last-updated-value').textContent = configLastUpdated;
@@ -193,9 +187,12 @@
                                 <code id="output-location-path" class="text-sm text-green-800 font-mono break-all"></code>
                             </div>
                         </div>
-                        <div class="flex items-center gap-3 pt-8 mt-4">
+                        <div class="flex items-center gap-3 pt-8 mt-4 flex-wrap">
                             <button type="button" id="run-btn" onclick="runApplication()" disabled class="inline-flex items-center gap-2 bg-[#1a56db] hover:bg-blue-800 text-white text-sm font-semibold py-2.5 px-6 rounded-lg transition-colors focus:ring-4 focus:ring-blue-200 disabled:opacity-70 disabled:cursor-not-allowed shadow-sm">
                                 <i data-lucide="arrow-right" class="w-4 h-4"></i><span>Run Scrub Analysis</span>
+                            </button>
+                            <button type="button" id="genai-btn" onclick="openAIModal()" disabled class="inline-flex items-center gap-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white text-sm font-semibold py-2.5 px-6 rounded-lg transition-all focus:ring-4 focus:ring-purple-200 disabled:opacity-70 disabled:cursor-not-allowed shadow-sm">
+                                <i data-lucide="sparkles" class="w-4 h-4"></i><span>Use GenAI</span>
                             </button>
                             <button type="button" onclick="resetForm()" class="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-semibold py-2.5 px-6 rounded-lg transition-colors focus:ring-4 focus:ring-gray-100 shadow-sm ml-auto">Reset</button>
                         </div>
@@ -206,6 +203,63 @@
             lucide.createIcons();
         }
 
+        // LINES 206-244: GenAI Modal Functions (NEW CODE - EXTRACT THIS SECTION)
+        function openAIModal() {
+            document.getElementById('ai-modal').classList.remove('hidden');
+            document.getElementById('ai-file-name').textContent = selectedFile ? selectedFile.name : '';
+            if (aiMessages.length === 0) {
+                aiMessages = [{
+                    role: 'assistant',
+                    content: `Hello! I'm your AI assistant for file scrubbing. I can help you clean and process your source file: ${selectedFile?.name || 'your file'}.\n\nWhat would you like me to do? For example:\n- Remove sensitive data\n- Format data columns\n- Filter specific records\n- Validate data integrity`
+                }];
+                renderAIMessages();
+            }
+            lucide.createIcons();
+        }
+
+        function closeAIModal() {
+            document.getElementById('ai-modal').classList.add('hidden');
+        }
+
+        function renderAIMessages() {
+            const container = document.getElementById('ai-messages');
+            container.innerHTML = aiMessages.map((msg, idx) => `
+                <div class="flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}">
+                    ${msg.role === 'assistant' ? '<div class="w-8 h-8 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 flex items-center justify-center flex-shrink-0"><i data-lucide="bot" class="w-4 h-4 text-white"></i></div>' : ''}
+                    <div class="max-w-[70%] rounded-2xl px-4 py-3 ${msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-900'}">
+                        <p class="text-sm whitespace-pre-line">${msg.content}</p>
+                    </div>
+                    ${msg.role === 'user' ? '<div class="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0"><i data-lucide="user" class="w-4 h-4 text-white"></i></div>' : ''}
+                </div>
+            `).join('');
+            lucide.createIcons();
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function sendAIPrompt() {
+            const input = document.getElementById('ai-prompt-input');
+            const prompt = input.value.trim();
+            if (!prompt) return;
+
+            aiMessages.push({ role: 'user', content: prompt });
+            input.value = '';
+            renderAIMessages();
+
+            const mockResponses = [
+                `I've analyzed your request. I'll process the file "${selectedFile?.name}" and:\n\n1. Remove all PII (Personal Identifiable Information)\n2. Mask credit card numbers\n3. Anonymize email addresses\n4. Keep transaction IDs intact\n\nProcessing will take approximately 30 seconds. Shall I proceed?`,
+                `Great! I'm starting the scrub process now.\n\n✓ Scanning 1,247 records...\n✓ Detected 89 sensitive fields\n✓ Applying transformation rules\n✓ Validating output format\n\nEstimated completion: 25 seconds`,
+                `Processing complete! Here's the summary:\n\n• Total records processed: 1,247\n• Sensitive fields masked: 89\n• Data integrity: 100%\n• Output size: 2.3 MB\n\nThe scrubbed file is ready at:\n/output/change_files/${document.getElementById('fee-schedule-value').textContent}/${selectedFile?.name}_AI_scrubbed.txt\n\nWould you like me to generate a detailed transformation report?`
+            ];
+
+            setTimeout(() => {
+                const userMsgCount = aiMessages.filter(m => m.role === 'user').length;
+                const responseIdx = Math.min(userMsgCount - 1, mockResponses.length - 1);
+                aiMessages.push({ role: 'assistant', content: mockResponses[responseIdx] });
+                renderAIMessages();
+            }, 1000);
+        }
+        // END OF GenAI SECTION
+
         function handleFileChange(event) {
             const file = event.target.files[0];
             if (file) {
@@ -214,6 +268,7 @@
                 document.getElementById('file-upload-content').innerHTML = `<div class="flex items-center gap-2"><i data-lucide="file" class="w-4 h-4 text-green-600"></i><span class="font-medium text-gray-900">${file.name}</span><span class="text-xs text-gray-500">(${(file.size / 1024).toFixed(2)} KB)</span></div>`;
                 document.getElementById('file-check-icon').classList.remove('hidden');
                 document.getElementById('run-btn').disabled = false;
+                document.getElementById('genai-btn').disabled = false;
                 document.getElementById('output-location-container').classList.add('hidden');
                 lucide.createIcons();
             }
@@ -222,10 +277,12 @@
         function resetForm() {
             selectedFile = null;
             outputLocation = '';
+            aiMessages = [];
             document.getElementById('sourceFile').value = '';
             document.getElementById('file-upload-content').innerHTML = `<p class="font-medium text-gray-700">Click to upload source file</p><p class="text-xs text-gray-500 mt-0.5">Supports: TXT, CSV, XLSX, XLS</p>`;
             document.getElementById('file-check-icon').classList.add('hidden');
             document.getElementById('run-btn').disabled = true;
+            document.getElementById('genai-btn').disabled = true;
             document.getElementById('output-location-container').classList.add('hidden');
         }
 
