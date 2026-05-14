@@ -1,0 +1,1085 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TFS Workflow Applications</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-attachment: fixed;
+        }
+        
+        .sidebar-gradient {
+            background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+            box-shadow: 4px 0 24px rgba(0, 0, 0, 0.12);
+        }
+        
+        .header-card {
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+        }
+        
+        .content-card {
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+        }
+        
+        .app-button {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .app-button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+            transition: left 0.5s;
+        }
+        
+        .app-button:hover::before {
+            left: 100%;
+        }
+        
+        .app-button.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+        }
+        
+        .app-button.completed {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        }
+        
+        .app-button:hover {
+            transform: translateX(4px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        
+        .primary-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+            transition: all 0.3s ease;
+        }
+        
+        .primary-button:hover {
+            box-shadow: 0 6px 24px rgba(102, 126, 234, 0.6);
+            transform: translateY(-2px);
+        }
+        
+        .primary-button:disabled {
+            background: #d1d5db;
+            box-shadow: none;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .secondary-button {
+            background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
+            box-shadow: 0 4px 16px rgba(139, 92, 246, 0.4);
+            transition: all 0.3s ease;
+        }
+        
+        .secondary-button:hover {
+            box-shadow: 0 6px 24px rgba(139, 92, 246, 0.6);
+            transform: translateY(-2px);
+        }
+        
+        .success-button {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            box-shadow: 0 4px 16px rgba(16, 185, 129, 0.4);
+            transition: all 0.3s ease;
+        }
+        
+        .success-button:hover {
+            box-shadow: 0 6px 24px rgba(16, 185, 129, 0.6);
+            transform: translateY(-2px);
+        }
+        
+        .home-button {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            box-shadow: 0 4px 16px rgba(239, 68, 68, 0.4);
+            transition: all 0.3s ease;
+        }
+        
+        .home-button:hover {
+            box-shadow: 0 6px 24px rgba(239, 68, 68, 0.6);
+            transform: translateY(-2px);
+        }
+        
+        .file-drop-zone {
+            transition: all 0.3s ease;
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            border: 2px dashed #cbd5e1;
+        }
+        
+        .file-drop-zone:hover {
+            background: linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%);
+            border-color: #8b5cf6;
+            transform: scale(1.01);
+        }
+        
+        .info-badge {
+            background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+            border: 2px solid #cbd5e1;
+            padding: 8px 16px;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        }
+        
+        .info-badge-label {
+            font-size: 9px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #64748b;
+            margin-bottom: 4px;
+        }
+        
+        .info-badge-value {
+            font-size: 11px;
+            font-weight: 700;
+            color: #1e293b;
+        }
+        
+        .info-badge.prod {
+            background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+            border-color: #6ee7b7;
+        }
+        
+        .info-badge.prod .info-badge-label {
+            color: #065f46;
+        }
+        
+        .info-badge.prod .info-badge-value {
+            color: #064e3b;
+        }
+        
+        .info-badge.fee-schedule {
+            background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+            border-color: #93c5fd;
+        }
+        
+        .info-badge.fee-schedule .info-badge-label {
+            color: #1e40af;
+        }
+        
+        .info-badge.fee-schedule .info-badge-value {
+            color: #1e3a8a;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(148, 163, 184, 0.1); border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #667eea 0%, #764ba2 100%); border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #764ba2 0%, #667eea 100%); }
+        
+        /* Premium Loader */
+        .premium-loader {
+            display: inline-block;
+            width: 60px;
+            height: 60px;
+            position: relative;
+        }
+        
+        .premium-loader::after {
+            content: '';
+            display: block;
+            width: 50px;
+            height: 50px;
+            margin: 5px;
+            border-radius: 50%;
+            border: 5px solid transparent;
+            border-top-color: #667eea;
+            border-bottom-color: #764ba2;
+            animation: premium-spin 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+        }
+        
+        @keyframes premium-spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .loader-dots {
+            display: inline-flex;
+            gap: 8px;
+            align-items: center;
+        }
+        
+        .loader-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            animation: dot-bounce 1.4s infinite ease-in-out both;
+        }
+        
+        .loader-dot:nth-child(1) {
+            animation-delay: -0.32s;
+        }
+        
+        .loader-dot:nth-child(2) {
+            animation-delay: -0.16s;
+        }
+        
+        @keyframes dot-bounce {
+            0%, 80%, 100% { 
+                transform: scale(0);
+                opacity: 0.5;
+            }
+            40% { 
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+        
+        .processing-alert {
+            background: linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%);
+            border: 2px solid #c4b5fd;
+            box-shadow: 0 4px 16px rgba(139, 92, 246, 0.2);
+        }
+        
+        .chat-container { scroll-behavior: smooth; }
+        
+        .modal { 
+            display: none; 
+            animation: fadeIn 0.3s ease;
+        }
+        
+        .modal.active { 
+            display: flex; 
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        .app-completed::after { 
+            content: ''; 
+            position: absolute; 
+            right: 12px; 
+            top: 50%; 
+            transform: translateY(-50%); 
+            width: 10px; 
+            height: 10px; 
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            border-radius: 50%; 
+            box-shadow: 0 0 12px rgba(16, 185, 129, 0.6);
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .category-title {
+            color: #94a3b8;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            font-size: 11px;
+        }
+        
+        input[type="text"],
+        input[type="date"],
+        textarea,
+        select {
+            transition: all 0.3s ease;
+            border: 2px solid #e2e8f0;
+            background: white;
+        }
+        
+        input[type="text"]:focus,
+        input[type="date"]:focus,
+        textarea:focus,
+        select:focus {
+            border-color: #8b5cf6;
+            box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.1);
+            outline: none;
+        }
+        
+        .success-alert {
+            background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+            border: 2px solid #6ee7b7;
+            box-shadow: 0 4px 16px rgba(16, 185, 129, 0.2);
+        }
+        
+        .info-alert {
+            background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+            border: 2px solid #93c5fd;
+            box-shadow: 0 4px 16px rgba(59, 130, 246, 0.2);
+        }
+        
+        .logo-text {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            font-weight: 800;
+        }
+        
+        .radio-custom:checked {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-color: #667eea;
+        }
+        
+        .checkbox-custom:checked {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-color: #667eea;
+        }
+        
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .input-group {
+            position: relative;
+        }
+        
+        .input-group input,
+        .input-group select,
+        .input-group textarea {
+            background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+        }
+        
+        .brand-gradient {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .content-wrapper {
+            zoom: 0.9;
+        }
+    </style>
+</head>
+<body>
+    <div class="flex h-screen">
+        <!-- Sidebar -->
+        <div class="w-64 sidebar-gradient flex flex-col">
+            <div class="p-6 border-b border-gray-700">
+                <h1 class="text-2xl font-bold text-white mb-1">TFS Workflow</h1>
+                <p class="text-sm text-gray-400">Premium Portal</p>
+            </div>
+            <nav class="flex-1 p-4 overflow-y-auto custom-scrollbar" id="sidebar">
+                <!-- Sidebar items rendered by JavaScript -->
+            </nav>
+            <div class="p-4 border-t border-gray-700">
+                <div class="text-xs text-gray-400 text-center">
+                    <p>© 2024 TFS Systems</p>
+                    <p class="mt-1">v3.2.1</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <!-- Header -->
+            <div class="header-card p-6 m-4 rounded-2xl">
+                <div class="flex items-center justify-between mb-6">
+                    <div class="flex items-center gap-4">
+                        <div>
+                            <h2 class="text-3xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent" id="app-title">Select an Application</h2>
+                            <p class="text-sm text-gray-600 mt-2" id="app-description">Choose from the sidebar</p>
+                        </div>
+                        <button 
+                            id="back-home-btn"
+                            onclick="backToHome()" 
+                            class="home-button px-6 py-3 text-white rounded-xl flex items-center gap-2 font-semibold text-sm"
+                            style="display: none;"
+                        >
+                            <i data-lucide="home" class="w-4 h-4"></i>
+                            Back to Home
+                        </button>
+                    </div>
+                    <div class="flex gap-3">
+                        <div class="info-badge fee-schedule">
+                            <div class="info-badge-label">Fee Schedule</div>
+                            <div class="info-badge-value">FS-2024-001</div>
+                        </div>
+                        <div class="info-badge">
+                            <div class="info-badge-label">Config Last Updated</div>
+                            <div class="info-badge-value">2024-01-15 14:30</div>
+                        </div>
+                        <div class="info-badge">
+                            <div class="info-badge-label">Config Updated By</div>
+                            <div class="info-badge-value">John Smith</div>
+                        </div>
+                        <div class="info-badge prod">
+                            <div class="info-badge-label">PROD Last Updated</div>
+                            <div class="info-badge-value">2024-01-14 09:15</div>
+                        </div>
+                        <div class="info-badge prod">
+                            <div class="info-badge-label">PROD Updated By</div>
+                            <div class="info-badge-value">Jane Doe</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Content Area -->
+            <div class="flex-1 overflow-y-auto px-4 pb-4 custom-scrollbar">
+                <div id="app-content" class="max-w-5xl mx-auto content-wrapper">
+                    <div class="content-card rounded-2xl p-12 text-center">
+                        <div class="text-gray-400">
+                            <i data-lucide="layout-dashboard" class="w-20 h-20 mx-auto mb-6 opacity-50"></i>
+                            <p class="text-lg font-medium">Select an application from the sidebar to get started</p>
+                            <p class="text-sm mt-2 text-gray-500">Access powerful workflow tools and automation</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Modal -->
+    <div id="ai-modal" class="modal fixed inset-0 bg-black bg-opacity-60 items-center justify-center z-50 backdrop-blur-sm">
+        <div class="glass-effect rounded-2xl shadow-2xl w-full max-w-3xl mx-4 flex flex-col" style="max-height: 85vh;">
+            <div class="flex items-center justify-between p-6 border-b border-gray-200">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl brand-gradient flex items-center justify-center">
+                        <i data-lucide="sparkles" class="w-6 h-6 text-white"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-bold text-gray-900">AI Assistant</h3>
+                        <p class="text-xs text-gray-500">Powered by Advanced AI</p>
+                    </div>
+                </div>
+                <button onclick="closeAIModal()" class="text-gray-400 hover:text-gray-600 transition-colors">
+                    <i data-lucide="x" class="w-6 h-6"></i>
+                </button>
+            </div>
+            <div id="chat-messages" class="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar chat-container">
+                <!-- Chat messages rendered by JavaScript -->
+            </div>
+            <div class="p-6 border-t border-gray-200 bg-gray-50 rounded-b-2xl">
+                <div class="flex gap-3">
+                    <input 
+                        type="text" 
+                        id="user-input" 
+                        placeholder="Ask me anything..." 
+                        class="flex-1 px-5 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm"
+                        onkeypress="if(event.key === 'Enter') sendMessage()"
+                    >
+                    <button 
+                        onclick="sendMessage()" 
+                        class="px-6 py-3 secondary-button text-white rounded-xl flex items-center gap-2 font-semibold"
+                    >
+                        <i data-lucide="send" class="w-4 h-4"></i>
+                        Send
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Application data
+        const applications = [
+            {
+                id: 1,
+                name: 'Change File Generator',
+                description: 'Generate change files from source data',
+                icon: 'file-text',
+                category: 'File Processing',
+                folder: '/output/change_files'
+            },
+            {
+                id: 2,
+                name: 'File to File Compare',
+                description: 'Compare two files and identify differences',
+                icon: 'git-compare',
+                category: 'Analysis',
+                folder: '/output/comparisons'
+            },
+            {
+                id: 3,
+                name: 'DT File Generate',
+                description: 'Generate DT files from multiple Excel sources',
+                icon: 'file-spreadsheet',
+                category: 'File Processing',
+                folder: '/output/dt_files'
+            },
+            {
+                id: 4,
+                name: 'DB to DB Compare',
+                description: 'Compare data between source and target environments',
+                icon: 'database',
+                category: 'Analysis',
+                folder: '/output/db_compare'
+            },
+            {
+                id: 5,
+                name: 'Standard Change File Converter',
+                description: 'Convert Excel to standard change file format',
+                icon: 'refresh-cw',
+                category: 'File Processing',
+                folder: '/output/standard_change'
+            },
+            {
+                id: 6,
+                name: 'Peer Review Validator',
+                description: 'Validate peer review files against environments',
+                icon: 'shield-check',
+                category: 'Validation',
+                folder: '/output/peer_review'
+            },
+            {
+                id: 7,
+                name: 'IR Form Generator',
+                description: 'Generate IR forms with classification details',
+                icon: 'file-plus',
+                category: 'Reporting',
+                folder: '/output/ir_forms'
+            },
+            {
+                id: 8,
+                name: 'Impact Report Generator',
+                description: 'Generate impact reports from data files',
+                icon: 'file-bar-chart',
+                category: 'Reporting',
+                folder: '/output/impact_reports'
+            },
+            {
+                id: 9,
+                name: 'Impact Report Compare',
+                description: 'Compare impact reports with claims data',
+                icon: 'file-diff',
+                category: 'Analysis',
+                folder: '/output/ir_compare'
+            },
+            {
+                id: 10,
+                name: 'Standard SQL Queries',
+                description: 'Execute pre-stored SQL queries on environments',
+                icon: 'terminal',
+                category: 'Database',
+                folder: '/output/sql_results'
+            },
+            {
+                id: 11,
+                name: 'Upload Latest Files',
+                description: 'Attach latest files to TFS with comments',
+                icon: 'upload-cloud',
+                category: 'File Management',
+                folder: '/output/uploads'
+            },
+            {
+                id: 12,
+                name: 'Audit Trail',
+                description: 'View audit logs and history',
+                icon: 'history',
+                category: 'Monitoring',
+                folder: '/output/audit'
+            },
+            {
+                id: 13,
+                name: 'Generate AC File',
+                description: 'Generate AC files from Excel and CSV sources',
+                icon: 'file-output',
+                category: 'File Processing',
+                folder: '/output/ac_files'
+            }
+        ];
+
+        // Track which applications have files in their folders (mock state)
+        const appFolderStatus = {
+            1: false, 2: false, 3: false, 4: false, 5: false, 6: false,
+            7: false, 8: false, 9: false, 10: false, 11: false, 12: false, 13: false
+        };
+
+        let activeAppId = null;
+        let selectedFile = null;
+        let selectedFile1 = null;
+        let selectedFile2 = null;
+        let selectedFiles = [];
+        let selectedExcelFileAC = null;
+        let selectedCSVFileAC = null;
+        let aiMessages = [];
+        let isProcessing = false;
+
+        // Initialize
+        function init() {
+            renderSidebar();
+            lucide.createIcons();
+        }
+
+        document.addEventListener('DOMContentLoaded', init);
+
+        // Show loader
+        function showLoader(message) {
+            const messageContainer = document.getElementById('message-container');
+            if (messageContainer) {
+                messageContainer.innerHTML = `
+                    <div class="processing-alert rounded-xl p-6 mt-6">
+                        <div class="flex items-center gap-4">
+                            <div class="premium-loader"></div>
+                            <div>
+                                <p class="text-base font-bold text-purple-900 mb-2">${message}</p>
+                                <div class="loader-dots">
+                                    <div class="loader-dot"></div>
+                                    <div class="loader-dot"></div>
+                                    <div class="loader-dot"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                messageContainer.style.display = 'block';
+            }
+        }
+
+        // Show message
+        function showMessage(message, type = 'info') {
+            const messageContainer = document.getElementById('message-container');
+            if (messageContainer) {
+                const iconName = type === 'success' ? 'check-circle' : type === 'error' ? 'alert-circle' : 'info';
+                const alertClass = type === 'success' ? 'success-alert' : type === 'error' ? 'error-alert' : 'info-alert';
+                const iconColor = type === 'success' ? 'text-green-600' : type === 'error' ? 'text-red-600' : 'text-blue-600';
+                const textColor = type === 'success' ? 'text-green-900' : type === 'error' ? 'text-red-900' : 'text-blue-900';
+                
+                messageContainer.innerHTML = `
+                    <div class="${alertClass} rounded-xl p-5 mt-6">
+                        <div class="flex items-start gap-4">
+                            <i data-lucide="${iconName}" class="w-6 h-6 ${iconColor} mt-0.5"></i>
+                            <div>
+                                <p class="text-sm font-semibold ${textColor}">${message}</p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                messageContainer.style.display = 'block';
+                lucide.createIcons();
+                
+                // Auto hide after 5 seconds for success/info messages
+                if (type !== 'error') {
+                    setTimeout(() => {
+                        if (messageContainer) {
+                            messageContainer.style.display = 'none';
+                        }
+                    }, 5000);
+                }
+            }
+        }
+
+        // Back to home
+        function backToHome() {
+            activeAppId = null;
+            selectedFile = null;
+            selectedFile1 = null;
+            selectedFile2 = null;
+            selectedFiles = [];
+            selectedExcelFileAC = null;
+            selectedCSVFileAC = null;
+            
+            document.getElementById('app-title').textContent = 'Select an Application';
+            document.getElementById('app-description').textContent = 'Choose from the sidebar';
+            document.getElementById('back-home-btn').style.display = 'none';
+            
+            const content = document.getElementById('app-content');
+            content.innerHTML = `
+                <div class="content-card rounded-2xl p-12 text-center">
+                    <div class="text-gray-400">
+                        <i data-lucide="layout-dashboard" class="w-20 h-20 mx-auto mb-6 opacity-50"></i>
+                        <p class="text-lg font-medium">Select an application from the sidebar to get started</p>
+                        <p class="text-sm mt-2 text-gray-500">Access powerful workflow tools and automation</p>
+                    </div>
+                </div>
+            `;
+            
+            renderSidebar();
+            lucide.createIcons();
+        }
+
+        // Render sidebar
+        function renderSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const categories = [...new Set(applications.map(app => app.category))];
+            
+            let html = '';
+            categories.forEach(category => {
+                html += `<div class="mb-6">`;
+                html += `<h3 class="category-title mb-3">${category}</h3>`;
+                
+                const categoryApps = applications.filter(app => app.category === category);
+                categoryApps.forEach(app => {
+                    const isActive = activeAppId === app.id;
+                    const hasFiles = appFolderStatus[app.id];
+                    const completedClass = hasFiles ? 'app-completed' : '';
+                    const activeClass = isActive ? 'active' : '';
+                    const completedBg = hasFiles && !isActive ? 'completed' : '';
+                    
+                    html += `
+                        <button 
+                            onclick="switchApp(${app.id})"
+                            class="app-button w-full flex items-center gap-3 px-4 py-3 rounded-xl mb-2 transition-all ${completedClass} ${activeClass} ${completedBg} ${
+                                isActive 
+                                    ? 'text-white' 
+                                    : hasFiles
+                                    ? 'text-white'
+                                    : 'text-gray-300 hover:text-white hover:bg-gray-700'
+                            }"
+                        >
+                            <i data-lucide="${app.icon}" class="w-5 h-5"></i>
+                            <span class="text-sm font-semibold">${app.name}</span>
+                        </button>
+                    `;
+                });
+                html += `</div>`;
+            });
+            
+            sidebar.innerHTML = html;
+            lucide.createIcons();
+        }
+
+        // Switch application
+        function switchApp(id) {
+            activeAppId = id;
+            selectedFile = null;
+            selectedFile1 = null;
+            selectedFile2 = null;
+            selectedFiles = [];
+            selectedExcelFileAC = null;
+            selectedCSVFileAC = null;
+            document.getElementById('back-home-btn').style.display = 'flex';
+            renderSidebar();
+            renderAppContent();
+        }
+
+        // Render application content
+        function renderAppContent() {
+            const app = applications.find(a => a.id === activeAppId);
+            if (!app) return;
+
+            document.getElementById('app-title').textContent = app.name;
+            document.getElementById('app-description').textContent = app.description;
+
+            const content = document.getElementById('app-content');
+
+            if (activeAppId === 13) {
+                // Application 13: Generate AC File
+                content.innerHTML = `
+                    <div class="content-card rounded-2xl p-8">
+                        <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+                            <div class="w-12 h-12 rounded-xl brand-gradient flex items-center justify-center">
+                                <i data-lucide="file-output" class="w-6 h-6 text-white"></i>
+                            </div>
+                            Generate AC File
+                        </h3>
+                        
+                        <!-- Excel File Selection -->
+                        <div class="mb-8">
+                            <label class="block text-sm font-bold text-gray-700 mb-3">Excel File</label>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <div class="file-drop-zone rounded-xl p-8 text-center cursor-pointer" onclick="document.getElementById('excel-input-ac').click()">
+                                        <i data-lucide="file-spreadsheet" class="w-16 h-16 mx-auto text-gray-400 mb-3"></i>
+                                        <p class="text-base font-semibold text-gray-700">Choose Excel File</p>
+                                        <p class="text-sm text-gray-500 mt-2">.xls, .xlsx</p>
+                                    </div>
+                                    <input type="file" id="excel-input-ac" class="hidden" accept=".xls,.xlsx" onchange="handleExcelFileAC(event)">
+                                    <div id="excel-display-ac" class="mt-4"></div>
+                                </div>
+                                <div>
+                                    <button 
+                                        onclick="autoSelectLatestExcel()" 
+                                        class="w-full px-8 py-12 secondary-button text-white rounded-xl flex flex-col items-center justify-center gap-3 font-semibold text-base h-full"
+                                    >
+                                        <i data-lucide="sparkles" class="w-12 h-12"></i>
+                                        Auto Select Latest File
+                                        <span class="text-xs font-normal opacity-90">Picks latest from folder</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- CSV File Selection -->
+                        <div class="mb-8">
+                            <label class="block text-sm font-bold text-gray-700 mb-3">CSV File</label>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <div class="file-drop-zone rounded-xl p-8 text-center cursor-pointer" onclick="document.getElementById('csv-input-ac').click()">
+                                        <i data-lucide="file-text" class="w-16 h-16 mx-auto text-gray-400 mb-3"></i>
+                                        <p class="text-base font-semibold text-gray-700">Choose CSV File</p>
+                                        <p class="text-sm text-gray-500 mt-2">.csv</p>
+                                    </div>
+                                    <input type="file" id="csv-input-ac" class="hidden" accept=".csv" onchange="handleCSVFileAC(event)">
+                                    <div id="csv-display-ac" class="mt-4"></div>
+                                </div>
+                                <div>
+                                    <button 
+                                        onclick="autoSelectCSVFromBackup()" 
+                                        class="w-full px-8 py-12 secondary-button text-white rounded-xl flex flex-col items-center justify-center gap-3 font-semibold text-base h-full"
+                                    >
+                                        <i data-lucide="folder-open" class="w-12 h-12"></i>
+                                        Auto Select from Backup
+                                        <span class="text-xs font-normal opacity-90">Picks from backup folder</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex gap-4">
+                            <button 
+                                id="generate-ac-btn"
+                                onclick="generateACFile()" 
+                                class="px-8 py-3 primary-button text-white rounded-xl disabled:bg-gray-300 disabled:cursor-not-allowed disabled:shadow-none flex items-center gap-3 font-semibold text-base"
+                                disabled
+                            >
+                                <i data-lucide="file-output" class="w-5 h-5"></i>
+                                Generate AC File
+                            </button>
+                            <button 
+                                onclick="openAIModal()" 
+                                class="px-8 py-3 secondary-button text-white rounded-xl flex items-center gap-3 font-semibold text-base"
+                            >
+                                <i data-lucide="sparkles" class="w-5 h-5"></i>
+                                Use GenAI
+                            </button>
+                        </div>
+
+                        <div id="message-container" style="display: none;"></div>
+                    </div>
+                `;
+            } else {
+                // Placeholder for other applications
+                content.innerHTML = `
+                    <div class="content-card rounded-2xl p-12">
+                        <div class="text-center">
+                            <div class="w-20 h-20 rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center mx-auto mb-6">
+                                <i data-lucide="${app.icon}" class="w-10 h-10 text-gray-400"></i>
+                            </div>
+                            <h3 class="text-2xl font-bold text-gray-700 mb-3">${app.name}</h3>
+                            <p class="text-gray-500 mb-6">${app.description}</p>
+                            <p class="text-sm text-gray-400 px-6 py-3 bg-gray-100 rounded-lg inline-block">This application is under development</p>
+                        </div>
+                    </div>
+                `;
+            }
+
+            lucide.createIcons();
+        }
+
+        // Handle Excel file selection for AC File
+        function handleExcelFileAC(event) {
+            selectedExcelFileAC = event.target.files[0];
+            if (selectedExcelFileAC) {
+                document.getElementById('excel-display-ac').innerHTML = `
+                    <div class="flex items-center gap-4 p-4 bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-xl">
+                        <div class="w-12 h-12 rounded-xl bg-green-600 flex items-center justify-center">
+                            <i data-lucide="file-spreadsheet" class="w-6 h-6 text-white"></i>
+                        </div>
+                        <div class="flex-1">
+                            <p class="text-sm font-bold text-gray-900">${selectedExcelFileAC.name}</p>
+                            <p class="text-xs text-gray-600 mt-1">${(selectedExcelFileAC.size / 1024).toFixed(2)} KB</p>
+                        </div>
+                        <button onclick="clearExcelFileAC()" class="text-gray-400 hover:text-red-600 transition-colors">
+                            <i data-lucide="x" class="w-5 h-5"></i>
+                        </button>
+                    </div>
+                `;
+                checkACFilesReady();
+                lucide.createIcons();
+            }
+        }
+
+        // Handle CSV file selection for AC File
+        function handleCSVFileAC(event) {
+            selectedCSVFileAC = event.target.files[0];
+            if (selectedCSVFileAC) {
+                document.getElementById('csv-display-ac').innerHTML = `
+                    <div class="flex items-center gap-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl">
+                        <div class="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center">
+                            <i data-lucide="file-text" class="w-6 h-6 text-white"></i>
+                        </div>
+                        <div class="flex-1">
+                            <p class="text-sm font-bold text-gray-900">${selectedCSVFileAC.name}</p>
+                            <p class="text-xs text-gray-600 mt-1">${(selectedCSVFileAC.size / 1024).toFixed(2)} KB</p>
+                        </div>
+                        <button onclick="clearCSVFileAC()" class="text-gray-400 hover:text-red-600 transition-colors">
+                            <i data-lucide="x" class="w-5 h-5"></i>
+                        </button>
+                    </div>
+                `;
+                checkACFilesReady();
+                lucide.createIcons();
+            }
+        }
+
+        // Clear Excel file
+        function clearExcelFileAC() {
+            selectedExcelFileAC = null;
+            document.getElementById('excel-input-ac').value = '';
+            document.getElementById('excel-display-ac').innerHTML = '';
+            checkACFilesReady();
+        }
+
+        // Clear CSV file
+        function clearCSVFileAC() {
+            selectedCSVFileAC = null;
+            document.getElementById('csv-input-ac').value = '';
+            document.getElementById('csv-display-ac').innerHTML = '';
+            checkACFilesReady();
+        }
+
+        // Check if both files are ready
+        function checkACFilesReady() {
+            const btn = document.getElementById('generate-ac-btn');
+            if (btn) {
+                btn.disabled = !(selectedExcelFileAC && selectedCSVFileAC);
+            }
+        }
+
+        // Auto select latest Excel file
+        function autoSelectLatestExcel() {
+            showLoader('Searching for latest Excel file...');
+            setTimeout(() => {
+                // Simulate finding a file
+                const mockFile = new File([""], "Latest_Data_2024-01-15.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+                Object.defineProperty(mockFile, 'size', { value: 45678 });
+                selectedExcelFileAC = mockFile;
+                
+                document.getElementById('excel-display-ac').innerHTML = `
+                    <div class="flex items-center gap-4 p-4 bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-xl">
+                        <div class="w-12 h-12 rounded-xl bg-green-600 flex items-center justify-center">
+                            <i data-lucide="file-spreadsheet" class="w-6 h-6 text-white"></i>
+                        </div>
+                        <div class="flex-1">
+                            <p class="text-sm font-bold text-gray-900">${selectedExcelFileAC.name}</p>
+                            <p class="text-xs text-gray-600 mt-1">${(selectedExcelFileAC.size / 1024).toFixed(2)} KB • Auto-selected</p>
+                        </div>
+                        <button onclick="clearExcelFileAC()" class="text-gray-400 hover:text-red-600 transition-colors">
+                            <i data-lucide="x" class="w-5 h-5"></i>
+                        </button>
+                    </div>
+                `;
+                
+                showMessage('Latest Excel file auto-selected successfully!', 'success');
+                checkACFilesReady();
+                lucide.createIcons();
+            }, 1500);
+        }
+
+        // Auto select CSV from backup folder
+        function autoSelectCSVFromBackup() {
+            showLoader('Searching backup folder for CSV file...');
+            setTimeout(() => {
+                // Simulate finding a file
+                const mockFile = new File([""], "Backup_Config_2024-01-14.csv", { type: "text/csv" });
+                Object.defineProperty(mockFile, 'size', { value: 23456 });
+                selectedCSVFileAC = mockFile;
+                
+                document.getElementById('csv-display-ac').innerHTML = `
+                    <div class="flex items-center gap-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl">
+                        <div class="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center">
+                            <i data-lucide="file-text" class="w-6 h-6 text-white"></i>
+                        </div>
+                        <div class="flex-1">
+                            <p class="text-sm font-bold text-gray-900">${selectedCSVFileAC.name}</p>
+                            <p class="text-xs text-gray-600 mt-1">${(selectedCSVFileAC.size / 1024).toFixed(2)} KB • From Backup</p>
+                        </div>
+                        <button onclick="clearCSVFileAC()" class="text-gray-400 hover:text-red-600 transition-colors">
+                            <i data-lucide="x" class="w-5 h-5"></i>
+                        </button>
+                    </div>
+                `;
+                
+                showMessage('CSV file auto-selected from backup folder!', 'success');
+                checkACFilesReady();
+                lucide.createIcons();
+            }, 1500);
+        }
+
+        // Generate AC File
+        function generateACFile() {
+            if (!selectedExcelFileAC || !selectedCSVFileAC) {
+                showMessage('Please select both Excel and CSV files', 'error');
+                return;
+            }
+            
+            showLoader('Generating AC File...');
+            
+            setTimeout(() => {
+                showMessage(`AC File generated successfully!<br>Excel: ${selectedExcelFileAC.name}<br>CSV: ${selectedCSVFileAC.name}<br>Output: AC_File_${new Date().toISOString().split('T')[0]}.dat`, 'success');
+                appFolderStatus[13] = true;
+                renderSidebar();
+            }, 2500);
+        }
+
+        // AI Modal functions
+        function openAIModal() {
+            document.getElementById('ai-modal').classList.add('active');
+            document.getElementById('chat-messages').innerHTML = `
+                <div class="flex gap-3">
+                    <div class="w-10 h-10 rounded-xl brand-gradient flex items-center justify-center flex-shrink-0">
+                        <i data-lucide="sparkles" class="w-5 h-5 text-white"></i>
+                    </div>
+                    <div class="flex-1 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-2xl p-4 border-2 border-purple-200">
+                        <p class="text-sm text-gray-800">Hello! I'm your AI assistant. How can I help you today?</p>
+                    </div>
+                </div>
+            `;
+            lucide.createIcons();
+        }
+
+        function closeAIModal() {
+            document.getElementById('ai-modal').classList.remove('active');
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('user-input');
+            const message = input.value.trim();
+            
+            if (!message) return;
+            
+            const chatContainer = document.getElementById('chat-messages');
+            
+            // User message
+            chatContainer.innerHTML += `
+                <div class="flex gap-3 justify-end">
+                    <div class="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-2xl p-4 max-w-md">
+                        <p class="text-sm text-white">${message}</p>
+                    </div>
+                    <div class="w-10 h-10 rounded-xl bg-gray-200 flex items-center justify-center flex-shrink-0">
+                        <i data-lucide="user" class="w-5 h-5 text-gray-600"></i>
+                    </div>
+                </div>
+            `;
+            
+            input.value = '';
+            
+            // AI response
+            setTimeout(() => {
+                chatContainer.innerHTML += `
+                    <div class="flex gap-3">
+                        <div class="w-10 h-10 rounded-xl brand-gradient flex items-center justify-center flex-shrink-0">
+                            <i data-lucide="sparkles" class="w-5 h-5 text-white"></i>
+                        </div>
+                        <div class="flex-1 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-2xl p-4 border-2 border-purple-200">
+                            <p class="text-sm text-gray-800">I understand you're asking about "${message}". Let me help you with that...</p>
+                        </div>
+                    </div>
+                `;
+                lucide.createIcons();
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }, 1000);
+            
+            lucide.createIcons();
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+    </script>
+</body>
+</html>
