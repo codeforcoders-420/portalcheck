@@ -1,1956 +1,563 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TFS Workflow Applications</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <style>
-        * {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        }
-        
-        body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            background-attachment: fixed;
-        }
-        
-        .sidebar-gradient {
-            background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
-            box-shadow: 4px 0 24px rgba(0, 0, 0, 0.12);
-        }
-        
-        .header-card {
-            background: rgba(255, 255, 255, 0.98);
-            backdrop-filter: blur(10px);
-            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
-        }
-        
-        .content-card {
-            background: rgba(255, 255, 255, 0.98);
-            backdrop-filter: blur(10px);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
-        }
-        
-        .app-button {
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .app-button::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-            transition: left 0.5s;
-        }
-        
-        .app-button:hover::before {
-            left: 100%;
-        }
-        
-        .app-button.active {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
-        }
-        
-        .app-button.completed {
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-        }
-        
-        .app-button:hover {
-            transform: translateX(4px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        }
-        
-        .primary-button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
-            transition: all 0.3s ease;
-        }
-        
-        .primary-button:hover {
-            box-shadow: 0 6px 24px rgba(102, 126, 234, 0.6);
-            transform: translateY(-2px);
-        }
-        
-        .secondary-button {
-            background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
-            box-shadow: 0 4px 16px rgba(139, 92, 246, 0.4);
-            transition: all 0.3s ease;
-        }
-        
-        .secondary-button:hover {
-            box-shadow: 0 6px 24px rgba(139, 92, 246, 0.6);
-            transform: translateY(-2px);
-        }
-        
-        .success-button {
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            box-shadow: 0 4px 16px rgba(16, 185, 129, 0.4);
-            transition: all 0.3s ease;
-        }
-        
-        .success-button:hover {
-            box-shadow: 0 6px 24px rgba(16, 185, 129, 0.6);
-            transform: translateY(-2px);
-        }
-        
-        .home-button {
-            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-            box-shadow: 0 4px 16px rgba(239, 68, 68, 0.4);
-            transition: all 0.3s ease;
-        }
-        
-        .home-button:hover {
-            box-shadow: 0 6px 24px rgba(239, 68, 68, 0.6);
-            transform: translateY(-2px);
-        }
-        
-        .file-drop-zone {
-            transition: all 0.3s ease;
-            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-            border: 2px dashed #cbd5e1;
-        }
-        
-        .file-drop-zone:hover {
-            background: linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%);
-            border-color: #8b5cf6;
-            transform: scale(1.01);
-        }
-        
-        .info-badge {
-            background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
-            border: 2px solid #cbd5e1;
-            padding: 8px 16px;
-            border-radius: 10px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-        }
-        
-        .info-badge-label {
-            font-size: 9px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: #64748b;
-            margin-bottom: 4px;
-        }
-        
-        .info-badge-value {
-            font-size: 11px;
-            font-weight: 700;
-            color: #1e293b;
-        }
-        
-        .info-badge.prod {
-            background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
-            border-color: #6ee7b7;
-        }
-        
-        .info-badge.prod .info-badge-label {
-            color: #065f46;
-        }
-        
-        .info-badge.prod .info-badge-value {
-            color: #064e3b;
-        }
-        
-        .info-badge.fee-schedule {
-            background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
-            border-color: #93c5fd;
-        }
-        
-        .info-badge.fee-schedule .info-badge-label {
-            color: #1e40af;
-        }
-        
-        .info-badge.fee-schedule .info-badge-value {
-            color: #1e3a8a;
-        }
-        
-        .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(148, 163, 184, 0.1); border-radius: 10px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #667eea 0%, #764ba2 100%); border-radius: 10px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #764ba2 0%, #667eea 100%); }
-        
-        /* Premium Loader */
-        .premium-loader {
-            display: inline-block;
-            width: 60px;
-            height: 60px;
-            position: relative;
-        }
-        
-        .premium-loader::after {
-            content: '';
-            display: block;
-            width: 50px;
-            height: 50px;
-            margin: 5px;
-            border-radius: 50%;
-            border: 5px solid transparent;
-            border-top-color: #667eea;
-            border-bottom-color: #764ba2;
-            animation: premium-spin 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
-        }
-        
-        @keyframes premium-spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        
-        .loader-dots {
-            display: inline-flex;
-            gap: 8px;
-            align-items: center;
-        }
-        
-        .loader-dot {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            animation: dot-bounce 1.4s infinite ease-in-out both;
-        }
-        
-        .loader-dot:nth-child(1) {
-            animation-delay: -0.32s;
-        }
-        
-        .loader-dot:nth-child(2) {
-            animation-delay: -0.16s;
-        }
-        
-        @keyframes dot-bounce {
-            0%, 80%, 100% { 
-                transform: scale(0);
-                opacity: 0.5;
-            }
-            40% { 
-                transform: scale(1);
-                opacity: 1;
-            }
-        }
-        
-        .processing-alert {
-            background: linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%);
-            border: 2px solid #c4b5fd;
-            box-shadow: 0 4px 16px rgba(139, 92, 246, 0.2);
-        }
-        
-        .chat-container { scroll-behavior: smooth; }
-        
-        .modal { 
-            display: none; 
-            animation: fadeIn 0.3s ease;
-        }
-        
-        .modal.active { 
-            display: flex; 
-        }
-        
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-        
-        .app-completed::after { 
-            content: ''; 
-            position: absolute; 
-            right: 12px; 
-            top: 50%; 
-            transform: translateY(-50%); 
-            width: 10px; 
-            height: 10px; 
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            border-radius: 50%; 
-            box-shadow: 0 0 12px rgba(16, 185, 129, 0.6);
-            animation: pulse 2s infinite;
-        }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-        
-        .category-title {
-            color: #94a3b8;
-            font-weight: 700;
-            letter-spacing: 0.1em;
-            font-size: 11px;
-        }
-        
-        input[type="text"],
-        input[type="date"],
-        textarea,
-        select {
-            transition: all 0.3s ease;
-            border: 2px solid #e2e8f0;
-            background: white;
-        }
-        
-        input[type="text"]:focus,
-        input[type="date"]:focus,
-        textarea:focus,
-        select:focus {
-            border-color: #8b5cf6;
-            box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.1);
-            outline: none;
-        }
-        
-        .success-alert {
-            background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
-            border: 2px solid #6ee7b7;
-            box-shadow: 0 4px 16px rgba(16, 185, 129, 0.2);
-        }
-        
-        .info-alert {
-            background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
-            border: 2px solid #93c5fd;
-            box-shadow: 0 4px 16px rgba(59, 130, 246, 0.2);
-        }
-        
-        .logo-text {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            font-weight: 800;
-        }
-        
-        .radio-custom:checked {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-color: #667eea;
-        }
-        
-        .checkbox-custom:checked {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-color: #667eea;
-        }
-        
-        .glass-effect {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-        
-        .input-group {
-            position: relative;
-        }
-        
-        .input-group input,
-        .input-group select,
-        .input-group textarea {
-            background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
-        }
-        
-        .brand-gradient {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        }
-        
-        .content-wrapper {
-            zoom: 0.9;
-        }
-    </style>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Fee Schedule Dashboard – Live View</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<style>
+:root{--font-sans:'Inter',system-ui,sans-serif;--font-mono:'Geist Mono','Menlo',monospace;--r-sm:6px;--r-md:10px;--r-lg:14px;--topbar-h:56px;--sidebar-w:220px;--t:.18s ease}
+[data-theme="dark"]{--bg:#070c18;--bg2:#0f1628;--bg3:#141d35;--bgh:rgba(255,255,255,.05);--bga:rgba(59,130,246,.08);--surf:rgba(15,22,40,.9);--surf2:rgba(255,255,255,.02);--bdr:rgba(255,255,255,.07);--bdrf:rgba(59,130,246,.5);--tx:#dde4f0;--txs:#8494b0;--txm:#4f5f7a;--txw:#fff;--blue:#3b82f6;--blues:rgba(59,130,246,.12);--bkblue:rgba(59,130,246,.3);--violet:#a78bfa;--violets:rgba(167,139,250,.12);--green:#34d399;--greens:rgba(52,211,153,.12);--gkgreen:rgba(52,211,153,.3);--amber:#fbbf24;--ambers:rgba(251,191,36,.12);--gkamber:rgba(251,191,36,.3);--red:#f87171;--reds:rgba(248,113,113,.12);--gkred:rgba(248,113,113,.3);--kgb:rgba(59,130,246,.15);--kgg:rgba(52,211,153,.12);--kga:rgba(251,191,36,.12);--kgv:rgba(167,139,250,.12);--topbarbg:rgba(7,12,24,.96);--sidebarbg:rgba(11,18,32,.9);--scrt:rgba(255,255,255,.04);--scrth:rgba(255,255,255,.12);--tgtrack:#1c2540;--tgthumb:#3b82f6;--tgtxt:#8494b0;--thodd:transparent;--theven:rgba(255,255,255,.012);--thbg:rgba(255,255,255,.02);--thtx:#4f5f7a;--dtbg:rgba(59,130,246,.04);--dtbdr:rgba(59,130,246,.2);--dthbg:rgba(59,130,246,.06);--pact:linear-gradient(135deg,#3b82f6,#6366f1);--pactx:#fff;--ptx:#8494b0;--phtx:#dde4f0;--bghost:rgba(255,255,255,.04);--bgbdr:rgba(255,255,255,.1);--bgtx:#8494b0;--bghbdr:rgba(255,255,255,.2);--bghtx:#dde4f0;--brandg:linear-gradient(135deg,#3b82f6,#6366f1);--avbg:linear-gradient(135deg,#6366f1,#3b82f6)}
+[data-theme="light"]{--bg:#f1f4f9;--bg2:#fff;--bg3:#f8fafc;--bgh:rgba(0,0,0,.04);--bga:rgba(59,130,246,.06);--surf:#fff;--surf2:rgba(0,0,0,.01);--bdr:rgba(0,0,0,.08);--bdrf:rgba(59,130,246,.4);--tx:#1e293b;--txs:#64748b;--txm:#94a3b8;--txw:#0f172a;--blue:#2563eb;--blues:rgba(37,99,235,.08);--bkblue:rgba(37,99,235,.25);--violet:#7c3aed;--violets:rgba(124,58,237,.08);--green:#059669;--greens:rgba(5,150,105,.08);--gkgreen:rgba(5,150,105,.25);--amber:#d97706;--ambers:rgba(217,119,6,.08);--gkamber:rgba(217,119,6,.25);--red:#dc2626;--reds:rgba(220,38,38,.08);--gkred:rgba(220,38,38,.25);--kgb:rgba(37,99,235,.06);--kgg:rgba(5,150,105,.06);--kga:rgba(217,119,6,.06);--kgv:rgba(124,58,237,.06);--topbarbg:rgba(255,255,255,.96);--sidebarbg:#f8fafc;--scrt:rgba(0,0,0,.03);--scrth:rgba(0,0,0,.14);--tgtrack:#e2e8f0;--tgthumb:#2563eb;--tgtxt:#64748b;--thodd:transparent;--theven:rgba(0,0,0,.012);--thbg:rgba(0,0,0,.02);--thtx:#94a3b8;--dtbg:rgba(37,99,235,.03);--dtbdr:rgba(37,99,235,.15);--dthbg:rgba(37,99,235,.05);--pact:linear-gradient(135deg,#2563eb,#4f46e5);--pactx:#fff;--ptx:#64748b;--phtx:#1e293b;--bghost:#f8fafc;--bgbdr:rgba(0,0,0,.12);--bgtx:#64748b;--bghbdr:rgba(0,0,0,.2);--bghtx:#1e293b;--brandg:linear-gradient(135deg,#2563eb,#4f46e5);--avbg:linear-gradient(135deg,#4f46e5,#2563eb)}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:16px}
+body{font-family:var(--font-sans);background:var(--bg);color:var(--tx);min-height:100vh;-webkit-font-smoothing:antialiased;transition:background var(--t),color var(--t)}
+::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-track{background:var(--scrt)}::-webkit-scrollbar-thumb{background:var(--scrth);border-radius:99px}
+*{scrollbar-width:thin;scrollbar-color:var(--scrth) var(--scrt)}
+.mono{font-family:var(--font-mono)}.ab{color:var(--blue)}
+
+/* TOPBAR */
+.topbar{position:sticky;top:0;z-index:50;height:var(--topbar-h);display:flex;align-items:center;gap:20px;padding:0 24px;background:var(--topbarbg);border-bottom:1px solid var(--bdr);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);transition:background var(--t),border-color var(--t)}
+.tb-brand{display:flex;align-items:center;gap:10px;flex-shrink:0;user-select:none}
+.brand-icon{width:30px;height:30px;border-radius:8px;background:var(--brandg);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.brand-name{font-size:14px;font-weight:600;color:var(--txw);letter-spacing:-.2px;transition:color var(--t)}
+.brand-sep{color:var(--txm);font-size:13px;opacity:.5}
+.brand-sub{font-size:12px;font-weight:500;color:var(--txs);transition:color var(--t)}
+.tb-nav{display:flex;align-items:center;gap:2px}
+.nav-tab{padding:6px 12px;font-size:12px;font-weight:500;border-radius:var(--r-sm);border:none;cursor:pointer;background:transparent;color:var(--txs);transition:background var(--t),color var(--t);font-family:var(--font-sans)}
+.nav-tab:hover{background:var(--bgh);color:var(--tx)}
+.nav-tab.on{background:rgba(255,255,255,.09)!important;color:var(--txw)!important}
+[data-theme="light"] .nav-tab.on{background:rgba(0,0,0,.07)!important;color:var(--tx)!important}
+.tb-right{display:flex;align-items:center;gap:12px;margin-left:auto;flex-shrink:0}
+.clock{display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px;color:var(--txs)}
+.env-sel{display:flex;align-items:center;gap:7px;padding:5px 10px;border:1px solid var(--bdr);border-radius:var(--r-sm);background:var(--bgh);transition:background var(--t),border-color var(--t)}
+.env-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;transition:background var(--t)}
+.env-select{background:transparent;border:none;outline:none;font-size:12px;font-weight:500;font-family:var(--font-sans);cursor:pointer;color:var(--tx)}
+.env-select option{background:var(--bg2);color:var(--tx)}
+
+/* THEME TOGGLE */
+.theme-toggle{display:flex;align-items:center;gap:8px;padding:5px 10px 5px 6px;border:1px solid var(--bdr);border-radius:99px;background:var(--bghost);cursor:pointer;transition:all var(--t);font-family:var(--font-sans)}
+.theme-toggle:hover{border-color:var(--bghbdr)}
+.tg-track{width:32px;height:18px;border-radius:99px;background:var(--tgtrack);position:relative;flex-shrink:0;transition:background var(--t)}
+.tg-thumb{position:absolute;top:3px;left:3px;width:12px;height:12px;border-radius:50%;background:var(--tgthumb);display:flex;align-items:center;justify-content:center;transition:transform .22s cubic-bezier(.4,0,.2,1),background var(--t);box-shadow:0 1px 4px rgba(0,0,0,.3)}
+[data-theme="dark"]  .tg-thumb{transform:translateX(14px)}
+[data-theme="light"] .tg-thumb{transform:translateX(0)}
+.icon-sun,.icon-moon{position:absolute;color:#fff;transition:opacity .18s ease}
+[data-theme="dark"]  .icon-sun{opacity:0}[data-theme="dark"]  .icon-moon{opacity:1}
+[data-theme="light"] .icon-sun{opacity:1}[data-theme="light"] .icon-moon{opacity:0}
+.tg-label{font-size:11px;font-weight:600;color:var(--tgtxt);letter-spacing:.01em;white-space:nowrap;transition:color var(--t)}
+.live-badge{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--green)}
+.live-dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 1.8s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.85)}}
+.user-av{width:30px;height:30px;border-radius:50%;background:var(--avbg);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;letter-spacing:.02em;flex-shrink:0}
+
+/* LAYOUT */
+.layout{display:flex;height:calc(100vh - var(--topbar-h))}
+
+/* SIDEBAR */
+.sidebar{width:var(--sidebar-w);flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid var(--bdr);background:var(--sidebarbg);overflow-y:auto;transition:background var(--t),border-color var(--t)}
+.sb-section{padding:18px 12px 8px}
+.sb-heading{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--txm);padding:0 10px;margin-bottom:10px}
+.sb-list{display:flex;flex-direction:column;gap:2px}
+.sb-item{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:var(--r-sm);border:none;background:transparent;color:var(--txs);font-size:12px;font-weight:500;font-family:var(--font-sans);cursor:pointer;text-align:left;transition:all var(--t);width:100%}
+.sb-item:hover{background:var(--bgh);color:var(--tx)}
+.sb-item.on{background:var(--bga);color:var(--txw)}
+[data-theme="light"] .sb-item.on{color:var(--tx)}
+.sb-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.sb-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sb-tfs{font-size:10px;font-weight:600;font-family:var(--font-mono);color:var(--blue);background:var(--blues);padding:1px 5px;border-radius:4px;flex-shrink:0}
+.sb-footer{margin-top:auto;padding:14px 22px;border-top:1px solid var(--bdr);display:flex;flex-direction:column;gap:8px}
+.sb-stat{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--txs)}
+.sb-stat .mono{font-weight:600;color:var(--tx)}
+.sb-stat .mono.ab{color:var(--blue)}
+
+/* MAIN */
+.main{flex:1;min-width:0;overflow-y:auto;padding:24px;display:flex;flex-direction:column;gap:20px}
+
+/* PAGE HEADER */
+.pg-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.pg-title{font-size:18px;font-weight:700;color:var(--txw);letter-spacing:-.3px;transition:color var(--t)}
+[data-theme="light"] .pg-title{color:var(--tx)}
+.pg-sub{font-size:12px;color:var(--txs);margin-top:3px;transition:color var(--t)}
+.pg-actions{display:flex;align-items:center;gap:8px}
+
+/* BUTTONS */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;font-size:12px;font-weight:600;border-radius:var(--r-sm);cursor:pointer;border:1px solid transparent;transition:all var(--t);font-family:var(--font-sans);white-space:nowrap}
+.btn-ghost{background:var(--bghost);border-color:var(--bgbdr);color:var(--bgtx)}
+.btn-ghost:hover{border-color:var(--bghbdr);color:var(--bghtx)}
+.btn-primary{background:linear-gradient(135deg,var(--blue),#6366f1);color:#fff;border-color:transparent}
+.btn-primary:hover{opacity:.88}
+
+/* KPI GRID */
+.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+@media(max-width:900px){.kpi-grid{grid-template-columns:repeat(2,1fr)}}
+.kpi-card{border-radius:var(--r-lg);border:1px solid var(--bdr);padding:18px;display:flex;align-items:center;gap:14px;position:relative;overflow:hidden;background:var(--surf);transition:all var(--t)}
+.kpi-card::before{content:'';position:absolute;inset:0;background:var(--kg);pointer-events:none}
+.kpi-gauge{position:relative;flex-shrink:0;width:44px;height:44px}
+.kpi-gauge svg{display:block}
+.kpi-gi{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+.kpi-body{position:relative;min-width:0}
+.kpi-val{font-family:var(--font-mono);font-size:26px;font-weight:700;color:var(--txw);line-height:1;letter-spacing:-.5px;transition:color var(--t)}
+[data-theme="light"] .kpi-val{color:var(--tx)}
+.kpi-lbl{font-size:11px;font-weight:600;color:var(--txs);margin-top:4px;transition:color var(--t)}
+.kpi-sub{font-size:11px;color:var(--txm);margin-top:2px;transition:color var(--t)}
+
+/* TOOLBAR */
+.toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:12px 16px;border-radius:var(--r-md);border:1px solid var(--bdr);background:var(--surf);transition:all var(--t)}
+.tb-search{position:relative;flex:1;min-width:180px;display:flex;align-items:center}
+.tb-search svg{position:absolute;left:10px;color:var(--txm);pointer-events:none;flex-shrink:0}
+.search-inp{width:100%;padding:7px 10px 7px 30px;font-size:12px;font-family:var(--font-sans);border:1px solid var(--bdr);border-radius:var(--r-sm);background:var(--bg3);color:var(--tx);outline:none;transition:all var(--t)}
+.search-inp::placeholder{color:var(--txm)}
+.search-inp:focus{border-color:var(--bdrf);box-shadow:0 0 0 3px var(--bkblue)}
+.filter-pills{display:flex;align-items:center;gap:3px;flex-wrap:wrap}
+.pill{padding:6px 12px;font-size:12px;font-weight:500;border-radius:99px;border:none;cursor:pointer;background:transparent;color:var(--ptx);font-family:var(--font-sans);transition:all var(--t)}
+.pill:hover{color:var(--phtx)}
+.pill.on{background:var(--pact)!important;color:var(--pactx)!important}
+.tb-sort{display:flex;align-items:center;gap:8px;margin-left:auto}
+.sort-lbl{font-size:12px;color:var(--txm)}
+.sort-sel{font-size:12px;font-family:var(--font-sans);border:1px solid var(--bdr);border-radius:var(--r-sm);padding:6px 10px;background:var(--bg3);color:var(--tx);outline:none;cursor:pointer;transition:all var(--t)}
+
+/* TABLE CARD */
+.tbl-card{border-radius:var(--r-lg);border:1px solid var(--bdr);overflow:hidden;background:var(--surf);transition:all var(--t)}
+.tbl-scroll{overflow-x:auto}
+.dtable{width:100%;border-collapse:collapse;font-size:12px}
+.dtable thead tr{border-bottom:1px solid var(--bdr)}
+.dtable th{padding:10px 16px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--thtx);background:var(--thbg);white-space:nowrap;transition:background var(--t),color var(--t)}
+.dtable th.c{text-align:center}
+.dtable tbody tr{border-bottom:1px solid var(--bdr);cursor:pointer;transition:background var(--t)}
+.dtable tbody tr:nth-child(odd){background:var(--thodd)}
+.dtable tbody tr:nth-child(even){background:var(--theven)}
+.dtable tbody tr:hover{background:var(--bgh)!important}
+.dtable tbody tr.sel{background:var(--bga)!important}
+.dtable tbody tr:last-child{border-bottom:none}
+.dtable td{padding:13px 16px;vertical-align:middle;color:var(--tx);transition:color var(--t)}
+.dtable td.c{text-align:center}
+.cn{font-weight:600;color:var(--txw);transition:color var(--t)}
+[data-theme="light"] .cn{color:var(--tx)}
+.cd{font-size:11px;color:var(--txm);margin-top:2px}
+.cbig{font-family:var(--font-mono);font-size:17px;font-weight:700;color:var(--txw);line-height:1;transition:color var(--t)}
+[data-theme="light"] .cbig{color:var(--tx)}
+.pmini{display:flex;align-items:center;gap:7px;margin-top:6px}
+.pmini-track{flex:1;height:4px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden;transition:background var(--t)}
+[data-theme="light"] .pmini-track{background:rgba(0,0,0,.08)}
+.pmini-fill{height:100%;border-radius:99px;background:var(--green)}
+.pmini-lbl{font-size:11px;color:var(--txm);white-space:nowrap}
+.sp{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:99px;font-size:11px;font-weight:600;white-space:nowrap}
+.sp-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.sp.synced{background:var(--greens);color:var(--green);box-shadow:0 0 0 1px var(--gkgreen)}
+.sp.stale{background:var(--ambers);color:var(--amber);box-shadow:0 0 0 1px var(--gkamber)}
+.sp.offline{background:var(--reds);color:var(--red);box-shadow:0 0 0 1px var(--gkred)}
+.ds{background:var(--green)}.da{background:var(--amber)}.dr{background:var(--red)}
+.apu{animation:pulse 1.8s ease-in-out infinite}
+.st{color:var(--txs)}
+.sa{font-size:11px;font-weight:500;margin-top:2px}
+.sa.ok{color:var(--txm)}.sa.warn{color:var(--amber)}.sa.bad{color:var(--red)}
+.oc{display:flex;align-items:center;gap:8px}
+.oav{width:26px;height:26px;border-radius:50%;background:var(--avbg);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.on2{font-size:12px;color:var(--txs)}
+.tfsb{display:inline-flex;flex-direction:column;align-items:center;gap:2px}
+.tfsb-n{width:30px;height:30px;border-radius:8px;background:var(--violets);color:var(--violet);font-family:var(--font-mono);font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.tfsb-s{font-size:10px;color:var(--txm)}
+.tfs-nil{color:var(--txm);opacity:.3}
+.spkc{display:flex;align-items:center;gap:8px}
+.spkd{font-family:var(--font-mono);font-size:11px;font-weight:600;min-width:28px}
+.spkd.up{color:var(--green)}.spkd.dn{color:var(--red)}.spkd.fl{color:var(--txm)}
+.rchev{color:var(--txm);background:none;border:none;cursor:pointer;padding:4px;display:flex;align-items:center;justify-content:center;transition:color var(--t),transform var(--t)}
+.rchev:hover{color:var(--tx)}
+.rchev.open{color:var(--blue);transform:rotate(90deg)}
+.tbl-footer{padding:10px 16px;border-top:1px solid var(--bdr);display:flex;align-items:center;justify-content:space-between;background:var(--surf2);transition:all var(--t)}
+.row-cnt{font-size:11px;color:var(--txm)}
+.legend{display:flex;align-items:center;gap:16px}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--txm)}
+.ldot{width:7px;height:7px;border-radius:50%}
+.ldot.synced{background:var(--green)}.ldot.stale{background:var(--amber)}.ldot.offline{background:var(--red)}
+
+/* DETAIL PANEL */
+.detail-panel{border-radius:var(--r-lg);border:1px solid var(--dtbdr);overflow:hidden;background:var(--dtbg);transition:all var(--t)}
+.detail-panel.hidden{display:none}
+.dp-hdr{padding:16px 20px;border-bottom:1px solid var(--bdr);background:var(--dthbg);display:flex;align-items:center;justify-content:space-between;transition:all var(--t)}
+.dp-left{display:flex;align-items:center;gap:12px}
+.dp-av{width:36px;height:36px;border-radius:10px;background:var(--avbg);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.dp-lob{font-size:14px;font-weight:700;color:var(--txw);transition:color var(--t)}
+[data-theme="light"] .dp-lob{color:var(--tx)}
+.dp-div{font-size:11px;color:var(--txs);margin-top:2px}
+.dp-close{width:28px;height:28px;border-radius:6px;border:none;background:var(--bgh);color:var(--txm);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all var(--t)}
+.dp-close:hover{color:var(--tx);background:var(--bdr)}
+.dp-body{padding:20px;display:flex;flex-direction:column;gap:16px}
+.ds-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+@media(max-width:700px){.ds-grid{grid-template-columns:repeat(2,1fr)}}
+.ds-card{border-radius:var(--r-md);border:1px solid var(--bdr);padding:12px 14px;background:var(--surf2);transition:all var(--t)}
+.ds-lbl{font-size:11px;color:var(--txm);margin-bottom:4px}
+.ds-val{font-family:var(--font-mono);font-size:20px;font-weight:700;line-height:1;transition:color var(--t)}
+.ds-val.cw{color:var(--txw)}[data-theme="light"] .ds-val.cw{color:var(--tx)}
+.ds-val.cg{color:var(--green)}.ds-val.ca{color:var(--amber)}.ds-val.cv{color:var(--violet)}
+.dt-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--txm);margin-bottom:8px}
+.dt-row{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--r-sm);border:1px solid var(--bdr);background:var(--surf2);transition:all var(--t)}
+.dt-id{font-family:var(--font-mono);font-size:11px;color:var(--blue);flex-shrink:0}
+.dt-name{flex:1;font-size:12px;color:var(--txs);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dt-prog{width:64px;height:5px;border-radius:99px;background:rgba(255,255,255,.07);flex-shrink:0;overflow:hidden;transition:background var(--t)}
+[data-theme="light"] .dt-prog{background:rgba(0,0,0,.08)}
+.dt-fill{height:100%;border-radius:99px}
+.dt-pct{font-family:var(--font-mono);font-size:11px;color:var(--txm);width:28px;text-align:right;flex-shrink:0}
+.dt-rows{display:flex;flex-direction:column;gap:6px}
+
+/* TFS SECTION */
+.tfs-hdr{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--bdr);background:var(--surf2);flex-wrap:wrap;gap:10px;transition:all var(--t)}
+.tfs-tr{display:flex;align-items:center;gap:10px}
+.sec-ttl{font-size:14px;font-weight:600;color:var(--txw);transition:color var(--t)}
+[data-theme="light"] .sec-ttl{color:var(--tx)}
+.tfs-cbdg{font-size:11px;font-weight:700;color:var(--violet);background:var(--violets);padding:2px 9px;border-radius:99px;box-shadow:0 0 0 1px rgba(167,139,250,.25)}
+.stpill{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:99px;font-size:11px;font-weight:600;white-space:nowrap}
+.stpill.active{background:var(--blues);color:var(--blue);box-shadow:0 0 0 1px var(--bkblue)}
+.stpill.review{background:var(--violets);color:var(--violet);box-shadow:0 0 0 1px rgba(167,139,250,.25)}
+.stpill.blocked{background:var(--reds);color:var(--red);box-shadow:0 0 0 1px var(--gkred)}
+.stpill.completed{background:var(--greens);color:var(--green);box-shadow:0 0 0 1px var(--gkgreen)}
+.pdot{width:6px;height:6px;border-radius:50%;display:inline-block}
+.ph{background:var(--red)}.pm{background:var(--amber)}.pl{background:var(--txm)}
+.tprog-cell{display:flex;align-items:center;gap:8px}
+.tprog-track{width:80px;height:5px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden;flex-shrink:0;transition:background var(--t)}
+[data-theme="light"] .tprog-track{background:rgba(0,0,0,.08)}
+.tprog-fill{height:100%;border-radius:99px;transition:width .6s ease}
+.tprog-fill.active{background:var(--blue)}.tprog-fill.review{background:var(--violet)}.tprog-fill.blocked{background:var(--red)}.tprog-fill.completed{background:var(--green)}
+.tprog-pct{font-family:var(--font-mono);font-size:11px;color:var(--txm);min-width:28px}
+.tfs-id{font-family:var(--font-mono);font-size:12px;color:var(--blue);white-space:nowrap}
+.pcell{display:flex;align-items:center;gap:6px;color:var(--txs)}
+
+@media(max-width:1024px){.sidebar{display:none}.tb-nav{display:none}}
+@media(max-width:640px){.main{padding:14px}.topbar{padding:0 14px;gap:10px}.clock{display:none}.brand-sub{display:none}.kpi-grid{grid-template-columns:repeat(2,1fr)}}
+</style>
 </head>
 <body>
-    <div class="flex h-screen">
-        <!-- Sidebar -->
-        <div class="w-64 sidebar-gradient flex flex-col">
-            <div class="p-6 border-b border-gray-700">
-                <h1 class="text-2xl font-bold text-white mb-1">TFS Workflow</h1>
-                <p class="text-sm text-gray-400">Premium Portal</p>
-            </div>
-            <nav class="flex-1 p-4 overflow-y-auto custom-scrollbar" id="sidebar">
-                <!-- Sidebar items rendered by JavaScript -->
-            </nav>
-            <div class="p-4 border-t border-gray-700">
-                <div class="text-xs text-gray-400 text-center">
-                    <p>© 2024 TFS Systems</p>
-                    <p class="mt-1">v3.2.1</p>
-                </div>
-            </div>
-        </div>
 
-        <!-- Main Content -->
-        <div class="flex-1 flex flex-col overflow-hidden">
-            <!-- Header -->
-            <div class="header-card p-6 m-4 rounded-2xl">
-                <div class="flex items-center justify-between mb-6">
-                    <div class="flex items-center gap-4">
-                        <div>
-                            <h2 class="text-3xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent" id="app-title">Select an Application</h2>
-                            <p class="text-sm text-gray-600 mt-2" id="app-description">Choose from the sidebar</p>
-                        </div>
-                        <button 
-                            id="back-home-btn"
-                            onclick="backToHome()" 
-                            class="home-button px-6 py-3 text-white rounded-xl flex items-center gap-2 font-semibold text-sm"
-                            style="display: none;"
-                        >
-                            <i data-lucide="home" class="w-4 h-4"></i>
-                            Back to Home
-                        </button>
-                    </div>
-                    <div class="flex gap-3">
-                        <div class="info-badge fee-schedule">
-                            <div class="info-badge-label">Fee Schedule</div>
-                            <div class="info-badge-value">FS-2024-001</div>
-                        </div>
-                        <div class="info-badge">
-                            <div class="info-badge-label">Config Last Updated</div>
-                            <div class="info-badge-value">2024-01-15 14:30</div>
-                        </div>
-                        <div class="info-badge">
-                            <div class="info-badge-label">Config Updated By</div>
-                            <div class="info-badge-value">John Smith</div>
-                        </div>
-                        <div class="info-badge prod">
-                            <div class="info-badge-label">PROD Last Updated</div>
-                            <div class="info-badge-value">2024-01-14 09:15</div>
-                        </div>
-                        <div class="info-badge prod">
-                            <div class="info-badge-label">PROD Updated By</div>
-                            <div class="info-badge-value">Jane Doe</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+<header class="topbar">
+  <div class="tb-brand">
+    <div class="brand-icon">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+        <rect x="1" y="1" width="5.5" height="5.5" rx="1" fill="white"/>
+        <rect x="8.5" y="1" width="5.5" height="5.5" rx="1" fill="white" opacity=".7"/>
+        <rect x="1" y="8.5" width="5.5" height="5.5" rx="1" fill="white" opacity=".7"/>
+        <rect x="8.5" y="8.5" width="5.5" height="5.5" rx="1" fill="white" opacity=".4"/>
+      </svg>
+    </div>
+    <span class="brand-name">Fee Schedule</span>
+    <span class="brand-sep">/</span>
+    <span class="brand-sub">Health Dashboard</span>
+  </div>
+  <nav class="tb-nav">
+    <button class="nav-tab on">Overview</button>
+    <button class="nav-tab">Schedule Explorer</button>
+    <button class="nav-tab">TFS Tracker</button>
+    <button class="nav-tab">Reports</button>
+  </nav>
+  <div class="tb-right">
+    <div class="clock">
+      <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><circle cx="5.5" cy="5.5" r="4.5" stroke="currentColor" stroke-width="1.2"/><path d="M5.5 2.8V5.5l1.8 1.8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span id="clockTime">--:--:--</span>
+    </div>
+    <div class="env-sel">
+      <span class="env-dot" id="envDot"></span>
+      <select id="envSelect" class="env-select">
+        <option value="Production">Production</option>
+        <option value="UAT">UAT</option>
+        <option value="SIT">SIT</option>
+        <option value="Development">Development</option>
+      </select>
+    </div>
+    <button class="theme-toggle" id="themeToggle" title="Toggle light / dark mode">
+      <span class="tg-track">
+        <span class="tg-thumb">
+          <svg class="icon-sun" width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="2.3" stroke="currentColor" stroke-width="1.3"/><path d="M6 1v1.2M6 9.8V11M1 6h1.2M9.8 6H11M2.5 2.5l.85.85M8.65 8.65l.85.85M9.5 2.5l-.85.85M3.35 8.65l-.85.85" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+          <svg class="icon-moon" width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M9.5 6.5A4 4 0 1 1 4.5 1.5a3 3 0 0 0 5 5z" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+      </span>
+      <span class="tg-label" id="themeLabel">Light Mode</span>
+    </button>
+    <div class="live-badge"><span class="live-dot"></span>LIVE</div>
+    <div class="user-av">OP</div>
+  </div>
+</header>
 
-            <!-- Content Area -->
-            <div class="flex-1 overflow-y-auto px-4 pb-4 custom-scrollbar">
-                <div id="app-content" class="max-w-5xl mx-auto content-wrapper">
-                    <div class="content-card rounded-2xl p-12 text-center">
-                        <div class="text-gray-400">
-                            <i data-lucide="layout-dashboard" class="w-20 h-20 mx-auto mb-6 opacity-50"></i>
-                            <p class="text-lg font-medium">Select an application from the sidebar to get started</p>
-                            <p class="text-sm mt-2 text-gray-500">Access powerful workflow tools and automation</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sb-section">
+      <p class="sb-heading">Lines of Business</p>
+      <div class="sb-list" id="sidebarList"></div>
+    </div>
+    <div class="sb-footer">
+      <div class="sb-stat"><span>Total LOBs</span><span class="mono" id="sfTotal">12</span></div>
+      <div class="sb-stat"><span>Active TFS</span><span class="mono ab" id="sfTFS">9</span></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="pg-header">
+      <div>
+        <h1 class="pg-title">Fee Schedule Overview</h1>
+        <p class="pg-sub">Live sync status, schedule counts, and TFS activity per LOB</p>
+      </div>
+      <div class="pg-actions">
+        <button class="btn btn-ghost">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 1v8M4 6.5l2.5 2.5 2.5-2.5M1.5 11h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Export CSV
+        </button>
+        <button class="btn btn-primary">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M1 6.5h11M7.5 2l4.5 4.5L7.5 11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Full TFS Board
+        </button>
+      </div>
     </div>
 
-    <!-- AI Modal -->
-    <div id="ai-modal" class="modal fixed inset-0 bg-black bg-opacity-60 items-center justify-center z-50 backdrop-blur-sm">
-        <div class="glass-effect rounded-2xl shadow-2xl w-full max-w-3xl mx-4 flex flex-col" style="max-height: 85vh;">
-            <div class="flex items-center justify-between p-6 border-b border-gray-200">
-                <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-xl brand-gradient flex items-center justify-center">
-                        <i data-lucide="sparkles" class="w-6 h-6 text-white"></i>
-                    </div>
-                    <div>
-                        <h3 class="text-xl font-bold text-gray-900">AI Assistant</h3>
-                        <p class="text-xs text-gray-500">Powered by Advanced AI</p>
-                    </div>
-                </div>
-                <button onclick="closeAIModal()" class="text-gray-400 hover:text-gray-600 transition-colors">
-                    <i data-lucide="x" class="w-6 h-6"></i>
-                </button>
-            </div>
-            <div id="chat-messages" class="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar chat-container">
-                <!-- Chat messages rendered by JavaScript -->
-            </div>
-            <div class="p-6 border-t border-gray-200 bg-gray-50 rounded-b-2xl">
-                <div class="flex gap-3">
-                    <input 
-                        type="text" 
-                        id="user-input" 
-                        placeholder="Ask me anything..." 
-                        class="flex-1 px-5 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm"
-                        onkeypress="if(event.key === 'Enter') sendMessage()"
-                    >
-                    <button 
-                        onclick="sendMessage()" 
-                        class="px-6 py-3 secondary-button text-white rounded-xl flex items-center gap-2 font-semibold"
-                    >
-                        <i data-lucide="send" class="w-4 h-4"></i>
-                        Send
-                    </button>
-                </div>
-            </div>
-        </div>
+    <div class="kpi-grid" id="kpiGrid"></div>
+
+    <div class="toolbar">
+      <div class="tb-search">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.3"/><path d="M10 10l2.5 2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        <input type="text" id="searchInput" placeholder="Search LOB, owner, division…" class="search-inp"/>
+      </div>
+      <div class="filter-pills" id="filterPills">
+        <button class="pill on" data-f="all">All LOBs</button>
+        <button class="pill" data-f="synced">Synced</button>
+        <button class="pill" data-f="stale">Stale</button>
+        <button class="pill" data-f="offline">Offline</button>
+      </div>
+      <div class="tb-sort">
+        <span class="sort-lbl">Sort:</span>
+        <select id="sortSelect" class="sort-sel">
+          <option value="lob">LOB Name</option>
+          <option value="count">Schedule Count</option>
+          <option value="tfs">TFS Count</option>
+          <option value="sync">Last Sync</option>
+        </select>
+      </div>
     </div>
 
-    <script>
-        // Application data
-        const applications = [
-            {
-                id: 1,
-                name: 'Change File Generator',
-                description: 'Generate change files from source data',
-                icon: 'file-text',
-                category: 'File Processing',
-                folder: '/output/change_files'
-            },
-            {
-                id: 2,
-                name: 'File to File Compare',
-                description: 'Compare two files and identify differences',
-                icon: 'git-compare',
-                category: 'Analysis',
-                folder: '/output/comparisons'
-            },
-            {
-                id: 3,
-                name: 'DT File Generate',
-                description: 'Generate DT files from multiple Excel sources',
-                icon: 'file-spreadsheet',
-                category: 'File Processing',
-                folder: '/output/dt_files'
-            },
-            {
-                id: 4,
-                name: 'DB to DB Compare',
-                description: 'Compare data between source and target environments',
-                icon: 'database',
-                category: 'Analysis',
-                folder: '/output/db_compare'
-            },
-            {
-                id: 5,
-                name: 'Standard Change File Converter',
-                description: 'Convert Excel to standard change file format',
-                icon: 'refresh-cw',
-                category: 'File Processing',
-                folder: '/output/standard_change'
-            },
-            {
-                id: 6,
-                name: 'Peer Review Validator',
-                description: 'Validate peer review files against environments',
-                icon: 'shield-check',
-                category: 'Validation',
-                folder: '/output/peer_review'
-            },
-            {
-                id: 7,
-                name: 'IR Form Generator',
-                description: 'Generate IR forms with classification details',
-                icon: 'file-plus',
-                category: 'Reporting',
-                folder: '/output/ir_forms'
-            },
-            {
-                id: 8,
-                name: 'Impact Report Generator',
-                description: 'Generate impact reports from data files',
-                icon: 'file-bar-chart',
-                category: 'Reporting',
-                folder: '/output/impact_reports'
-            },
-            {
-                id: 9,
-                name: 'Impact Report Compare',
-                description: 'Compare impact reports with claims data',
-                icon: 'file-diff',
-                category: 'Analysis',
-                folder: '/output/ir_compare'
-            },
-            {
-                id: 10,
-                name: 'Standard SQL Queries',
-                description: 'Execute pre-stored SQL queries on environments',
-                icon: 'terminal',
-                category: 'Database',
-                folder: '/output/sql_results'
-            },
-            {
-                id: 11,
-                name: 'Upload Latest Files',
-                description: 'Attach latest files to TFS with comments',
-                icon: 'upload-cloud',
-                category: 'File Management',
-                folder: '/output/uploads'
-            },
-            {
-                id: 12,
-                name: 'Audit Trail',
-                description: 'View audit logs and history',
-                icon: 'history',
-                category: 'Monitoring',
-                folder: '/output/audit'
-            }
-        ];
-
-        // Track which applications have files in their folders (mock state)
-        const appFolderStatus = {
-            1: false, 2: false, 3: false, 4: false, 5: false, 6: false,
-            7: false, 8: false, 9: false, 10: false, 11: false, 12: false
-        };
-
-        let activeAppId = null;
-        let selectedFile = null;
-        let selectedFile1 = null;
-        let selectedFile2 = null;
-        let selectedFiles = [];
-        let aiMessages = [];
-        let isProcessing = false;
-
-        // Initialize
-        function init() {
-            renderSidebar();
-            lucide.createIcons();
-        }
-
-        // Show loader in application
-        function showLoader(processingText = 'Processing') {
-            const messageContainer = document.getElementById('message-container');
-            if (messageContainer) {
-                messageContainer.innerHTML = `
-                    <div class="processing-alert rounded-xl p-6 mt-6">
-                        <div class="flex items-center justify-center gap-4">
-                            <div class="premium-loader"></div>
-                            <div class="text-center">
-                                <p class="text-base font-bold text-purple-900 mb-2">${processingText}</p>
-                                <div class="loader-dots">
-                                    <div class="loader-dot"></div>
-                                    <div class="loader-dot"></div>
-                                    <div class="loader-dot"></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                messageContainer.style.display = 'block';
-            }
-        }
-
-        // Show message in application
-        function showMessage(message, type = 'info') {
-            const messageContainer = document.getElementById('message-container');
-            if (messageContainer) {
-                const iconName = type === 'success' ? 'check-circle' : type === 'error' ? 'alert-circle' : 'info';
-                const alertClass = type === 'success' ? 'success-alert' : type === 'error' ? 'error-alert' : 'info-alert';
-                const iconColor = type === 'success' ? 'text-green-600' : type === 'error' ? 'text-red-600' : 'text-blue-600';
-                const textColor = type === 'success' ? 'text-green-900' : type === 'error' ? 'text-red-900' : 'text-blue-900';
-                
-                messageContainer.innerHTML = `
-                    <div class="${alertClass} rounded-xl p-5 mt-6">
-                        <div class="flex items-start gap-4">
-                            <i data-lucide="${iconName}" class="w-6 h-6 ${iconColor} mt-0.5"></i>
-                            <div>
-                                <p class="text-sm font-semibold ${textColor}">${message}</p>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                messageContainer.style.display = 'block';
-                lucide.createIcons();
-                
-                // Auto hide after 5 seconds for success/info messages
-                if (type !== 'error') {
-                    setTimeout(() => {
-                        if (messageContainer) {
-                            messageContainer.style.display = 'none';
-                        }
-                    }, 5000);
-                }
-            }
-        }
-
-        // Back to Home function
-        function backToHome() {
-            activeAppId = null;
-            selectedFile = null;
-            selectedFile1 = null;
-            selectedFile2 = null;
-            selectedFiles = [];
-            
-            document.getElementById('app-title').textContent = 'Select an Application';
-            document.getElementById('app-description').textContent = 'Choose from the sidebar';
-            document.getElementById('back-home-btn').style.display = 'none';
-            
-            const content = document.getElementById('app-content');
-            content.innerHTML = `
-                <div class="content-card rounded-2xl p-12 text-center">
-                    <div class="text-gray-400">
-                        <i data-lucide="layout-dashboard" class="w-20 h-20 mx-auto mb-6 opacity-50"></i>
-                        <p class="text-lg font-medium">Select an application from the sidebar to get started</p>
-                        <p class="text-sm mt-2 text-gray-500">Access powerful workflow tools and automation</p>
-                    </div>
-                </div>
-            `;
-            
-            renderSidebar();
-            lucide.createIcons();
-        }
-
-        // Render sidebar
-        function renderSidebar() {
-            const sidebar = document.getElementById('sidebar');
-            const categories = [...new Set(applications.map(app => app.category))];
-            
-            let html = '';
-            categories.forEach(category => {
-                html += `<div class="mb-6">`;
-                html += `<h3 class="category-title mb-3">${category}</h3>`;
-                
-                const categoryApps = applications.filter(app => app.category === category);
-                categoryApps.forEach(app => {
-                    const isActive = activeAppId === app.id;
-                    const hasFiles = appFolderStatus[app.id];
-                    const completedClass = hasFiles ? 'app-completed' : '';
-                    const activeClass = isActive ? 'active' : '';
-                    const completedBg = hasFiles && !isActive ? 'completed' : '';
-                    
-                    html += `
-                        <button 
-                            onclick="switchApp(${app.id})"
-                            class="app-button w-full flex items-center gap-3 px-4 py-3 rounded-xl mb-2 transition-all ${completedClass} ${activeClass} ${completedBg} ${
-                                isActive 
-                                    ? 'text-white' 
-                                    : hasFiles
-                                    ? 'text-white'
-                                    : 'text-gray-300 hover:text-white hover:bg-gray-700'
-                            }"
-                        >
-                            <i data-lucide="${app.icon}" class="w-5 h-5"></i>
-                            <span class="text-sm font-semibold">${app.name}</span>
-                        </button>
-                    `;
-                });
-                html += `</div>`;
-            });
-            
-            sidebar.innerHTML = html;
-            lucide.createIcons();
-        }
-
-        // Switch application
-        function switchApp(id) {
-            activeAppId = id;
-            selectedFile = null;
-            selectedFile1 = null;
-            selectedFile2 = null;
-            selectedFiles = [];
-            document.getElementById('back-home-btn').style.display = 'flex';
-            renderSidebar();
-            renderAppContent();
-        }
-
-        // Render application content
-        function renderAppContent() {
-            const app = applications.find(a => a.id === activeAppId);
-            if (!app) return;
-
-            document.getElementById('app-title').textContent = app.name;
-            document.getElementById('app-description').textContent = app.description;
-
-            const content = document.getElementById('app-content');
-
-            if (activeAppId === 1) {
-                // Application 1: Change File Generator
-                content.innerHTML = `
-                    <div class="content-card rounded-2xl p-8">
-                        <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
-                            <div class="w-12 h-12 rounded-xl brand-gradient flex items-center justify-center">
-                                <i data-lucide="file-text" class="w-6 h-6 text-white"></i>
-                            </div>
-                            Upload Source File
-                        </h3>
-                        
-                        <div class="mb-8">
-                            <label class="block text-sm font-bold text-gray-700 mb-3">Select File</label>
-                            <div class="file-drop-zone rounded-xl p-8 text-center cursor-pointer" onclick="document.getElementById('file-input-1').click()">
-                                <i data-lucide="upload" class="w-16 h-16 mx-auto text-gray-400 mb-3"></i>
-                                <p class="text-base font-semibold text-gray-700">Click to upload or drag and drop</p>
-                                <p class="text-sm text-gray-500 mt-2">CSV, XLS, XLSX files supported</p>
-                            </div>
-                            <input type="file" id="file-input-1" class="hidden" accept=".csv,.xls,.xlsx" onchange="handleFileSelect(event)">
-                            <div id="file-display-1" class="mt-4"></div>
-                        </div>
-
-                        <div id="fee-schedule-display" class="mb-8" style="display: none;">
-                            <label class="block text-sm font-bold text-gray-700 mb-3">Fee Schedule ID</label>
-                            <div class="px-5 py-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl">
-                                <span id="fee-schedule-id" class="text-blue-900 font-bold text-lg">FS-2024-001</span>
-                            </div>
-                        </div>
-
-                        <div class="flex gap-4">
-                            <button 
-                                id="run-scrub-btn"
-                                onclick="runScrubAnalysis()" 
-                                class="px-8 py-3 primary-button text-white rounded-xl disabled:bg-gray-300 disabled:cursor-not-allowed disabled:shadow-none flex items-center gap-3 font-semibold text-base"
-                                disabled
-                            >
-                                <i data-lucide="play" class="w-5 h-5"></i>
-                                Run Scrub Analysis
-                            </button>
-                            <button 
-                                onclick="openAIModal()" 
-                                class="px-8 py-3 secondary-button text-white rounded-xl flex items-center gap-3 font-semibold text-base"
-                            >
-                                <i data-lucide="sparkles" class="w-5 h-5"></i>
-                                Use GenAI
-                            </button>
-                        </div>
-
-                        <div id="message-container" style="display: none;"></div>
-                    </div>
-                `;
-            } else if (activeAppId === 2) {
-                // Application 2: File to File Compare
-                content.innerHTML = `
-                    <div class="content-card rounded-2xl p-8">
-                        <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
-                            <div class="w-12 h-12 rounded-xl brand-gradient flex items-center justify-center">
-                                <i data-lucide="git-compare" class="w-6 h-6 text-white"></i>
-                            </div>
-                            Upload Files to Compare
-                        </h3>
-                        
-                        <div class="grid grid-cols-2 gap-6 mb-8">
-                            <div>
-                                <label class="block text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
-                                    <i data-lucide="file" class="w-5 h-5 text-blue-600"></i>
-                                    File 1
-                                </label>
-                                <div class="file-drop-zone border-blue-300 rounded-xl p-8 text-center cursor-pointer" onclick="document.getElementById('file-input-2a').click()">
-                                    <i data-lucide="upload" class="w-14 h-14 mx-auto text-blue-400 mb-3"></i>
-                                    <p class="text-sm font-semibold text-gray-700">Click to upload</p>
-                                    <p class="text-xs text-gray-500 mt-1">First file</p>
-                                </div>
-                                <input type="file" id="file-input-2a" class="hidden" accept=".csv,.xls,.xlsx,.txt" onchange="handleFile1Select(event)">
-                                <div id="file-display-2a" class="mt-3"></div>
-                            </div>
-
-                            <div>
-                                <label class="block text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
-                                    <i data-lucide="file" class="w-5 h-5 text-purple-600"></i>
-                                    File 2
-                                </label>
-                                <div class="file-drop-zone border-purple-300 rounded-xl p-8 text-center cursor-pointer" onclick="document.getElementById('file-input-2b').click()">
-                                    <i data-lucide="upload" class="w-14 h-14 mx-auto text-purple-400 mb-3"></i>
-                                    <p class="text-sm font-semibold text-gray-700">Click to upload</p>
-                                    <p class="text-xs text-gray-500 mt-1">Second file</p>
-                                </div>
-                                <input type="file" id="file-input-2b" class="hidden" accept=".csv,.xls,.xlsx,.txt" onchange="handleFile2Select(event)">
-                                <div id="file-display-2b" class="mt-3"></div>
-                            </div>
-                        </div>
-
-                        <div class="flex gap-4">
-                            <button 
-                                id="compare-files-btn"
-                                onclick="compareFiles()" 
-                                class="px-8 py-3 primary-button text-white rounded-xl disabled:bg-gray-300 disabled:cursor-not-allowed disabled:shadow-none flex items-center gap-3 font-semibold text-base"
-                                disabled
-                            >
-                                <i data-lucide="git-compare" class="w-5 h-5"></i>
-                                Compare Files
-                            </button>
-                            <button 
-                                onclick="openAIModal()" 
-                                class="px-8 py-3 secondary-button text-white rounded-xl flex items-center gap-3 font-semibold text-base"
-                            >
-                                <i data-lucide="sparkles" class="w-5 h-5"></i>
-                                Use GenAI
-                            </button>
-                        </div>
-
-                        <div id="message-container" style="display: none;"></div>
-                    </div>
-                `;
-            } else if (activeAppId === 3) {
-                // Application 3: DT File Generate
-                content.innerHTML = `
-                    <div class="content-card rounded-2xl p-8">
-                        <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
-                            <div class="w-12 h-12 rounded-xl brand-gradient flex items-center justify-center">
-                                <i data-lucide="file-spreadsheet" class="w-6 h-6 text-white"></i>
-                            </div>
-                            DT File Generator
-                        </h3>
-                        
-                        <div class="mb-8">
-                            <label class="block text-sm font-bold text-gray-700 mb-3">Select Excel Files (1-50 files)</label>
-                            <div class="file-drop-zone rounded-xl p-8 text-center cursor-pointer" onclick="document.getElementById('file-input-3').click()">
-                                <i data-lucide="upload" class="w-16 h-16 mx-auto text-gray-400 mb-3"></i>
-                                <p class="text-base font-semibold text-gray-700">Click to upload multiple files</p>
-                                <p class="text-sm text-gray-500 mt-2">Excel files (.xls, .xlsx)</p>
-                            </div>
-                            <input type="file" id="file-input-3" class="hidden" accept=".xls,.xlsx" multiple onchange="handleMultipleFilesSelect(event)">
-                            <div id="file-display-3" class="mt-4"></div>
-                        </div>
-
-                        <div class="grid grid-cols-3 gap-6 mb-8">
-                            <div class="input-group">
-                                <label class="block text-sm font-bold text-gray-700 mb-3">Selection Type</label>
-                                <select class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500">
-                                    <option>Default</option>
-                                    <option>GA</option>
-                                    <option>IN</option>
-                                    <option>KY</option>
-                                </select>
-                            </div>
-                            <div class="input-group">
-                                <label class="block text-sm font-bold text-gray-700 mb-3">Row #</label>
-                                <input type="text" placeholder="Enter row number" class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500">
-                            </div>
-                            <div class="input-group">
-                                <label class="block text-sm font-bold text-gray-700 mb-3">Column Number</label>
-                                <input type="text" placeholder="Enter column number" class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500">
-                            </div>
-                        </div>
-
-                        <div class="flex gap-4">
-                            <button 
-                                onclick="generateDTFile()" 
-                                class="px-8 py-3 primary-button text-white rounded-xl flex items-center gap-3 font-semibold text-base"
-                            >
-                                <i data-lucide="file-output" class="w-5 h-5"></i>
-                                Generate DT File
-                            </button>
-                            <button 
-                                onclick="openAIModal()" 
-                                class="px-8 py-3 secondary-button text-white rounded-xl flex items-center gap-3 font-semibold text-base"
-                            >
-                                <i data-lucide="sparkles" class="w-5 h-5"></i>
-                                Use GenAI
-                            </button>
-                        </div>
-
-                        <div id="message-container" style="display: none;"></div>
-                    </div>
-                `;
-            } else if (activeAppId === 4) {
-                // Application 4: DB to DB Compare
-                content.innerHTML = `
-                    <div class="content-card rounded-2xl p-8">
-                        <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
-                            <div class="w-12 h-12 rounded-xl brand-gradient flex items-center justify-center">
-                                <i data-lucide="database" class="w-6 h-6 text-white"></i>
-                            </div>
-                            Database to Database Compare
-                        </h3>
-                        
-                        <div class="mb-8">
-                            <label class="block text-sm font-bold text-gray-700 mb-3">Comparison Type</label>
-                            <select class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500">
-                                <option>PreDev</option>
-                                <option>Post Dev</option>
-                                <option>Post PROD</option>
-                            </select>
-                        </div>
-
-                        <div class="mb-8">
-                            <label class="block text-sm font-bold text-gray-700 mb-4">Source Environment (Select One)</label>
-                            <div class="grid grid-cols-4 gap-3">
-                                ${['ModDev', 'ModPROD', 'Dev', 'vDEV', 'CFG', 'vCFG', 'INT', 'vINT', 'CRT', 'vCRT', 'GLD', 'PROD'].map(env => `
-                                    <label class="flex items-center gap-3 p-4 border-2 border-gray-300 rounded-xl hover:bg-purple-50 hover:border-purple-400 cursor-pointer transition-all">
-                                        <input type="radio" name="source-env" value="${env}" class="radio-custom w-5 h-5 text-purple-600">
-                                        <span class="text-sm font-semibold">${env}</span>
-                                    </label>
-                                `).join('')}
-                            </div>
-                        </div>
-
-                        <div class="mb-8">
-                            <div class="flex items-center justify-between mb-4">
-                                <label class="block text-sm font-bold text-gray-700">Target Environments (Select Multiple)</label>
-                                <button onclick="selectAllTargets()" class="text-sm font-semibold text-purple-600 hover:text-purple-700 flex items-center gap-2 px-4 py-2 bg-purple-50 rounded-lg hover:bg-purple-100 transition-all">
-                                    <i data-lucide="check-square" class="w-4 h-4"></i>
-                                    Select All
-                                </button>
-                            </div>
-                            <div class="grid grid-cols-4 gap-3">
-                                ${['ModDev', 'ModPROD', 'Dev', 'vDEV', 'CFG', 'vCFG', 'INT', 'vINT', 'CRT', 'vCRT', 'GLD', 'PROD'].map(env => `
-                                    <label class="flex items-center gap-3 p-4 border-2 border-gray-300 rounded-xl hover:bg-purple-50 hover:border-purple-400 cursor-pointer transition-all">
-                                        <input type="checkbox" class="target-env checkbox-custom w-5 h-5 text-purple-600 rounded" value="${env}">
-                                        <span class="text-sm font-semibold">${env}</span>
-                                    </label>
-                                `).join('')}
-                            </div>
-                        </div>
-
-                        <div class="flex gap-4">
-                            <button 
-                                onclick="compareDB()" 
-                                class="px-8 py-3 primary-button text-white rounded-xl flex items-center gap-3 font-semibold text-base"
-                            >
-                                <i data-lucide="database" class="w-5 h-5"></i>
-                                Compare
-                            </button>
-                            <button 
-                                onclick="resetDBForm()" 
-                                class="px-8 py-3 bg-gray-500 text-white rounded-xl hover:bg-gray-600 flex items-center gap-3 font-semibold text-base transition-all"
-                            >
-                                <i data-lucide="rotate-ccw" class="w-5 h-5"></i>
-                                Reset
-                            </button>
-                        </div>
-
-                        <div id="message-container" style="display: none;"></div>
-                    </div>
-                `;
-            } else if (activeAppId === 5) {
-                // Application 5: Standard Change File Converter
-                content.innerHTML = `
-                    <div class="content-card rounded-2xl p-8">
-                        <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
-                            <div class="w-12 h-12 rounded-xl brand-gradient flex items-center justify-center">
-                                <i data-lucide="refresh-cw" class="w-6 h-6 text-white"></i>
-                            </div>
-                            Standard Change File Converter
-                        </h3>
-                        
-                        <div class="mb-8">
-                            <label class="block text-sm font-bold text-gray-700 mb-3">Select Excel File</label>
-                            <div class="file-drop-zone rounded-xl p-8 text-center cursor-pointer" onclick="document.getElementById('file-input-5').click()">
-                                <i data-lucide="upload" class="w-16 h-16 mx-auto text-gray-400 mb-3"></i>
-                                <p class="text-base font-semibold text-gray-700">Click to upload Excel file</p>
-                                <p class="text-sm text-gray-500 mt-2">Will be converted to standard change file format</p>
-                            </div>
-                            <input type="file" id="file-input-5" class="hidden" accept=".xls,.xlsx" onchange="handleApp5FileSelect(event)">
-                            <div id="file-display-5" class="mt-4"></div>
-                        </div>
-
-                        <div class="flex gap-4">
-                            <button 
-                                id="convert-btn-5"
-                                onclick="convertStandardFile()" 
-                                class="px-8 py-3 primary-button text-white rounded-xl disabled:bg-gray-300 disabled:cursor-not-allowed disabled:shadow-none flex items-center gap-3 font-semibold text-base"
-                                disabled
-                            >
-                                <i data-lucide="refresh-cw" class="w-5 h-5"></i>
-                                Convert to Standard Format
-                            </button>
-                        </div>
-
-                        <div id="message-container" style="display: none;"></div>
-                    </div>
-                `;
-            } else if (activeAppId === 6) {
-                // Application 6: Peer Review Validator
-                content.innerHTML = `
-                    <div class="content-card rounded-2xl p-8">
-                        <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
-                            <div class="w-12 h-12 rounded-xl brand-gradient flex items-center justify-center">
-                                <i data-lucide="shield-check" class="w-6 h-6 text-white"></i>
-                            </div>
-                            Peer Review Validator
-                        </h3>
-                        
-                        <div class="mb-8">
-                            <label class="block text-sm font-bold text-gray-700 mb-3">Select Environment</label>
-                            <select class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500">
-                                <option>ModDev</option>
-                                <option>ModPROD</option>
-                                <option>Dev</option>
-                                <option>vDEV</option>
-                                <option>CFG</option>
-                                <option>vCFG</option>
-                                <option>INT</option>
-                                <option>vINT</option>
-                                <option>CRT</option>
-                                <option>vCRT</option>
-                                <option>GLD</option>
-                                <option>PROD</option>
-                            </select>
-                        </div>
-
-                        <div class="mb-8">
-                            <label class="block text-sm font-bold text-gray-700 mb-3">Select Excel File</label>
-                            <div class="file-drop-zone rounded-xl p-8 text-center cursor-pointer" onclick="document.getElementById('file-input-6').click()">
-                                <i data-lucide="upload" class="w-16 h-16 mx-auto text-gray-400 mb-3"></i>
-                                <p class="text-base font-semibold text-gray-700">Click to upload Excel file</p>
-                            </div>
-                            <input type="file" id="file-input-6" class="hidden" accept=".xls,.xlsx" onchange="handleApp6FileSelect(event)">
-                            <div id="file-display-6" class="mt-4"></div>
-                        </div>
-
-                        <div class="flex gap-4">
-                            <button 
-                                onclick="autoSelectLatestFile(6)" 
-                                class="px-8 py-3 bg-gray-600 text-white rounded-xl hover:bg-gray-700 flex items-center gap-3 font-semibold text-base transition-all"
-                            >
-                                <i data-lucide="file-search" class="w-5 h-5"></i>
-                                Auto Select Latest File
-                            </button>
-                            <button 
-                                id="validate-btn-6"
-                                onclick="validatePeerReview()" 
-                                class="px-8 py-3 primary-button text-white rounded-xl disabled:bg-gray-300 disabled:cursor-not-allowed disabled:shadow-none flex items-center gap-3 font-semibold text-base"
-                                disabled
-                            >
-                                <i data-lucide="shield-check" class="w-5 h-5"></i>
-                                Validate
-                            </button>
-                        </div>
-
-                        <div id="message-container" style="display: none;"></div>
-                    </div>
-                `;
-            } else if (activeAppId === 7) {
-                // Application 7: IR Form Generator
-                content.innerHTML = `
-                    <div class="content-card rounded-2xl p-8">
-                        <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
-                            <div class="w-12 h-12 rounded-xl brand-gradient flex items-center justify-center">
-                                <i data-lucide="file-plus" class="w-6 h-6 text-white"></i>
-                            </div>
-                            IR Form Generator
-                        </h3>
-                        
-                        <div class="mb-8">
-                            <label class="block text-sm font-bold text-gray-700 mb-3">Select Excel File</label>
-                            <div class="file-drop-zone rounded-xl p-8 text-center cursor-pointer" onclick="document.getElementById('file-input-7').click()">
-                                <i data-lucide="upload" class="w-16 h-16 mx-auto text-gray-400 mb-3"></i>
-                                <p class="text-base font-semibold text-gray-700">Click to upload Excel file</p>
-                            </div>
-                            <input type="file" id="file-input-7" class="hidden" accept=".xls,.xlsx">
-                            <div id="file-display-7" class="mt-4"></div>
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-6 mb-8">
-                            ${[
-                                {label: 'Is this an Enhancement?', options: ['ENR', 'BF']},
-                                {label: 'True BF?', options: ['Yes', 'No']},
-                                {label: 'Root Cause Category/Classification', options: ['U87', 'C87']},
-                                {label: 'Recommended ARC', options: ['1', '2', '3']},
-                                {label: 'Request Category', options: ['BF', 'Retro RG', 'Retro ENR']},
-                                {label: 'Fee Schedule TYPE', options: ['Optum', 'Fee Schedule', 'RBRVS']}
-                            ].map(field => `
-                                <div class="input-group">
-                                    <label class="block text-sm font-bold text-gray-700 mb-3">${field.label}</label>
-                                    <select class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500">
-                                        ${field.options.map(opt => `<option>${opt}</option>`).join('')}
-                                    </select>
-                                </div>
-                            `).join('')}
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-6 mb-8">
-                            ${[
-                                'When did you become aware of issue?',
-                                'When did you receive ticket for issue?',
-                                'When was the issue corrected in Facets?',
-                                'Earliest date of service on Impact Report?'
-                            ].map(label => `
-                                <div class="input-group">
-                                    <label class="block text-sm font-bold text-gray-700 mb-3">${label}</label>
-                                    <input type="date" class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500">
-                                </div>
-                            `).join('')}
-                        </div>
-
-                        <div class="flex gap-4">
-                            <button 
-                                onclick="createIRForm()" 
-                                class="px-8 py-3 primary-button text-white rounded-xl flex items-center gap-3 font-semibold text-base"
-                            >
-                                <i data-lucide="file-plus" class="w-5 h-5"></i>
-                                Create IR Form
-                            </button>
-                        </div>
-
-                        <div id="message-container" style="display: none;"></div>
-                    </div>
-                `;
-            } else if (activeAppId === 8) {
-                // Application 8: Impact Report Generator
-                content.innerHTML = `
-                    <div class="content-card rounded-2xl p-8">
-                        <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
-                            <div class="w-12 h-12 rounded-xl brand-gradient flex items-center justify-center">
-                                <i data-lucide="file-bar-chart" class="w-6 h-6 text-white"></i>
-                            </div>
-                            Impact Report Generator
-                        </h3>
-                        
-                        <div class="mb-8">
-                            <label class="block text-sm font-bold text-gray-700 mb-3">Select Excel File</label>
-                            <div class="file-drop-zone rounded-xl p-8 text-center cursor-pointer" onclick="document.getElementById('file-input-8').click()">
-                                <i data-lucide="upload" class="w-16 h-16 mx-auto text-gray-400 mb-3"></i>
-                                <p class="text-base font-semibold text-gray-700">Click to upload Excel file</p>
-                            </div>
-                            <input type="file" id="file-input-8" class="hidden" accept=".xls,.xlsx" onchange="handleApp8FileSelect(event)">
-                            <div id="file-display-8" class="mt-4"></div>
-                        </div>
-
-                        <div class="mb-8">
-                            <label class="block text-sm font-bold text-gray-700 mb-3">Deployed Date</label>
-                            <input type="date" class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500">
-                        </div>
-
-                        <div class="flex gap-4">
-                            <button 
-                                onclick="autoSelectLatestFile(8)" 
-                                class="px-8 py-3 bg-gray-600 text-white rounded-xl hover:bg-gray-700 flex items-center gap-3 font-semibold text-base transition-all"
-                            >
-                                <i data-lucide="file-search" class="w-5 h-5"></i>
-                                Auto Select Latest File
-                            </button>
-                            <button 
-                                id="generate-btn-8"
-                                onclick="generateImpactReport()" 
-                                class="px-8 py-3 primary-button text-white rounded-xl disabled:bg-gray-300 disabled:cursor-not-allowed disabled:shadow-none flex items-center gap-3 font-semibold text-base"
-                                disabled
-                            >
-                                <i data-lucide="file-bar-chart" class="w-5 h-5"></i>
-                                Generate Report
-                            </button>
-                        </div>
-
-                        <div id="message-container" style="display: none;"></div>
-                    </div>
-                `;
-            } else if (activeAppId === 9) {
-                // Application 9: Impact Report Compare
-                content.innerHTML = `
-                    <div class="content-card rounded-2xl p-8">
-                        <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
-                            <div class="w-12 h-12 rounded-xl brand-gradient flex items-center justify-center">
-                                <i data-lucide="file-diff" class="w-6 h-6 text-white"></i>
-                            </div>
-                            Impact Report Compare
-                        </h3>
-                        
-                        <div class="mb-8">
-                            <label class="block text-sm font-bold text-gray-700 mb-3">Select Excel File</label>
-                            <div class="file-drop-zone rounded-xl p-8 text-center cursor-pointer" onclick="document.getElementById('file-input-9a').click()">
-                                <i data-lucide="upload" class="w-16 h-16 mx-auto text-gray-400 mb-3"></i>
-                                <p class="text-base font-semibold text-gray-700">Click to upload Excel file</p>
-                            </div>
-                            <input type="file" id="file-input-9a" class="hidden" accept=".xls,.xlsx" onchange="handleApp9File1Select(event)">
-                            <div id="file-display-9a" class="mt-4"></div>
-                        </div>
-
-                        <div class="mb-8">
-                            <button 
-                                onclick="autoSelectLatestClaimsFile()" 
-                                class="w-full px-8 py-4 bg-gray-600 text-white rounded-xl hover:bg-gray-700 flex items-center justify-center gap-3 font-semibold text-base transition-all"
-                            >
-                                <i data-lucide="file-search" class="w-6 h-6"></i>
-                                Auto Select Latest Claims File
-                            </button>
-                        </div>
-
-                        <div class="mb-8">
-                            <label class="block text-sm font-bold text-gray-700 mb-3">Select IR Teams Excel File</label>
-                            <div class="file-drop-zone rounded-xl p-8 text-center cursor-pointer" onclick="document.getElementById('file-input-9b').click()">
-                                <i data-lucide="upload" class="w-16 h-16 mx-auto text-gray-400 mb-3"></i>
-                                <p class="text-base font-semibold text-gray-700">Click to upload IR Teams Excel file</p>
-                            </div>
-                            <input type="file" id="file-input-9b" class="hidden" accept=".xls,.xlsx" onchange="handleApp9File2Select(event)">
-                            <div id="file-display-9b" class="mt-4"></div>
-                        </div>
-
-                        <div class="flex gap-4">
-                            <button 
-                                id="compare-btn-9"
-                                onclick="compareImpactReports()" 
-                                class="px-8 py-3 primary-button text-white rounded-xl disabled:bg-gray-300 disabled:cursor-not-allowed disabled:shadow-none flex items-center gap-3 font-semibold text-base"
-                                disabled
-                            >
-                                <i data-lucide="file-diff" class="w-5 h-5"></i>
-                                Compare Reports
-                            </button>
-                        </div>
-
-                        <div id="message-container" style="display: none;"></div>
-                    </div>
-                `;
-            } else if (activeAppId === 10) {
-                // Application 10: Standard SQL Queries
-                content.innerHTML = `
-                    <div class="content-card rounded-2xl p-8">
-                        <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
-                            <div class="w-12 h-12 rounded-xl brand-gradient flex items-center justify-center">
-                                <i data-lucide="terminal" class="w-6 h-6 text-white"></i>
-                            </div>
-                            Standard SQL Queries
-                        </h3>
-                        
-                        <div class="mb-8">
-                            <label class="block text-sm font-bold text-gray-700 mb-3">Select Environment</label>
-                            <select id="sql-env-select" class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500">
-                                <option>ModDev</option>
-                                <option>ModPROD</option>
-                                <option>Dev</option>
-                                <option>vDEV</option>
-                                <option>CFG</option>
-                                <option>vCFG</option>
-                                <option>INT</option>
-                                <option>vINT</option>
-                                <option>CRT</option>
-                                <option>vCRT</option>
-                                <option>GLD</option>
-                                <option>PROD</option>
-                            </select>
-                        </div>
-
-                        <div class="mb-8">
-                            <label class="block text-sm font-bold text-gray-700 mb-3">Pre-Stored SQL Queries</label>
-                            <div class="border-2 border-gray-300 rounded-xl p-4 max-h-96 overflow-y-auto custom-scrollbar bg-gray-50">
-                                <div class="space-y-3">
-                                    ${[
-                                        {name: 'Fee Schedule Details', query: "SELECT * FROM fee_schedule WHERE status = 'ACTIVE'"},
-                                        {name: 'Claims by Date Range', query: 'SELECT * FROM claims WHERE created_date >= SYSDATE-30'},
-                                        {name: 'Provider Configuration', query: 'SELECT provider_id, provider_name, config_status FROM provider_config'},
-                                        {name: 'Pending Transactions', query: "SELECT * FROM transactions WHERE status = 'PENDING'"},
-                                        {name: 'Error Log Summary', query: 'SELECT error_type, COUNT(*) FROM error_log GROUP BY error_type'}
-                                    ].map((q, i) => `
-                                        <label class="flex items-start gap-4 p-4 border-2 border-gray-300 rounded-xl hover:bg-white hover:border-purple-400 cursor-pointer transition-all bg-white">
-                                            <input type="radio" name="sql-query" value="q${i+1}" class="radio-custom mt-1 w-5 h-5 text-purple-600">
-                                            <div>
-                                                <p class="text-sm font-bold text-gray-900">${q.name}</p>
-                                                <p class="text-xs text-gray-500 mt-1 font-mono">${q.query}</p>
-                                            </div>
-                                        </label>
-                                    `).join('')}
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="flex gap-4">
-                            <button 
-                                onclick="executeSQLQuery()" 
-                                class="px-8 py-3 primary-button text-white rounded-xl flex items-center gap-3 font-semibold text-base"
-                            >
-                                <i data-lucide="play" class="w-5 h-5"></i>
-                                Execute Query
-                            </button>
-                        </div>
-
-                        <div id="message-container" style="display: none;"></div>
-                    </div>
-                `;
-            } else if (activeAppId === 11) {
-                // Application 11: Upload Latest Files
-                content.innerHTML = `
-                    <div class="content-card rounded-2xl p-8">
-                        <h3 class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
-                            <div class="w-12 h-12 rounded-xl brand-gradient flex items-center justify-center">
-                                <i data-lucide="upload-cloud" class="w-6 h-6 text-white"></i>
-                            </div>
-                            Upload Latest Files to TFS
-                        </h3>
-                        
-                        <div class="mb-8">
-                            <button 
-                                onclick="listFilesToAttach()" 
-                                class="w-full px-8 py-4 primary-button text-white rounded-xl flex items-center justify-center gap-3 font-semibold text-base"
-                            >
-                                <i data-lucide="list" class="w-6 h-6"></i>
-                                List Files to Be Attached
-                            </button>
-                        </div>
-
-                        <div id="files-list-container" class="mb-8" style="display: none;">
-                            <label class="block text-sm font-bold text-gray-700 mb-4">Available Files</label>
-                            <div class="border-2 border-gray-300 rounded-xl p-4 max-h-96 overflow-y-auto custom-scrollbar bg-gray-50">
-                                <div id="files-list" class="space-y-3">
-                                    <!-- Files will be populated here -->
-                                </div>
-                            </div>
-                        </div>
-
-                        <div id="attach-section" class="mb-8" style="display: none;">
-                            <label class="block text-sm font-bold text-gray-700 mb-3">Comment for TFS</label>
-                            <textarea 
-                                id="tfs-comment" 
-                                rows="5" 
-                                placeholder="Enter your comment for the attachment..."
-                                class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
-                            ></textarea>
-                        </div>
-
-                        <div id="attach-button-container" style="display: none;">
-                            <button 
-                                onclick="attachToTFS()" 
-                                class="px-8 py-3 success-button text-white rounded-xl flex items-center gap-3 font-semibold text-base"
-                            >
-                                <i data-lucide="upload-cloud" class="w-5 h-5"></i>
-                                Attach to TFS with Comment
-                            </button>
-                        </div>
-
-                        <div id="message-container" style="display: none;"></div>
-                    </div>
-                `;
-            } else {
-                // Placeholder for Application 12
-                content.innerHTML = `
-                    <div class="content-card rounded-2xl p-12">
-                        <div class="text-center">
-                            <div class="w-20 h-20 rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center mx-auto mb-6">
-                                <i data-lucide="${app.icon}" class="w-10 h-10 text-gray-400"></i>
-                            </div>
-                            <h3 class="text-2xl font-bold text-gray-700 mb-3">${app.name}</h3>
-                            <p class="text-gray-500 mb-6">${app.description}</p>
-                            <p class="text-sm text-gray-400 px-6 py-3 bg-gray-100 rounded-lg inline-block">This application is under development</p>
-                        </div>
-                    </div>
-                `;
-            }
-
-            lucide.createIcons();
-        }
-
-        // File handling for Application 1
-        function handleFileSelect(event) {
-            selectedFile = event.target.files[0];
-            if (selectedFile) {
-                document.getElementById('file-display-1').innerHTML = `
-                    <div class="flex items-center gap-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl">
-                        <div class="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center">
-                            <i data-lucide="file-text" class="w-6 h-6 text-white"></i>
-                        </div>
-                        <div class="flex-1">
-                            <p class="text-sm font-bold text-gray-900">${selectedFile.name}</p>
-                            <p class="text-xs text-gray-600 mt-1">${(selectedFile.size / 1024).toFixed(2)} KB</p>
-                        </div>
-                        <button onclick="clearFile()" class="text-gray-400 hover:text-red-600 transition-colors">
-                            <i data-lucide="x" class="w-5 h-5"></i>
-                        </button>
-                    </div>
-                `;
-                document.getElementById('fee-schedule-display').style.display = 'block';
-                document.getElementById('run-scrub-btn').disabled = false;
-                lucide.createIcons();
-            }
-        }
-
-        function clearFile() {
-            selectedFile = null;
-            document.getElementById('file-input-1').value = '';
-            document.getElementById('file-display-1').innerHTML = '';
-            document.getElementById('fee-schedule-display').style.display = 'none';
-            document.getElementById('run-scrub-btn').disabled = true;
-        }
-
-        // File handling for Application 2
-        function handleFile1Select(event) {
-            selectedFile1 = event.target.files[0];
-            if (selectedFile1) {
-                document.getElementById('file-display-2a').innerHTML = `
-                    <div class="flex items-center gap-4 p-4 bg-gradient-to-r from-blue-50 to-blue-100 border-2 border-blue-300 rounded-xl">
-                        <div class="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center">
-                            <i data-lucide="file-text" class="w-6 h-6 text-white"></i>
-                        </div>
-                        <div class="flex-1">
-                            <p class="text-sm font-bold text-gray-900">${selectedFile1.name}</p>
-                            <p class="text-xs text-gray-600 mt-1">${(selectedFile1.size / 1024).toFixed(2)} KB</p>
-                        </div>
-                    </div>
-                `;
-                updateCompareButton();
-                lucide.createIcons();
-            }
-        }
-
-        function handleFile2Select(event) {
-            selectedFile2 = event.target.files[0];
-            if (selectedFile2) {
-                document.getElementById('file-display-2b').innerHTML = `
-                    <div class="flex items-center gap-4 p-4 bg-gradient-to-r from-purple-50 to-purple-100 border-2 border-purple-300 rounded-xl">
-                        <div class="w-12 h-12 rounded-xl bg-purple-600 flex items-center justify-center">
-                            <i data-lucide="file-text" class="w-6 h-6 text-white"></i>
-                        </div>
-                        <div class="flex-1">
-                            <p class="text-sm font-bold text-gray-900">${selectedFile2.name}</p>
-                            <p class="text-xs text-gray-600 mt-1">${(selectedFile2.size / 1024).toFixed(2)} KB</p>
-                        </div>
-                    </div>
-                `;
-                updateCompareButton();
-                lucide.createIcons();
-            }
-        }
-
-        function updateCompareButton() {
-            const btn = document.getElementById('compare-files-btn');
-            if (btn) {
-                btn.disabled = !(selectedFile1 && selectedFile2);
-            }
-        }
-
-        // File handling for Application 3
-        function handleMultipleFilesSelect(event) {
-            selectedFiles = Array.from(event.target.files).slice(0, 50);
-            if (selectedFiles.length > 0) {
-                let html = '<div class="space-y-3">';
-                selectedFiles.forEach((file, index) => {
-                    html += `
-                        <div class="flex items-center gap-4 p-3 bg-gradient-to-r from-gray-50 to-gray-100 border-2 border-gray-300 rounded-xl">
-                            <div class="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center">
-                                <i data-lucide="file-text" class="w-5 h-5 text-white"></i>
-                            </div>
-                            <div class="flex-1">
-                                <p class="text-sm font-semibold text-gray-900">${file.name}</p>
-                            </div>
-                        </div>
-                    `;
-                });
-                html += '</div>';
-                html += `<div class="mt-4 px-5 py-3 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl">
-                    <p class="text-sm font-bold text-blue-900">${selectedFiles.length} file(s) selected</p>
-                </div>`;
-                document.getElementById('file-display-3').innerHTML = html;
-                lucide.createIcons();
-            }
-        }
-
-        // File handling for other applications
-        function handleApp5FileSelect(event) {
-            selectedFile = event.target.files[0];
-            if (selectedFile) {
-                document.getElementById('file-display-5').innerHTML = `
-                    <div class="flex items-center gap-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl">
-                        <div class="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center">
-                            <i data-lucide="file-text" class="w-6 h-6 text-white"></i>
-                        </div>
-                        <div class="flex-1">
-                            <p class="text-sm font-bold text-gray-900">${selectedFile.name}</p>
-                            <p class="text-xs text-gray-600 mt-1">${(selectedFile.size / 1024).toFixed(2)} KB</p>
-                        </div>
-                    </div>
-                `;
-                document.getElementById('convert-btn-5').disabled = false;
-                lucide.createIcons();
-            }
-        }
-
-        function handleApp6FileSelect(event) {
-            selectedFile = event.target.files[0];
-            if (selectedFile) {
-                document.getElementById('file-display-6').innerHTML = `
-                    <div class="flex items-center gap-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl">
-                        <div class="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center">
-                            <i data-lucide="file-text" class="w-6 h-6 text-white"></i>
-                        </div>
-                        <div class="flex-1">
-                            <p class="text-sm font-bold text-gray-900">${selectedFile.name}</p>
-                            <p class="text-xs text-gray-600 mt-1">${(selectedFile.size / 1024).toFixed(2)} KB</p>
-                        </div>
-                    </div>
-                `;
-                document.getElementById('validate-btn-6').disabled = false;
-                lucide.createIcons();
-            }
-        }
-
-        function handleApp8FileSelect(event) {
-            selectedFile = event.target.files[0];
-            if (selectedFile) {
-                document.getElementById('file-display-8').innerHTML = `
-                    <div class="flex items-center gap-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl">
-                        <div class="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center">
-                            <i data-lucide="file-text" class="w-6 h-6 text-white"></i>
-                        </div>
-                        <div class="flex-1">
-                            <p class="text-sm font-bold text-gray-900">${selectedFile.name}</p>
-                            <p class="text-xs text-gray-600 mt-1">${(selectedFile.size / 1024).toFixed(2)} KB</p>
-                        </div>
-                    </div>
-                `;
-                document.getElementById('generate-btn-8').disabled = false;
-                lucide.createIcons();
-            }
-        }
-
-        function handleApp9File1Select(event) {
-            selectedFile1 = event.target.files[0];
-            if (selectedFile1) {
-                document.getElementById('file-display-9a').innerHTML = `
-                    <div class="flex items-center gap-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl">
-                        <div class="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center">
-                            <i data-lucide="file-text" class="w-6 h-6 text-white"></i>
-                        </div>
-                        <div class="flex-1">
-                            <p class="text-sm font-bold text-gray-900">${selectedFile1.name}</p>
-                            <p class="text-xs text-gray-600 mt-1">${(selectedFile1.size / 1024).toFixed(2)} KB</p>
-                        </div>
-                    </div>
-                `;
-                updateApp9CompareButton();
-                lucide.createIcons();
-            }
-        }
-
-        function handleApp9File2Select(event) {
-            selectedFile2 = event.target.files[0];
-            if (selectedFile2) {
-                document.getElementById('file-display-9b').innerHTML = `
-                    <div class="flex items-center gap-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl">
-                        <div class="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center">
-                            <i data-lucide="file-text" class="w-6 h-6 text-white"></i>
-                        </div>
-                        <div class="flex-1">
-                            <p class="text-sm font-bold text-gray-900">${selectedFile2.name}</p>
-                            <p class="text-xs text-gray-600 mt-1">${(selectedFile2.size / 1024).toFixed(2)} KB</p>
-                        </div>
-                    </div>
-                `;
-                updateApp9CompareButton();
-                lucide.createIcons();
-            }
-        }
-
-        function updateApp9CompareButton() {
-            const btn = document.getElementById('compare-btn-9');
-            if (btn) {
-                btn.disabled = !(selectedFile1 && selectedFile2);
-            }
-        }
-
-        // Processing functions
-        function runScrubAnalysis() {
-            if (!selectedFile) return;
-            
-            showLoader('Running Scrub Analysis...');
-            
-            setTimeout(() => {
-                const outputPath = '/output/change_files/scrub_analysis_' + new Date().getTime() + '.csv';
-                showMessage('Processing Complete! Output saved to: ' + outputPath, 'success');
-                appFolderStatus[1] = true;
-                renderSidebar();
-            }, 2500);
-        }
-
-        function compareFiles() {
-            if (!selectedFile1 || !selectedFile2) return;
-            
-            showLoader('Comparing Files...');
-            
-            setTimeout(() => {
-                const outputPath = '/output/comparisons/file_diff_' + new Date().getTime() + '.txt';
-                showMessage('Comparison Complete! Differences report saved to: ' + outputPath, 'success');
-                appFolderStatus[2] = true;
-                renderSidebar();
-            }, 2500);
-        }
-
-        function generateDTFile() {
-            showLoader('Generating DT File...');
-            
-            setTimeout(() => {
-                showMessage('DT File generated successfully!', 'success');
-                appFolderStatus[3] = true;
-                renderSidebar();
-            }, 2500);
-        }
-
-        function selectAllTargets() {
-            const sourceEnv = document.querySelector('input[name="source-env"]:checked');
-            const sourceValue = sourceEnv ? sourceEnv.value : null;
-            
-            document.querySelectorAll('.target-env').forEach(checkbox => {
-                if (checkbox.value !== sourceValue) {
-                    checkbox.checked = true;
-                }
-            });
-        }
-
-        function compareDB() {
-            showLoader('Comparing Databases...');
-            
-            setTimeout(() => {
-                showMessage('Database comparison completed successfully!', 'success');
-                appFolderStatus[4] = true;
-                renderSidebar();
-            }, 3000);
-        }
-
-        function resetDBForm() {
-            document.querySelectorAll('input[name="source-env"]').forEach(radio => radio.checked = false);
-            document.querySelectorAll('.target-env').forEach(checkbox => checkbox.checked = false);
-            showMessage('Form reset successfully', 'info');
-        }
-
-        function convertStandardFile() {
-            showLoader('Converting File...');
-            
-            setTimeout(() => {
-                showMessage('File converted to standard format successfully!', 'success');
-                appFolderStatus[5] = true;
-                renderSidebar();
-            }, 2500);
-        }
-
-        function autoSelectLatestFile(appId) {
-            showLoader('Searching for Latest File...');
-            
-            setTimeout(() => {
-                showMessage('Latest file auto-selected from folder', 'info');
-                if (appId === 6) {
-                    document.getElementById('validate-btn-6').disabled = false;
-                } else if (appId === 8) {
-                    document.getElementById('generate-btn-8').disabled = false;
-                }
-            }, 1500);
-        }
-
-        function validatePeerReview() {
-            showLoader('Validating Peer Review...');
-            
-            setTimeout(() => {
-                showMessage('Peer review validation complete!', 'success');
-                appFolderStatus[6] = true;
-                renderSidebar();
-            }, 2500);
-        }
-
-        function createIRForm() {
-            showLoader('Creating IR Form...');
-            
-            setTimeout(() => {
-                showMessage('IR Form created successfully!', 'success');
-                appFolderStatus[7] = true;
-                renderSidebar();
-            }, 2500);
-        }
-
-        function generateImpactReport() {
-            showLoader('Generating Impact Report...');
-            
-            setTimeout(() => {
-                showMessage('Impact report generated successfully!', 'success');
-                appFolderStatus[8] = true;
-                renderSidebar();
-            }, 2500);
-        }
-
-        function autoSelectLatestClaimsFile() {
-            showLoader('Searching for Latest Claims File...');
-            
-            setTimeout(() => {
-                showMessage('Latest claims file auto-selected', 'info');
-            }, 1500);
-        }
-
-        function compareImpactReports() {
-            showLoader('Comparing Impact Reports...');
-            
-            setTimeout(() => {
-                showMessage('Impact reports compared successfully!', 'success');
-                appFolderStatus[9] = true;
-                renderSidebar();
-            }, 2500);
-        }
-
-        function executeSQLQuery() {
-            const selectedQuery = document.querySelector('input[name="sql-query"]:checked');
-            if (!selectedQuery) {
-                showMessage('Please select a SQL query to execute', 'info');
-                return;
-            }
-            
-            showLoader('Executing SQL Query...');
-            
-            setTimeout(() => {
-                showMessage('Query executed successfully! Output saved to Excel file.', 'success');
-                appFolderStatus[10] = true;
-                renderSidebar();
-            }, 2500);
-        }
-
-        function listFilesToAttach() {
-            const mockFiles = [
-                { name: 'change_file_2024_001.csv', size: '245 KB', date: '2024-01-15' },
-                { name: 'comparison_report_2024_002.txt', size: '128 KB', date: '2024-01-14' },
-                { name: 'dt_file_output.xlsx', size: '512 KB', date: '2024-01-14' },
-                { name: 'impact_report_final.xlsx', size: '892 KB', date: '2024-01-13' },
-                { name: 'validation_results.csv', size: '156 KB', date: '2024-01-13' }
-            ];
-
-            let html = '';
-            mockFiles.forEach((file, index) => {
-                html += `
-                    <label class="flex items-center gap-4 p-4 border-2 border-gray-300 rounded-xl hover:bg-white hover:border-purple-400 cursor-pointer transition-all bg-white">
-                        <input type="checkbox" class="tfs-file checkbox-custom w-5 h-5 text-purple-600 rounded" value="${file.name}">
-                        <div class="w-12 h-12 rounded-lg bg-blue-600 flex items-center justify-center">
-                            <i data-lucide="file-text" class="w-6 h-6 text-white"></i>
-                        </div>
-                        <div class="flex-1">
-                            <p class="text-sm font-bold text-gray-900">${file.name}</p>
-                            <p class="text-xs text-gray-500 mt-1">${file.size} • ${file.date}</p>
-                        </div>
-                    </label>
-                `;
-            });
-
-            document.getElementById('files-list').innerHTML = html;
-            document.getElementById('files-list-container').style.display = 'block';
-            document.getElementById('attach-section').style.display = 'block';
-            document.getElementById('attach-button-container').style.display = 'block';
-            lucide.createIcons();
-        }
-
-        function attachToTFS() {
-            const selectedFiles = document.querySelectorAll('.tfs-file:checked');
-            const comment = document.getElementById('tfs-comment').value;
-            
-            if (selectedFiles.length === 0) {
-                showMessage('Please select at least one file to attach', 'info');
-                return;
-            }
-            
-            if (!comment.trim()) {
-                showMessage('Please enter a comment for the attachment', 'info');
-                return;
-            }
-            
-            showLoader('Attaching Files to TFS...');
-            
-            setTimeout(() => {
-                showMessage(`${selectedFiles.length} file(s) attached to TFS with comment successfully!`, 'success');
-                appFolderStatus[11] = true;
-                renderSidebar();
-            }, 2500);
-        }
-
-        // AI Modal functions
-        function openAIModal() {
-            aiMessages = [];
-            
-            const app = applications.find(a => a.id === activeAppId);
-            if (app) {
-                let welcomeMsg = '';
-                switch(activeAppId) {
-                    case 1:
-                        welcomeMsg = 'Hello! I can help you with the Change File Generator. Ask me about file formats, scrub analysis results, or any issues you encounter.';
-                        break;
-                    case 2:
-                        welcomeMsg = 'Hello! I can help you compare files and understand the differences. Ask me about comparison results, file formats, or how to interpret the output.';
-                        break;
-                    case 3:
-                        welcomeMsg = 'Hello! I can assist with DT File Generation. Ask me about multiple file processing, row/column specifications, or output formats.';
-                        break;
-                    case 4:
-                        welcomeMsg = 'Hello! I can help with database comparisons. Ask me about environment selection, comparison types, or interpreting results.';
-                        break;
-                    case 5:
-                        welcomeMsg = 'Hello! I can assist with Standard Change File conversion. Ask me about supported formats or conversion processes.';
-                        break;
-                    case 6:
-                        welcomeMsg = 'Hello! I can help with Peer Review Validation. Ask me about validation rules, environment setup, or error resolution.';
-                        break;
-                    case 7:
-                        welcomeMsg = 'Hello! I can assist with IR Form Generation. Ask me about form fields, classifications, or date requirements.';
-                        break;
-                    case 8:
-                        welcomeMsg = 'Hello! I can help with Impact Report Generation. Ask me about report formats, deployment dates, or data requirements.';
-                        break;
-                    case 9:
-                        welcomeMsg = 'Hello! I can assist with Impact Report Comparison. Ask me about comparing claims data or understanding differences.';
-                        break;
-                    case 10:
-                        welcomeMsg = 'Hello! I can help with SQL Queries. Ask me about query syntax, environment connections, or result interpretation.';
-                        break;
-                    case 11:
-                        welcomeMsg = 'Hello! I can assist with TFS file uploads. Ask me about file attachment processes or comment requirements.';
-                        break;
-                    default:
-                        welcomeMsg = 'Hello! How can I assist you today?';
-                }
-                aiMessages.push({ role: 'assistant', content: welcomeMsg });
-            }
-            
-            renderChatMessages();
-            document.getElementById('ai-modal').classList.add('active');
-            lucide.createIcons();
-        }
-
-        function closeAIModal() {
-            document.getElementById('ai-modal').classList.remove('active');
-            document.getElementById('user-input').value = '';
-        }
-
-        function renderChatMessages() {
-            const container = document.getElementById('chat-messages');
-            let html = '';
-            
-            aiMessages.forEach(msg => {
-                if (msg.role === 'user') {
-                    html += `
-                        <div class="flex justify-end">
-                            <div class="max-w-[75%] bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-2xl px-5 py-3 shadow-lg">
-                                <p class="text-sm leading-relaxed">${msg.content}</p>
-                            </div>
-                        </div>
-                    `;
-                } else {
-                    html += `
-                        <div class="flex justify-start">
-                            <div class="max-w-[75%] bg-white text-gray-900 rounded-2xl px-5 py-3 shadow-md border border-gray-200">
-                                <p class="text-sm leading-relaxed">${msg.content}</p>
-                            </div>
-                        </div>
-                    `;
-                }
-            });
-            
-            container.innerHTML = html;
-            container.scrollTop = container.scrollHeight;
-        }
-
-        function sendMessage() {
-            const input = document.getElementById('user-input');
-            const message = input.value.trim();
-            
-            if (!message || isProcessing) return;
-            
-            aiMessages.push({ role: 'user', content: message });
-            input.value = '';
-            renderChatMessages();
-            
-            isProcessing = true;
-            setTimeout(() => {
-                const response = generateAIResponse(message);
-                aiMessages.push({ role: 'assistant', content: response });
-                renderChatMessages();
-                isProcessing = false;
-            }, 1000);
-        }
-
-        function generateAIResponse(userMessage) {
-            const lowerMessage = userMessage.toLowerCase();
-            const app = applications.find(a => a.id === activeAppId);
-            
-            if (!app) return 'I\'m here to help! Ask me about the current application.';
-            
-            if (activeAppId === 1) {
-                if (lowerMessage.includes('format') || lowerMessage.includes('file')) {
-                    return 'The Change File Generator accepts CSV, XLS, and XLSX files. Make sure your source file includes a Fee Schedule ID in the header row.';
-                } else if (lowerMessage.includes('scrub') || lowerMessage.includes('analysis')) {
-                    return 'The scrub analysis validates your data against business rules, checks for duplicates, and identifies any formatting issues. Results are saved to the output folder with a detailed report.';
-                }
-            } else if (activeAppId === 2) {
-                if (lowerMessage.includes('format') || lowerMessage.includes('file')) {
-                    return 'You can compare CSV, XLS, XLSX, and TXT files. Both files should have a similar structure for meaningful comparison results.';
-                } else if (lowerMessage.includes('difference') || lowerMessage.includes('compare')) {
-                    return 'The comparison identifies added rows, deleted rows, and modified values. Results show line-by-line differences with color coding for easy identification.';
-                }
-            } else if (activeAppId === 3) {
-                if (lowerMessage.includes('dt') || lowerMessage.includes('file')) {
-                    return 'DT File Generate processes 1-50 Excel files at once. Specify the row and column numbers for data extraction, and select the appropriate type (Default, GA, IN, or KY).';
-                }
-            } else if (activeAppId === 4) {
-                if (lowerMessage.includes('database') || lowerMessage.includes('environment')) {
-                    return 'Select one source environment and multiple target environments for comparison. The system will identify schema differences, data discrepancies, and configuration variations.';
-                }
-            } else if (activeAppId === 10) {
-                if (lowerMessage.includes('sql') || lowerMessage.includes('query')) {
-                    return 'Select a pre-stored SQL query from the list and choose your target environment. Results are automatically exported to Excel format in the output folder.';
-                }
-            }
-            
-            return `I can help you with ${app.name}. Ask me about file formats, processing steps, or troubleshooting common issues.`;
-        }
-
-        // Initialize on page load
-        window.addEventListener('DOMContentLoaded', init);
-    </script>
+    <div class="tbl-card">
+      <div class="tbl-scroll">
+        <table class="dtable">
+          <thead>
+            <tr>
+              <th>LOB / Division</th><th>Fee Schedules</th><th>Sync Status</th>
+              <th>Last Sync</th><th>Owner</th><th class="c">TFS In-Flight</th>
+              <th>7-Day Activity</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="lobBody"></tbody>
+        </table>
+      </div>
+      <div class="tbl-footer">
+        <span class="row-cnt" id="rowCnt">12 of 12 LOBs</span>
+        <div class="legend">
+          <span class="legend-item"><span class="ldot synced"></span>Synced</span>
+          <span class="legend-item"><span class="ldot stale"></span>Stale</span>
+          <span class="legend-item"><span class="ldot offline"></span>Offline</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="detail-panel hidden" id="detailPanel">
+      <div class="dp-hdr" id="dpHdr"></div>
+      <div class="dp-body" id="dpBody"></div>
+    </div>
+
+    <div class="tbl-card">
+      <div class="tfs-hdr">
+        <div class="tfs-tr">
+          <h2 class="sec-ttl">TFS In-Flight Tracker</h2>
+          <span class="tfs-cbdg" id="tfsBadge">9 active</span>
+        </div>
+        <div class="filter-pills" id="tfsFilterPills">
+          <button class="pill on" data-tf="all">All</button>
+          <button class="pill" data-tf="Active">Active</button>
+          <button class="pill" data-tf="In Review">Review</button>
+          <button class="pill" data-tf="Blocked">Blocked</button>
+        </div>
+      </div>
+      <div class="tbl-scroll">
+        <table class="dtable">
+          <thead>
+            <tr>
+              <th>TFS ID</th><th>Title</th><th>LOB</th><th>State</th>
+              <th>Priority</th><th>Assignee</th><th>Progress</th><th>Updated</th>
+            </tr>
+          </thead>
+          <tbody id="tfsBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+const LOBS=[
+  {id:"1",lob:"Motor",div:"Personal Lines",cnt:342,act:318,ina:24,sync:"synced",ls:"Today, 09:14",ha:1,owner:"Arjun Patel",ini:"AP",tfs:5,trend:[20,25,18,30,28,35,32],d:+12},
+  {id:"2",lob:"Property",div:"Personal Lines",cnt:278,act:261,ina:17,sync:"synced",ls:"Today, 08:45",ha:2,owner:"Bianca Torres",ini:"BT",tfs:3,trend:[15,12,18,14,20,19,22],d:+3},
+  {id:"3",lob:"Health",div:"Group & Life",cnt:210,act:196,ina:14,sync:"stale",ls:"Yesterday, 22:10",ha:11,owner:"Clara Ng",ini:"CN",tfs:4,trend:[8,10,9,12,7,6,9],d:-5},
+  {id:"4",lob:"Life",div:"Group & Life",cnt:195,act:195,ina:0,sync:"synced",ls:"Today, 07:00",ha:3,owner:"David Kim",ini:"DK",tfs:2,trend:[5,7,6,8,9,8,10],d:+2},
+  {id:"5",lob:"Travel",div:"Specialty",cnt:88,act:72,ina:16,sync:"offline",ls:"Jun 17, 14:30",ha:43,owner:"Ethan Osei",ini:"EO",tfs:6,trend:[12,9,5,3,2,2,1],d:-18},
+  {id:"6",lob:"Marine",div:"Commercial",cnt:124,act:118,ina:6,sync:"stale",ls:"Yesterday, 16:00",ha:17,owner:"Fiona Russo",ini:"FR",tfs:1,trend:[6,8,7,5,6,4,5],d:-1},
+  {id:"7",lob:"SME Commercial",div:"Commercial",cnt:156,act:156,ina:0,sync:"synced",ls:"Today, 10:05",ha:0,owner:"Georg Müller",ini:"GM",tfs:3,trend:[10,11,14,13,15,17,18],d:+8},
+  {id:"8",lob:"Workers Comp",div:"Commercial",cnt:203,act:199,ina:4,sync:"synced",ls:"Today, 06:30",ha:4,owner:"Helen Chen",ini:"HC",tfs:0,trend:[9,10,10,12,11,13,14],d:+5},
+  {id:"9",lob:"Liability",div:"Commercial",cnt:97,act:81,ina:16,sync:"offline",ls:"Jun 16, 11:20",ha:71,owner:"Igor Dubois",ini:"ID",tfs:2,trend:[4,3,3,2,2,1,1],d:-22},
+  {id:"10",lob:"Accident & Health",div:"Specialty",cnt:74,act:74,ina:0,sync:"synced",ls:"Today, 08:00",ha:2,owner:"Jade Santos",ini:"JS",tfs:1,trend:[3,4,5,4,6,5,7],d:+4},
+  {id:"11",lob:"Crop & Agri",div:"Specialty",cnt:45,act:40,ina:5,sync:"stale",ls:"Yesterday, 13:00",ha:20,owner:"Karl Ivanov",ini:"KI",tfs:0,trend:[2,3,2,3,2,2,2],d:0},
+  {id:"12",lob:"Surety & Bond",div:"Commercial",cnt:30,act:30,ina:0,sync:"synced",ls:"Today, 09:55",ha:1,owner:"Lily Park",ini:"LP",tfs:0,trend:[1,1,2,1,2,1,2],d:+1},
+];
+const TFSD=[
+  {id:"TFS-8821",title:"Update Motor base rate table for Q3 2026",lob:"Motor",state:"Active",as:"A. Patel",pri:"High",ago:"2h ago",pct:68},
+  {id:"TFS-8803",title:"Property premium reload post storm model v2.1",lob:"Property",state:"In Review",as:"B. Torres",pri:"High",ago:"4h ago",pct:90},
+  {id:"TFS-8799",title:"Health co-pay schedule amendment — policy cycle",lob:"Health",state:"Blocked",as:"C. Ng",pri:"Medium",ago:"11h ago",pct:35},
+  {id:"TFS-8790",title:"Travel reactivation fee schedule — critical path",lob:"Travel",state:"Blocked",as:"E. Osei",pri:"High",ago:"43h ago",pct:12},
+  {id:"TFS-8784",title:"Marine cargo sub-limit realignment",lob:"Marine",state:"Active",as:"F. Russo",pri:"Low",ago:"17h ago",pct:55},
+  {id:"TFS-8771",title:"SME commercial multi-line bundle pricing",lob:"SME Commercial",state:"In Review",as:"G. Müller",pri:"Medium",ago:"1h ago",pct:82},
+  {id:"TFS-8760",title:"Life annual review rate adjustment 2026",lob:"Life",state:"Active",as:"D. Kim",pri:"Medium",ago:"3h ago",pct:47},
+  {id:"TFS-8751",title:"Liability schedule offline — data source fault",lob:"Liability",state:"Blocked",as:"I. Dubois",pri:"High",ago:"2d ago",pct:5},
+  {id:"TFS-8744",title:"Motor no-claims discount tier update",lob:"Motor",state:"Active",as:"A. Patel",pri:"Medium",ago:"5h ago",pct:74},
+  {id:"TFS-8739",title:"A&H group scheme fee realignment",lob:"Accident & Health",state:"Completed",as:"J. Santos",pri:"Low",ago:"1d ago",pct:100},
+];
+
+let cF='all',cTF='all',cS='lob',selId=null,q='';
+
+/* THEME */
+function getTheme(){return document.documentElement.getAttribute('data-theme')}
+function setTheme(t){
+  document.documentElement.setAttribute('data-theme',t);
+  localStorage.setItem('fsd-theme',t);
+  document.getElementById('themeLabel').textContent=t==='dark'?'Light Mode':'Dark Mode';
+}
+document.getElementById('themeToggle').addEventListener('click',()=>setTheme(getTheme()==='dark'?'light':'dark'));
+setTheme(localStorage.getItem('fsd-theme')||'dark');
+
+/* CLOCK */
+function tick(){document.getElementById('clockTime').textContent=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})}
+tick();setInterval(tick,1000);
+
+/* ENV DOT */
+const EC={Production:'#34d399',UAT:'#fbbf24',SIT:'#60a5fa',Development:'#a78bfa'};
+function updEnv(){document.getElementById('envDot').style.background=EC[document.getElementById('envSelect').value]||'#34d399'}
+document.getElementById('envSelect').addEventListener('change',updEnv);updEnv();
+
+/* SPARKLINE */
+function spk(data,sync){
+  const W=80,H=28,max=Math.max(...data,1);
+  const pts=data.map((v,i)=>[(i/(data.length-1))*W,H-(v/max)*(H-4)+2]);
+  const d=pts.map((p,i)=>`${i===0?'M':'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  const fill=`${d} L${W},${H} L0,${H} Z`;
+  const c=sync==='synced'?'#34d399':sync==='stale'?'#fbbf24':'#f87171';
+  const fc=sync==='synced'?'rgba(52,211,153,.09)':sync==='stale'?'rgba(251,191,36,.09)':'rgba(248,113,113,.09)';
+  const lp=pts[pts.length-1];
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="overflow:visible"><path d="${fill}" fill="${fc}"/><path d="${d}" fill="none" stroke="${c}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${lp[0].toFixed(1)}" cy="${lp[1].toFixed(1)}" r="2.5" fill="${c}"/></svg>`;
+}
+
+/* GAUGE */
+function gauge(pct,color){
+  const r=16,cx=20,cy=20,circ=2*Math.PI*r,dash=(pct/100)*circ;
+  return `<svg width="40" height="40" viewBox="0 0 40 40"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="rgba(255,255,255,.05)" stroke-width="3.5"/><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="3.5" stroke-dasharray="${dash.toFixed(2)} ${(circ-dash).toFixed(2)}" stroke-dashoffset="${(circ/4).toFixed(2)}" stroke-linecap="round"/></svg>`;
+}
+
+/* KPI */
+function renderKPI(){
+  const tot=LOBS.reduce((s,r)=>s+r.cnt,0),totA=LOBS.reduce((s,r)=>s+r.act,0);
+  const syn=LOBS.filter(r=>r.sync==='synced').length,sta=LOBS.filter(r=>r.sync==='stale').length,off=LOBS.filter(r=>r.sync==='offline').length;
+  const tfsA=TFSD.filter(t=>t.state!=='Completed').length,tfsB=TFSD.filter(t=>t.state==='Blocked').length;
+  const cards=[
+    {lbl:'Total Schedules',val:tot.toLocaleString(),sub:`${totA.toLocaleString()} active`,c:'#3b82f6',kg:'var(--kgb)',p:Math.round((totA/tot)*100),ico:`<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="1.5" width="13" height="13" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M1.5 6h13M5.5 1.5v4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`},
+    {lbl:'Synced LOBs',val:String(syn),sub:`${Math.round((syn/LOBS.length)*100)}% of total`,c:'#34d399',kg:'var(--kgg)',p:Math.round((syn/LOBS.length)*100),ico:`<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.3"/><path d="M5 8l2.5 2.5 4-4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`},
+    {lbl:'Stale / Offline',val:String(sta+off),sub:`${sta} stale · ${off} offline`,c:'#fbbf24',kg:'var(--kga)',p:Math.round(((sta+off)/LOBS.length)*100),ico:`<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2.5L14.5 13.5H1.5L8 2.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M8 6.5v3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11.5" r=".7" fill="currentColor"/></svg>`},
+    {lbl:'TFS In-Flight',val:String(tfsA),sub:`${tfsB} blocked`,c:'#a78bfa',kg:'var(--kgv)',p:Math.round((TFSD.filter(t=>t.state==='Active').length/tfsA)*100),ico:`<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="3.5" width="13" height="9.5" rx="1.3" stroke="currentColor" stroke-width="1.3"/><path d="M5 7h6M5 10h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`},
+  ];
+  document.getElementById('kpiGrid').innerHTML=cards.map(c=>`<div class="kpi-card" style="--kg:radial-gradient(ellipse at top left,${c.kg} 0%,transparent 70%)"><div class="kpi-gauge">${gauge(c.p,c.c)}<div class="kpi-gi" style="color:${c.c}">${c.ico}</div></div><div class="kpi-body"><div class="kpi-val">${c.val}</div><div class="kpi-lbl">${c.lbl}</div><div class="kpi-sub">${c.sub}</div></div></div>`).join('');
+}
+
+/* SIDEBAR */
+function renderSidebar(){
+  const dc={synced:'ds',stale:'da',offline:'dr'};
+  document.getElementById('sidebarList').innerHTML=LOBS.map(r=>`<button class="sb-item ${selId===r.id?'on':''}" onclick="sel('${r.id}')"><span class="sb-dot ${dc[r.sync]}"></span><span class="sb-name">${r.lob}</span>${r.tfs>0?`<span class="sb-tfs">${r.tfs}</span>`:''}</button>`).join('');
+  document.getElementById('sfTotal').textContent=LOBS.length;
+  document.getElementById('sfTFS').textContent=TFSD.filter(t=>t.state!=='Completed').length;
+}
+
+/* LOB TABLE */
+function filteredLOBs(){
+  let rows=[...LOBS];
+  if(q){const qq=q.toLowerCase();rows=rows.filter(r=>r.lob.toLowerCase().includes(qq)||r.owner.toLowerCase().includes(qq)||r.div.toLowerCase().includes(qq))}
+  if(cF!=='all')rows=rows.filter(r=>r.sync===cF);
+  rows.sort((a,b)=>{
+    if(cS==='lob')return a.lob.localeCompare(b.lob);
+    if(cS==='count')return b.cnt-a.cnt;
+    if(cS==='tfs')return b.tfs-a.tfs;
+    if(cS==='sync')return a.ha-b.ha;
+    return 0;
+  });
+  return rows;
+}
+
+function renderLOB(){
+  const rows=filteredLOBs();
+  document.getElementById('rowCnt').textContent=`${rows.length} of ${LOBS.length} LOBs`;
+  if(!rows.length){document.getElementById('lobBody').innerHTML=`<tr><td colspan="8" style="text-align:center;padding:48px;color:var(--txm)">No LOBs match your filter.</td></tr>`;return}
+  document.getElementById('lobBody').innerHTML=rows.map(r=>{
+    const pct=Math.round((r.act/r.cnt)*100);
+    const ac=r.ha>24?'bad':r.ha>8?'warn':'ok';
+    const at=r.ha===0?'moments ago':r.ha<24?`${r.ha}h ago`:`${Math.round(r.ha/24)}d ago`;
+    const dc2=r.d>0?'up':r.d<0?'dn':'fl';
+    const dt=r.d>0?`+${r.d}`:r.d===0?'—':String(r.d);
+    return `<tr class="${selId===r.id?'sel':''}" onclick="sel('${r.id}')">
+      <td><div class="cn">${r.lob}</div><div class="cd">${r.div}</div></td>
+      <td><div class="cbig">${r.cnt.toLocaleString()}</div><div class="pmini"><div class="pmini-track"><div class="pmini-fill" style="width:${pct}%"></div></div><span class="pmini-lbl">${r.act.toLocaleString()} active</span></div></td>
+      <td><span class="sp ${r.sync}"><span class="sp-dot d${r.sync[0]} ${r.sync==='synced'?'apu':''}"></span>${r.sync[0].toUpperCase()+r.sync.slice(1)}</span></td>
+      <td><div class="st">${r.ls}</div><div class="sa ${ac}">${at}</div></td>
+      <td><div class="oc"><div class="oav">${r.ini}</div><span class="on2">${r.owner}</span></div></td>
+      <td class="c">${r.tfs>0?`<div class="tfsb"><div class="tfsb-n">${r.tfs}</div><div class="tfsb-s">items</div></div>`:`<span class="tfs-nil">—</span>`}</td>
+      <td><div class="spkc">${spk(r.trend,r.sync)}<span class="spkd ${dc2}">${dt}</span></div></td>
+      <td><button class="rchev ${selId===r.id?'open':''}" onclick="event.stopPropagation();sel('${r.id}')"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button></td>
+    </tr>`;
+  }).join('');
+}
+
+/* DETAIL */
+function sel(id){selId=(selId===id)?null:id;renderLOB();renderSidebar();renderDetail()}
+function renderDetail(){
+  const panel=document.getElementById('detailPanel');
+  if(!selId){panel.classList.add('hidden');return}
+  const r=LOBS.find(x=>x.id===selId);
+  if(!r){panel.classList.add('hidden');return}
+  panel.classList.remove('hidden');
+  document.getElementById('dpHdr').innerHTML=`<div class="dp-left"><div class="dp-av">${r.ini}</div><div><div class="dp-lob">${r.lob}</div><div class="dp-div">${r.div} · ${r.owner}</div></div><span class="sp ${r.sync}" style="margin-left:8px"><span class="sp-dot d${r.sync[0]}"></span>${r.sync[0].toUpperCase()+r.sync.slice(1)}</span></div><button class="dp-close" onclick="sel('${r.id}')"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 2l10 10M12 2L2 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>`;
+  const sc={Active:'active','In Review':'review',Blocked:'blocked',Completed:'completed'};
+  const tf=TFSD.filter(t=>t.lob===r.lob);
+  document.getElementById('dpBody').innerHTML=`<div class="ds-grid"><div class="ds-card"><div class="ds-lbl">Total Schedules</div><div class="ds-val cw">${r.cnt.toLocaleString()}</div></div><div class="ds-card"><div class="ds-lbl">Active</div><div class="ds-val cg">${r.act.toLocaleString()}</div></div><div class="ds-card"><div class="ds-lbl">Inactive</div><div class="ds-val ca">${r.ina.toLocaleString()}</div></div><div class="ds-card"><div class="ds-lbl">TFS Items</div><div class="ds-val cv">${r.tfs||'None'}</div></div></div>${tf.length?`<div><div class="dt-title">Related TFS Items</div><div class="dt-rows">${tf.map(t=>`<div class="dt-row"><span class="dt-id">${t.id}</span><span class="dt-name">${t.title}</span><span class="stpill ${sc[t.state]}">${t.state}</span><div class="dt-prog"><div class="dt-fill tprog-fill ${sc[t.state]}" style="width:${t.pct}%"></div></div><span class="dt-pct">${t.pct}%</span></div>`).join('')}</div></div>`:''}`;
+}
+
+/* TFS TABLE */
+function renderTFS(){
+  let rows=[...TFSD];
+  if(cTF!=='all')rows=rows.filter(t=>t.state===cTF);
+  document.getElementById('tfsBadge').textContent=`${TFSD.filter(t=>t.state!=='Completed').length} active`;
+  const sc={Active:'active','In Review':'review',Blocked:'blocked',Completed:'completed'};
+  const pc={High:'ph',Medium:'pm',Low:'pl'};
+  document.getElementById('tfsBody').innerHTML=rows.map((t,i)=>`<tr style="${i%2!==0?'background:var(--theven)':''}"><td><span class="tfs-id">${t.id}</span></td><td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--txs)">${t.title}</td><td style="color:var(--txm);white-space:nowrap">${t.lob}</td><td><span class="stpill ${sc[t.state]}">${t.state}</span></td><td><div class="pcell"><span class="pdot ${pc[t.pri]}"></span>${t.pri}</div></td><td><div class="oc"><div class="oav" style="width:22px;height:22px;font-size:8px">${t.as[0]}${t.as.replace(/^.\.\s/,'')[0]||''}</div><span class="on2">${t.as}</span></div></td><td><div class="tprog-cell"><div class="tprog-track"><div class="tprog-fill ${sc[t.state]}" style="width:${t.pct}%"></div></div><span class="tprog-pct">${t.pct}%</span></div></td><td style="color:var(--txm);white-space:nowrap">${t.ago}</td></tr>`).join('');
+}
+
+/* EVENTS */
+document.getElementById('filterPills').addEventListener('click',e=>{
+  const b=e.target.closest('[data-f]');if(!b)return;
+  cF=b.dataset.f;
+  document.querySelectorAll('#filterPills .pill').forEach(p=>p.classList.remove('on'));
+  b.classList.add('on');renderLOB();
+});
+document.getElementById('tfsFilterPills').addEventListener('click',e=>{
+  const b=e.target.closest('[data-tf]');if(!b)return;
+  cTF=b.dataset.tf;
+  document.querySelectorAll('#tfsFilterPills .pill').forEach(p=>p.classList.remove('on'));
+  b.classList.add('on');renderTFS();
+});
+document.getElementById('sortSelect').addEventListener('change',e=>{cS=e.target.value;renderLOB()});
+document.getElementById('searchInput').addEventListener('input',e=>{q=e.target.value;renderLOB()});
+
+/* INIT */
+renderKPI();renderSidebar();renderLOB();renderTFS();
+</script>
 </body>
 </html>
