@@ -1,257 +1,896 @@
-py -m pip install requests beautifulsoup4 pandas openpyxl
-py -m pip install requests beautifulsoup4
-
-##########################################
-
-import os, re, time, glob, shutil
-from datetime import datetime, timedelta
-from urllib.parse import urljoin, urlparse, unquote
-import requests
-from bs4 import BeautifulSoup
-import pandas as pd
-
-# --------------------- CONFIG ---------------------
-BASE_URL = "https://dhcfp.nv.gov/resources/rates/feeschedules/"
-ROOT_DIR = r"C:\Users\rajas\Desktop\Nevada"   # parent folder
-EXCEL_EXTS = (".xlsx", ".xls", ".xlsm", ".csv")
-HEADER_ROW_INDEX = 9  # Row 10 in Excel (0-based index)
-REPORTS_SUBFOLDER = "_reports"
-# --------------------------------------------------
-
-def now_str():
-    return time.strftime("%Y%m%d_%H%M%S")
-
-def today_folder_name():
-    return datetime.now().strftime("%m%d%Y")
-
-def yesterday_folder_name():
-    return (datetime.now() - timedelta(days=1)).strftime("%m%d%Y")
-
-def ensure_dir(p):
-    os.makedirs(p, exist_ok=True)
-    return p
-
-def get_session():
-    s = requests.Session()
-    s.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Python downloader"})
-    return s
-
-def filename_from_response(resp, url_fallback):
-    cd = resp.headers.get("Content-Disposition", "")
-    m = re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";]+)"?', cd, flags=re.I)
-    if m:
-        return unquote(m.group(1)).strip()
-    name = os.path.basename(urlparse(url_fallback).path)
-    return name or f"download_{int(time.time()*1000)}.xlsx"
-
-def ensure_excel_ext(name):
-    return name if name.lower().endswith(EXCEL_EXTS) else name + ".xlsx"
-
-def stamp_name(original_name):
-    stem, ext = os.path.splitext(original_name)
-    return f"{stem}__{now_str()}{ext}"
-
-def is_excel_link(href):
-    if not href:
-        return False
-    href = href.lower()
-    return href.endswith(EXCEL_EXTS)
-
-def collect_excel_links(session):
-    r = session.get(BASE_URL, timeout=60)
-    r.raise_for_status()
-    soup = BeautifulSoup(r.text, "html.parser")
-    links = []
-    for a in soup.find_all("a", href=True):
-        href = a["href"].strip()
-        abs_url = urljoin(BASE_URL, href)
-        if is_excel_link(href) or is_excel_link(abs_url):
-            links.append(abs_url)
-    # dedupe but keep order
-    deduped = []
-    seen = set()
-    for u in links:
-        if u not in seen:
-            seen.add(u)
-            deduped.append(u)
-    return deduped
-
-def download_file(session, url, dest_folder):
-    try:
-        with session.get(url, stream=True, timeout=120) as resp:
-            resp.raise_for_status()
-            original = ensure_excel_ext(filename_from_response(resp, url))
-            stamped = stamp_name(original)
-            out_path = os.path.join(dest_folder, stamped)
-
-            # avoid accidental overwrite within same second
-            base, ext = os.path.splitext(out_path)
-            c = 1
-            while os.path.exists(out_path):
-                out_path = f"{base}_{c}{ext}"
-                c += 1
-
-            size = 0
-            with open(out_path, "wb") as f:
-                for chunk in resp.iter_content(chunk_size=1024 * 64):
-                    if chunk:
-                        f.write(chunk)
-                        size += len(chunk)
-            print(f"Saved: {out_path} ({size/1024:.1f} KB)")
-            return out_path
-    except Exception as e:
-        print(f"Failed: {url} -> {e}")
-        return None
-
-def clean_df_for_compare(df: pd.DataFrame) -> pd.DataFrame:
-    # Normalize to strings, trim whitespace, unify NaNs
-    df = df.copy()
-    df.columns = [str(c).strip() for c in df.columns]
-    for c in df.columns:
-        df[c] = df[c].astype(str).str.strip()
-    df = df.fillna("")
-    # Sort columns alphabetically so column order changes don't look like diffs
-    df = df.reindex(sorted(df.columns), axis=1)
-    # Drop completely empty rows
-    if df.shape[1] > 0:
-        df = df[~(df.apply(lambda r: ''.join(r.values.astype(str)).strip(), axis=1) == "")]
-    return df.reset_index(drop=True)
-
-def read_excel_any(path: str) -> pd.DataFrame:
-    ext = os.path.splitext(path)[1].lower()
-    if ext == ".csv":
-        df = pd.read_csv(path)
-    else:
-        # by default read first sheet; header on row 10 -> header=9
-        df = pd.read_excel(path, engine="openpyxl", header=HEADER_ROW_INDEX)
-    return clean_df_for_compare(df)
-
-def base_name_without_stamp(fname: str) -> str:
-    """
-    Given 'Provider_Type_64_FFY_26.xlsx' or 'Provider_Type_64_FFY_26__20251112_102000.xlsx'
-    return a stable base for mapping between days.
-    """
-    name = os.path.basename(fname)
-    stem, ext = os.path.splitext(name)
-    # Our convention uses double underscore before timestamp
-    if "__" in stem:
-        stem = stem.split("__", 1)[0]
-    return f"{stem}{ext}"
-
-def compare_two_files(y_path: str, t_path: str) -> dict:
-    """
-    Returns dict with DataFrames of differences.
-    - added_or_changed: rows present in TODAY but not in YESTERDAY
-    - removed_or_changed: rows present in YESTERDAY but not in TODAY
-    Also attempts a cell-by-cell comparison when possible (optional).
-    """
-    y_df = read_excel_any(y_path)
-    t_df = read_excel_any(t_path)
-
-    # Set-diff on full rows (robust, no assumed key)
-    # Represent each row as a tuple across all columns (sorted)
-    y_cols = list(y_df.columns)
-    t_cols = list(t_df.columns)
-
-    # Align to union of columns to be fair
-    all_cols = sorted(set(y_cols) | set(t_cols))
-    y_aligned = y_df.reindex(columns=all_cols, fill_value="")
-    t_aligned = t_df.reindex(columns=all_cols, fill_value="")
-
-    # Mark source so we can concat and find symmetric differences
-    y_aligned["_source"] = "yesterday"
-    t_aligned["_source"] = "today"
-
-    # Identify additions/changes vs removals/changes by row-wise tuple
-    y_set = set(tuple(r) for r in y_aligned.drop(columns=["_source"]).itertuples(index=False, name=None))
-    t_set = set(tuple(r) for r in t_aligned.drop(columns=["_source"]).itertuples(index=False, name=None))
-
-    added_or_changed_rows = t_set - y_set
-    removed_or_changed_rows = y_set - t_set
-
-    added_or_changed = pd.DataFrame(list(added_or_changed_rows), columns=all_cols)
-    removed_or_changed = pd.DataFrame(list(removed_or_changed_rows), columns=all_cols)
-
-    result = {
-        "added_or_changed": added_or_changed.sort_values(by=all_cols).reset_index(drop=True),
-        "removed_or_changed": removed_or_changed.sort_values(by=all_cols).reset_index(drop=True),
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ScrubRules — Fee Schedule Repository</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    html,body{height:100%;}
+    body{font-family:'Inter',sans-serif;font-size:14px;background:var(--bg);color:var(--fg);}
+    :root{
+      --bg:#EEF1F6;--surface:#fff;--surface-2:#F4F7FC;--surface-3:#EEF1F6;
+      --nav-bg:#fff;--sidebar-bg:#fff;
+      --fg:#0F1C35;--fg-2:#374151;--fg-3:#5A6A85;--fg-4:#9DB4CC;
+      --border:rgba(27,58,107,0.12);--border-2:rgba(27,58,107,0.07);
+      --indigo:#4F46E5;--il:#EEF2FF;--id:#3730A3;
+      --bg-ghost:#F1F5F9;--ibg:#F8FAFC;
+      --rs:6px;--r:10px;--rl:14px;--rxl:18px;
+      --ss:0 1px 3px rgba(0,0,0,.07);--sh:0 4px 16px rgba(0,0,0,.08);--sxl:0 20px 60px rgba(0,0,0,.18);
     }
-    return result
+    body.dark{
+      --bg:#0B1120;--surface:#141E30;--surface-2:#1E2D45;--surface-3:#1A2540;
+      --nav-bg:#0F1929;--sidebar-bg:#0F1929;
+      --fg:#E2E8F0;--fg-2:#CBD5E1;--fg-3:#64748B;--fg-4:#334155;
+      --border:rgba(148,163,184,0.1);--border-2:rgba(148,163,184,0.06);
+      --indigo:#818CF8;--il:#1e1b4b22;--id:#A5B4FC;
+      --bg-ghost:#1E2D45;--ibg:#1E2D45;
+      --ss:0 1px 3px rgba(0,0,0,.3);--sh:0 4px 16px rgba(0,0,0,.4);--sxl:0 20px 60px rgba(0,0,0,.7);
+    }
 
-def write_report(report_path: str, file_title: str, diffs: dict):
-    ensure_dir(os.path.dirname(report_path))
-    with pd.ExcelWriter(report_path, engine="openpyxl") as xlw:
-        # Summary sheet
-        summary = pd.DataFrame({
-            "File Compared": [file_title],
-            "Rows Added/Changed (today - yesterday)": [len(diffs["added_or_changed"])],
-            "Rows Removed/Changed (yesterday - today)": [len(diffs["removed_or_changed"])],
-            "Generated At": [datetime.now().strftime("%Y-%m-%d %H:%M:%S")]
-        })
-        summary.to_excel(xlw, index=False, sheet_name="Summary")
+    /* ── Layout ─────────────────────────────────────── */
+    #app{display:flex;flex-direction:column;height:100vh;overflow:hidden;}
+    .hdr{display:flex;align-items:center;justify-content:space-between;height:56px;padding:0 24px;flex-shrink:0;background:var(--nav-bg);border-bottom:1px solid var(--border);z-index:10;}
+    .hdr-brand{display:flex;align-items:center;gap:12px;}
+    .bi{width:32px;height:32px;border-radius:var(--rs);background:linear-gradient(135deg,#4F46E5,#7C3AED);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(79,70,229,.35);}
+    .bn{font-size:14px;font-weight:700;color:var(--fg);}
+    .bs{font-size:13px;color:var(--fg-3);font-weight:500;}
+    .hdr-r{display:flex;align-items:center;gap:12px;}
+    .chip{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--fg-3);background:var(--surface-2);border:1px solid var(--border);padding:5px 12px;border-radius:var(--r);}
+    .tbtn{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:var(--r);border:1px solid var(--border);background:var(--surface-2);cursor:pointer;font-size:12px;font-weight:600;color:var(--fg-3);font-family:inherit;transition:.15s;}
+    .tbtn:hover{background:var(--bg-ghost);color:var(--fg);}
+    .av{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#4F46E5,#7C3AED);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;}
+    .bw{display:flex;flex:1;overflow:hidden;}
 
-        # Detail sheets
-        diffs["added_or_changed"].to_excel(xlw, index=False, sheet_name="Added_or_Changed")
-        diffs["removed_or_changed"].to_excel(xlw, index=False, sheet_name="Removed_or_Changed")
+    /* ── Sidebar ─────────────────────────────────────── */
+    .sb{width:240px;flex-shrink:0;background:var(--sidebar-bg);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
+    .sb-srch{padding:10px;border-bottom:1px solid var(--border-2);}
+    .sw{position:relative;}
+    .sw input{width:100%;padding:7px 10px 7px 30px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--rs);font-size:12px;color:var(--fg);font-family:inherit;outline:none;transition:.15s;}
+    .sw input:focus{border-color:var(--indigo);box-shadow:0 0 0 2px rgba(79,70,229,.15);}
+    .sw input::placeholder{color:var(--fg-4);}
+    .sw svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);pointer-events:none;}
+    .sb-nav{flex:1;overflow-y:auto;padding:8px 0;}
+    .sb-nav::-webkit-scrollbar{width:4px;}
+    .sb-nav::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
+    .lob-btn{display:flex;align-items:center;justify-content:space-between;width:calc(100% - 8px);margin:0 4px;padding:7px 10px;border-radius:var(--rs);border:none;background:none;cursor:pointer;font-family:inherit;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3);transition:.12s;}
+    .lob-btn:hover{background:var(--surface-2);color:var(--fg);}
+    .lbl{display:flex;align-items:center;gap:8px;}
+    .ld{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+    .lbr{display:flex;align-items:center;gap:6px;}
+    .lc{font-size:10px;font-family:'DM Mono',monospace;color:var(--fg-4);}
+    .lch{display:inline-flex;transition:transform .15s;}
+    .lch.open{transform:rotate(90deg);}
+    .fsl{padding:2px 8px 4px 20px;display:flex;flex-direction:column;gap:2px;}
+    .fs-btn{display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border-radius:var(--rs);border:1px solid transparent;background:none;cursor:pointer;font-family:inherit;font-size:12px;color:var(--fg-3);text-align:left;width:100%;transition:.12s;}
+    .fs-btn:hover{background:var(--surface-2);color:var(--fg);}
+    .fs-btn.active{background:var(--il);color:var(--indigo);border-color:rgba(79,70,229,.2);font-weight:600;}
+    .fsc{font-size:10px;font-family:'DM Mono',monospace;padding:1px 5px;border-radius:4px;}
+    .fs-btn.active .fsc{background:rgba(79,70,229,.12);color:var(--indigo);}
+    .fs-btn:not(.active) .fsc{color:var(--fg-4);}
+    .sb-ft{padding:10px 12px;border-top:1px solid var(--border-2);display:flex;align-items:center;gap:6px;font-size:10px;color:var(--fg-4);}
 
-def compare_today_vs_yesterday(today_dir: str):
-    y_dir = os.path.join(ROOT_DIR, yesterday_folder_name())
-    if not os.path.isdir(y_dir):
-        print(f"No yesterday folder found at: {y_dir} — skipping comparison.")
-        return
+    /* ── Main ────────────────────────────────────────── */
+    .main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;}
+    .ch{background:var(--nav-bg);border-bottom:1px solid var(--border);padding:14px 24px;flex-shrink:0;}
+    .chr{display:flex;align-items:center;justify-content:space-between;}
+    .bc{display:flex;align-items:center;gap:8px;margin-bottom:4px;}
+    .bbtn{padding:4px;border-radius:var(--rs);border:none;background:none;cursor:pointer;color:var(--fg-4);display:flex;align-items:center;transition:.12s;}
+    .bbtn:hover{background:var(--surface-2);color:var(--fg);}
+    .bt{font-size:14px;font-weight:700;color:var(--fg);}
+    .cs{font-size:11px;color:var(--fg-3);padding-left:28px;}
+    .ha{display:flex;align-items:center;gap:8px;}
+    .sbox{position:relative;}
+    .sbox input{padding:7px 30px;border:1px solid var(--border);border-radius:var(--r);background:var(--surface-2);font-size:13px;color:var(--fg);font-family:inherit;outline:none;width:180px;transition:.15s;}
+    .sbox input:focus{border-color:var(--indigo);background:var(--surface);box-shadow:0 0 0 2px rgba(79,70,229,.12);}
+    .sbox input::placeholder{color:var(--fg-4);}
+    .sbox svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);pointer-events:none;}
+    select.fsel{padding:7px 28px 7px 12px;border:1px solid var(--border);border-radius:var(--r);background:var(--surface-2);font-size:13px;color:var(--fg);font-family:inherit;outline:none;cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239DB4CC' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;transition:.15s;}
 
-    # Build maps: base_name_without_stamp -> latest file path (if multiple)
-    def map_files(folder):
-        mapping = {}
-        for path in glob.glob(os.path.join(folder, "*")):
-            if os.path.isfile(path) and path.lower().endswith(EXCEL_EXTS):
-                base = base_name_without_stamp(path)
-                # Keep the newest instance if multiple downloads of same file exist
-                prev = mapping.get(base)
-                if not prev or os.path.getmtime(path) > os.path.getmtime(prev):
-                    mapping[base] = path
-        return mapping
+    /* ── Buttons ─────────────────────────────────────── */
+    .btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:var(--r);border:1px solid var(--border);background:var(--surface-2);color:var(--fg-2);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;transition:.15s;}
+    .btn:hover{background:var(--bg-ghost);}
+    .btn svg{width:14px;height:14px;}
+    .btn-p{background:linear-gradient(135deg,#4F46E5,#7C3AED);color:#fff;border-color:transparent;box-shadow:0 2px 8px rgba(79,70,229,.3);}
+    .btn-p:hover{opacity:.9;background:linear-gradient(135deg,#4F46E5,#7C3AED);}
+    .btn-d{background:#EF4444;color:#fff;border-color:transparent;}
+    .btn-d:hover{background:#DC2626;}
 
-    y_map = map_files(y_dir)
-    t_map = map_files(today_dir)
+    /* ── Table ───────────────────────────────────────── */
+    .ta{flex:1;overflow:auto;padding:24px;}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--rxl);overflow:hidden;box-shadow:var(--ss);}
+    table{width:100%;border-collapse:collapse;font-size:13px;}
+    thead tr{background:var(--surface-2);border-bottom:1px solid var(--border);}
+    thead th{padding:10px 16px;text-align:left;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-3);}
+    thead th:last-child{text-align:right;}
+    tbody tr{border-bottom:1px solid var(--border-2);cursor:pointer;transition:background .12s;}
+    tbody tr:last-child{border-bottom:none;}
+    tbody tr:hover{background:rgba(79,70,229,.04);}
+    tbody td{padding:12px 16px;vertical-align:middle;}
+    .rc{display:flex;align-items:flex-start;gap:12px;}
+    .ri{width:32px;height:32px;border-radius:var(--rs);background:var(--surface-2);display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .12s;}
+    tbody tr:hover .ri{background:var(--il);}
+    tbody tr:hover .ri svg{color:var(--indigo)!important;}
+    .rn{font-weight:600;color:var(--fg);line-height:1.3;}
+    .rcd{font-family:'DM Mono',monospace;font-size:10px;color:var(--fg-3);margin-top:2px;}
+    .bbar{display:flex;align-items:center;gap:6px;}
+    .bsegs{display:flex;gap:2px;}
+    .bseg{width:6px;height:12px;border-radius:3px;}
+    .bseg.on{background:#6366F1;}.bseg.off{background:var(--surface-2);}
+    .bl{font-size:11px;color:var(--fg-3);}
+    .vc{display:flex;align-items:center;gap:6px;}
+    .vm{font-family:'DM Mono',monospace;font-size:12px;font-weight:700;color:var(--fg-2);}
+    .rb{font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px;background:var(--il);color:var(--indigo);}
+    .ra{display:flex;align-items:center;justify-content:flex-end;gap:2px;opacity:0;transition:opacity .12s;}
+    tbody tr:hover .ra{opacity:1;}
+    .ib{width:30px;height:30px;border-radius:var(--rs);border:none;background:none;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--fg-4);transition:.12s;}
+    .ib.vi:hover{color:#4F46E5;background:rgba(79,70,229,.08);}
+    .ib.ed:hover{color:#7C3AED;background:rgba(124,58,237,.08);}
+    .ib.cp:hover{color:#0EA5E9;background:rgba(14,165,233,.08);}
+    .ib.dl:hover{color:#EF4444;background:rgba(239,68,68,.08);}
+    .tf{padding:10px 16px;border-top:1px solid var(--border-2);background:var(--surface-2);font-size:11px;color:var(--fg-3);}
+    .tf strong{color:var(--fg-2);}
+    .es{display:flex;flex-direction:column;align-items:center;justify-content:center;height:240px;text-align:center;}
+    .ei{width:56px;height:56px;border-radius:var(--rl);background:var(--surface-2);display:flex;align-items:center;justify-content:center;margin-bottom:12px;}
+    .et{font-size:13px;font-weight:600;color:var(--fg-3);margin-bottom:4px;}
+    .ec{font-size:12px;color:var(--fg-4);max-width:280px;}
+    .wl{flex:1;display:flex;align-items:center;justify-content:center;}
+    .wi{text-align:center;max-width:400px;}
+    .wic{width:80px;height:80px;border-radius:24px;margin:0 auto 24px;background:linear-gradient(135deg,#4F46E5,#7C3AED);display:flex;align-items:center;justify-content:center;box-shadow:0 16px 40px rgba(79,70,229,.3);}
+    .wt{font-size:20px;font-weight:700;color:var(--fg);margin-bottom:8px;}
+    .ws{font-size:13px;color:var(--fg-3);line-height:1.6;margin-bottom:24px;}
+    .lps{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;}
 
-    report_dir = ensure_dir(os.path.join(today_dir, REPORTS_SUBFOLDER))
-    any_reports = False
+    /* ── Badges ──────────────────────────────────────── */
+    .ltag{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid transparent;}
+    .ltag .dot{width:6px;height:6px;border-radius:50%;}
+    .sp{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;}
+    .sp svg{width:10px;height:10px;}
+    .sa{background:rgba(16,185,129,.08);color:#059669;box-shadow:0 0 0 1px rgba(16,185,129,.2);}
+    .si{background:var(--surface-2);color:var(--fg-3);box-shadow:0 0 0 1px var(--border);}
+    .spe{background:rgba(245,158,11,.08);color:#D97706;box-shadow:0 0 0 1px rgba(245,158,11,.2);}
+    body.dark .sa{color:#34D399;}body.dark .spe{color:#FCD34D;}
+    .lob-AR{color:#7C3AED;background:#F5F3FF;border-color:#DDD6FE;}.lob-MI{color:#059669;background:#ECFDF5;border-color:#A7F3D0;}.lob-NV{color:#4F46E5;background:#EEF2FF;border-color:#C7D2FE;}.lob-GA{color:#D97706;background:#FFFBEB;border-color:#FDE68A;}.lob-OH{color:#DC2626;background:#FEF2F2;border-color:#FECACA;}.lob-MS{color:#B45309;background:#FFFBEB;border-color:#FDE68A;}.lob-CMS{color:#0891B2;background:#ECFEFF;border-color:#A5F3FC;}.lob-WI{color:#BE185D;background:#FDF2F8;border-color:#FBCFE8;}.lob-WV{color:#0D9488;background:#F0FDFA;border-color:#99F6E4;}
+    body.dark .lob-AR{color:#A78BFA;background:rgba(124,58,237,.15);border-color:rgba(124,58,237,.3);}body.dark .lob-MI{color:#6EE7B7;background:rgba(5,150,105,.15);border-color:rgba(5,150,105,.3);}body.dark .lob-NV{color:#818CF8;background:rgba(79,70,229,.15);border-color:rgba(79,70,229,.3);}body.dark .lob-GA{color:#FCD34D;background:rgba(217,119,6,.15);border-color:rgba(217,119,6,.3);}body.dark .lob-OH{color:#FCA5A5;background:rgba(220,38,38,.15);border-color:rgba(220,38,38,.3);}body.dark .lob-MS{color:#FDE68A;background:rgba(180,83,9,.15);border-color:rgba(180,83,9,.3);}body.dark .lob-CMS{color:#67E8F9;background:rgba(8,145,178,.15);border-color:rgba(8,145,178,.3);}body.dark .lob-WI{color:#F9A8D4;background:rgba(190,24,93,.15);border-color:rgba(190,24,93,.3);}body.dark .lob-WV{color:#2DD4BF;background:rgba(13,148,136,.15);border-color:rgba(13,148,136,.3);}
+    .dot-AR{background:#7C3AED;}.dot-MI{background:#059669;}.dot-NV{background:#4F46E5;}.dot-GA{background:#D97706;}.dot-OH{background:#DC2626;}.dot-MS{background:#B45309;}.dot-CMS{background:#0891B2;}.dot-WI{background:#BE185D;}.dot-WV{background:#0D9488;}
 
-    for base_name, today_path in t_map.items():
-        if base_name in y_map:
-            yesterday_path = y_map[base_name]
-            print(f"Comparing: {base_name}\n  Yesterday: {yesterday_path}\n  Today    : {today_path}")
-            try:
-                diffs = compare_two_files(yesterday_path, today_path)
-                if len(diffs["added_or_changed"]) or len(diffs["removed_or_changed"]):
-                    any_reports = True
-                    report_name = os.path.splitext(base_name)[0] + f"__diff_{now_str()}.xlsx"
-                    report_path = os.path.join(report_dir, report_name)
-                    write_report(report_path, base_name, diffs)
-                    print(f"  -> Differences FOUND. Report saved: {report_path}")
-                else:
-                    print("  -> No differences.")
-            except Exception as e:
-                print(f"  -> Compare failed: {e}")
+    /* ── Toggle ──────────────────────────────────────── */
+    .tw{position:relative;display:inline-block;width:36px;height:20px;}
+    .tw input{opacity:0;width:0;height:0;}
+    .tslider{position:absolute;cursor:pointer;inset:0;background:var(--surface-3);border-radius:20px;transition:.2s;}
+    .tslider::before{content:'';position:absolute;width:14px;height:14px;left:3px;top:3px;background:#fff;border-radius:50%;box-shadow:var(--ss);transition:.2s;}
+    .tw input:checked+.tslider{background:#4F46E5;}
+    .tw input:checked+.tslider::before{transform:translateX(16px);}
 
-    if not any_reports:
-        print("No differences found across matching files.")
+    /* ── Generic overlay wrapper ─────────────────────── */
+    .ov{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.48);backdrop-filter:blur(5px);padding:16px;}
+    .ov.hidden{display:none;}
+    .modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--rxl);box-shadow:var(--sxl);width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;}
+    .msm{max-width:400px;}.mmd{max-width:500px;}.mlg{max-width:680px;}
+    .mhdr{display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid var(--border);background:linear-gradient(to right,var(--surface-2),var(--surface));flex-shrink:0;}
+    .mhl{display:flex;align-items:center;gap:12px;}
+    .mic{width:36px;height:36px;border-radius:var(--r);background:linear-gradient(135deg,#4F46E5,#7C3AED);display:flex;align-items:center;justify-content:center;}
+    .mic svg{width:16px;height:16px;color:#fff;}
+    .mtitle{font-size:15px;font-weight:700;color:var(--fg);}
+    .msub{font-size:11px;color:var(--fg-3);margin-top:2px;}
+    .xbtn{width:32px;height:32px;border:none;background:none;cursor:pointer;border-radius:var(--rs);display:flex;align-items:center;justify-content:center;color:var(--fg-4);transition:.12s;}
+    .xbtn:hover{background:var(--surface-2);color:var(--fg);}
+    .mbdy{flex:1;overflow-y:auto;padding:24px;}
+    .mft{display:flex;align-items:center;gap:10px;padding:14px 24px;border-top:1px solid var(--border);background:var(--surface-2);flex-shrink:0;}
+    .mft .btn-p{flex:1;justify-content:center;}
 
-def main():
-    # 1) Create today's folder (MMDDYYYY)
-    today_dir = ensure_dir(os.path.join(ROOT_DIR, today_folder_name()))
-    print(f"Download folder: {today_dir}")
+    /* ══════════════════════════════════════════════════
+       RULE VIEW — CENTERED MODAL (replaces side drawer)
+       ══════════════════════════════════════════════════ */
+    .rv-ov{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5);backdrop-filter:blur(6px);padding:24px;}
+    .rv-ov.hidden{display:none;}
+    .rv-modal{
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:var(--rxl);
+      box-shadow:var(--sxl);
+      width:100%;max-width:780px;
+      max-height:88vh;
+      display:flex;flex-direction:column;
+      overflow:hidden;
+    }
+    /* Gradient header inside the rule view modal */
+    .rv-head{
+      position:relative;
+      padding:22px 28px 26px;
+      background:linear-gradient(135deg,#0F172A,#1E293B);
+      color:#fff;
+      flex-shrink:0;
+      overflow:hidden;
+    }
+    .rv-head::after{content:'';position:absolute;top:-50px;right:-50px;width:180px;height:180px;border-radius:50%;background:rgba(79,70,229,.2);filter:blur(50px);pointer-events:none;}
+    .rv-head-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px;position:relative;z-index:1;}
+    .rv-badges{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+    .rv-code{font-family:'DM Mono',monospace;font-size:11px;color:#94A3B8;background:rgba(148,163,184,.15);padding:2px 10px;border-radius:20px;}
+    .rv-actions{display:flex;align-items:center;gap:4px;}
+    .rv-ab{width:30px;height:30px;border:none;background:none;cursor:pointer;border-radius:var(--rs);display:flex;align-items:center;justify-content:center;color:#94A3B8;transition:.12s;}
+    .rv-ab:hover{background:rgba(255,255,255,.12);color:#fff;}
+    .rv-ab.dd:hover{color:#F87171;background:rgba(248,113,113,.12);}
+    .rv-ab.dc:hover{color:#38BDF8;background:rgba(56,189,248,.12);}
+    .rv-ab svg{width:15px;height:15px;}
+    .rv-title{font-size:20px;font-weight:700;line-height:1.25;margin-bottom:4px;position:relative;z-index:1;}
+    .rv-fs{font-size:13px;color:#94A3B8;position:relative;z-index:1;}
+    .rv-meta{display:flex;align-items:center;gap:10px;margin-top:14px;position:relative;z-index:1;flex-wrap:wrap;}
+    .rv-ver{font-family:'DM Mono',monospace;font-size:12px;color:#CBD5E1;background:rgba(255,255,255,.1);padding:3px 10px;border-radius:20px;}
+    .rv-bc{font-size:12px;color:#94A3B8;}
+    /* Tabs */
+    .rv-tabs{display:flex;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0;overflow-x:auto;}
+    .rv-tab{padding:12px 20px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;color:var(--fg-3);white-space:nowrap;transition:.12s;font-family:inherit;}
+    .rv-tab:hover{color:var(--fg);}
+    .rv-tab.active{border-bottom-color:var(--indigo);color:var(--indigo);}
+    /* Body */
+    .rv-body{flex:1;overflow-y:auto;padding:28px;}
+    .rv-body::-webkit-scrollbar{width:5px;}
+    .rv-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:8px;}
+    /* Footer */
+    .rv-footer{display:flex;align-items:center;gap:10px;padding:16px 24px;border-top:1px solid var(--border);background:var(--surface-2);flex-shrink:0;}
+    .rv-footer .btn{flex:1;justify-content:center;}
+    /* Info grid inside view */
+    .ig{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;}
+    .ic2{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r);padding:12px 14px;}
+    .icl{display:flex;align-items:center;gap:5px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3);margin-bottom:5px;}
+    .icl svg{width:10px;height:10px;}
+    .icv{font-size:13px;font-weight:600;color:var(--fg-2);}
+    .bvi{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:var(--r);border:1px solid var(--border);margin-bottom:8px;}
+    .bvi.en{background:var(--surface);}
+    .bvi.di{background:var(--surface-2);opacity:.5;}
+    .bck{width:22px;height:22px;border-radius:var(--rs);display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;}
+    .bck.on{background:var(--il);}.bck.off{background:var(--surface-2);}
+    .bck svg{width:12px;height:12px;}
+    .bck.on svg{color:var(--indigo);}.bck.off svg{color:var(--fg-4);}
+    .blb{font-size:13px;font-weight:600;color:var(--fg-2);line-height:1.3;}
+    .blb .num{color:var(--fg-4);font-weight:400;margin-right:4px;}
+    .bds{font-size:12px;color:var(--fg-3);margin-top:3px;line-height:1.5;}
+    .mi2{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-bottom:10px;}
+    .mih{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+    .mii{width:26px;height:26px;border-radius:var(--rs);background:var(--il);border:1px solid rgba(79,70,229,.15);display:flex;align-items:center;justify-content:center;}
+    .mii svg{width:13px;height:13px;color:var(--indigo);}
+    .mfn{font-size:13px;font-weight:700;color:var(--fg-2);}
+    .mds{font-size:10px;font-family:'DM Mono',monospace;color:var(--fg-3);background:var(--surface-2);padding:1px 6px;border-radius:4px;margin-left:6px;}
+    .mlo{font-size:12px;color:var(--fg-3);white-space:pre-line;line-height:1.6;padding-left:34px;}
+    .ht{position:relative;padding-left:28px;}
+    .ht::before{content:'';position:absolute;left:8px;top:0;bottom:0;width:1px;background:var(--border);}
+    .hi{position:relative;margin-bottom:14px;}
+    .hd{position:absolute;left:-22px;top:10px;width:16px;height:16px;border-radius:50%;border:2px solid var(--border);background:var(--surface);display:flex;align-items:center;justify-content:center;}
+    .hd.cu{border-color:var(--indigo);background:var(--indigo);}
+    .hd.cu::after{content:'';width:6px;height:6px;border-radius:50%;background:#fff;}
+    .hc{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px;}
+    .hc.cu{background:var(--il);border-color:rgba(79,70,229,.2);}
+    .hct{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;}
+    .hv{font-family:'DM Mono',monospace;font-size:13px;font-weight:700;color:var(--fg-2);}
+    .cb{font-size:9px;font-weight:700;background:var(--indigo);color:#fff;padding:2px 7px;border-radius:4px;}
+    .hdt{font-size:12px;color:var(--fg-3);}
+    .hby{font-size:12px;color:var(--fg-3);margin-bottom:4px;}
+    .hn{font-size:13px;font-weight:500;color:var(--fg-2);}
+    .en-banner{background:var(--il);border:1px solid rgba(79,70,229,.15);border-radius:var(--r);padding:14px 18px;display:flex;align-items:center;justify-content:space-between;margin-top:20px;}
+    .en-banner span{font-size:13px;font-weight:600;color:var(--indigo);}
+    .en-banner button{font-size:13px;font-weight:600;color:var(--indigo);background:none;border:none;cursor:pointer;display:flex;align-items:center;gap:4px;}
 
-    # 2) Collect & download
-    session = get_session()
-    urls = collect_excel_links(session)
-    print(f"Found {len(urls)} Excel link(s).")
-    for u in urls:
-        download_file(session, u, today_dir)
+    /* ── Behaviors Editor (form) ─────────────────────── */
+    .be{background:var(--surface);border:1px solid var(--border);border-radius:var(--rxl);overflow:hidden;box-shadow:var(--ss);}
+    .beh{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--border);background:var(--surface-2);}
+    .bet{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--fg-2);}
+    .bet svg{width:14px;height:14px;color:var(--indigo);}
+    .bec{font-size:11px;color:var(--fg-3);}
+    .br{display:flex;align-items:flex-start;gap:12px;padding:12px 20px;border-bottom:1px solid var(--border-2);transition:background .12s;}
+    .br:last-child{border-bottom:none;}
+    .br:hover{background:var(--surface-2);}
+    .br:hover .bdl{opacity:1;}
+    .bnum{width:22px;height:22px;border-radius:var(--rs);background:var(--surface-2);display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px;font-size:10px;font-weight:700;color:var(--fg-3);}
+    .br:hover .bnum{background:var(--il);color:var(--indigo);}
+    .binp{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;}
+    .bil,.bid{width:100%;background:none;border:none;border-bottom:1px solid transparent;font-family:inherit;color:var(--fg);outline:none;padding:2px 0;transition:border-color .12s;}
+    .bil{font-size:13px;font-weight:600;}
+    .bid{font-size:12px;color:var(--fg-3);}
+    .bil:hover,.bid:hover{border-bottom-color:var(--border);}
+    .bil:focus,.bid:focus{border-bottom-color:var(--indigo);}
+    .bil::placeholder,.bid::placeholder{color:var(--fg-4);font-weight:400;}
+    .brr{display:flex;align-items:center;gap:8px;flex-shrink:0;margin-top:2px;}
+    .bdl{width:26px;height:26px;border:none;background:none;cursor:pointer;border-radius:var(--rs);display:flex;align-items:center;justify-content:center;color:var(--fg-4);opacity:0;transition:.12s;}
+    .bdl:hover{color:#EF4444;background:rgba(239,68,68,.08);}
+    .bdl svg{width:13px;height:13px;}
+    .bar{padding:10px 20px;border-top:1px dashed var(--border);background:var(--surface-2);}
+    .adb{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--indigo);cursor:pointer;background:none;border:none;font-family:inherit;padding:0;transition:.12s;}
+    .adb:hover{color:var(--id);}
+    .adbi{width:24px;height:24px;border-radius:var(--rs);background:var(--il);display:flex;align-items:center;justify-content:center;}
+    .adbi svg{width:13px;height:13px;}
 
-    # 3) Compare with yesterday if available
-    compare_today_vs_yesterday(today_dir)
+    /* ── Delete modal ─────────────────────────────────── */
+    .diw{width:48px;height:48px;border-radius:var(--rl);margin:0 auto 16px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.15);display:flex;align-items:center;justify-content:center;}
+    .diw svg{width:20px;height:20px;color:#EF4444;}
+    .dtl{text-align:center;font-size:15px;font-weight:700;color:var(--fg);margin-bottom:6px;}
+    .dnm{text-align:center;font-size:13px;color:var(--fg-2);font-weight:600;margin-bottom:4px;}
+    .dsb{text-align:center;font-size:13px;color:var(--fg-3);margin-bottom:20px;}
 
-if __name__ == "__main__":
-    main()
+    /* ── Form inputs ──────────────────────────────────── */
+    label.fl{display:block;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3);margin-bottom:6px;}
+    .fi,.fsel2,.fta{width:100%;padding:9px 14px;border:1px solid var(--border);border-radius:var(--r);background:var(--ibg);font-size:13px;color:var(--fg);font-family:inherit;outline:none;transition:.15s;}
+    .fi:focus,.fsel2:focus,.fta:focus{border-color:var(--indigo);box-shadow:0 0 0 2px rgba(79,70,229,.12);background:var(--surface);}
+    .fi::placeholder,.fta::placeholder{color:var(--fg-4);}
+    .fta{resize:none;line-height:1.55;}
+    .fsel2{appearance:none;cursor:pointer;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239DB4CC' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:30px;}
+    .g2{display:grid;grid-template-columns:1fr 1fr;gap:16px;}.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;}
+    .spy>*+*{margin-top:16px;}
+    .fsec{background:var(--surface);border:1px solid var(--border);border-radius:var(--rxl);overflow:hidden;box-shadow:var(--ss);}
+    .fsh{padding:12px 20px;border-bottom:1px solid var(--border);background:var(--surface-2);display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--fg-2);}
+    .fsh svg{width:14px;height:14px;color:var(--indigo);}
+    .fsb{padding:20px;}
+
+    /* ── Full page form ───────────────────────────────── */
+    .fo{position:fixed;inset:0;z-index:200;background:var(--bg);display:flex;flex-direction:column;}
+    .fo.hidden{display:none;}
+    .fhdr{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;background:var(--nav-bg);border-bottom:1px solid var(--border);flex-shrink:0;}
+    .fhl{display:flex;align-items:center;gap:12px;}
+    .fbb{width:34px;height:34px;border:none;background:none;cursor:pointer;border-radius:var(--r);display:flex;align-items:center;justify-content:center;color:var(--fg-4);transition:.12s;}
+    .fbb:hover{background:var(--surface-2);color:var(--fg);}
+    .fdv{width:1px;height:24px;background:var(--border);}
+    .fico{width:32px;height:32px;border-radius:var(--r);background:linear-gradient(135deg,#4F46E5,#7C3AED);display:flex;align-items:center;justify-content:center;}
+    .fico svg{width:15px;height:15px;color:#fff;}
+    .ftl{font-size:14px;font-weight:700;color:var(--fg);}
+    .fvh{font-size:11px;color:var(--fg-4);margin-top:2px;}
+    .fhr{display:flex;gap:8px;}
+    .fbdy{display:flex;flex:1;overflow:hidden;}
+    .fnav{width:200px;background:var(--nav-bg);border-right:1px solid var(--border);padding:12px;flex-shrink:0;display:flex;flex-direction:column;}
+    .fnt{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-4);padding:8px 12px 6px;}
+    .fnb{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--r);border:none;background:none;cursor:pointer;font-family:inherit;font-size:13px;text-align:left;color:var(--fg-3);transition:.12s;margin-bottom:2px;width:100%;}
+    .fnb:hover{background:var(--surface-2);color:var(--fg);}
+    .fnb.active{background:var(--il);color:var(--indigo);font-weight:600;}
+    .fnb svg{width:15px;height:15px;flex-shrink:0;}
+    .fnb.active svg{color:var(--indigo);}.fnb:not(.active) svg{color:var(--fg-4);}
+    .fntip{margin-top:auto;background:var(--il);border:1px solid rgba(79,70,229,.15);border-radius:var(--r);padding:12px;}
+    .fntip-t{font-size:11px;font-weight:700;color:var(--indigo);margin-bottom:4px;}
+    .fntip-s{font-size:11px;color:var(--fg-3);line-height:1.5;}
+    .fcon{flex:1;overflow-y:auto;padding:32px;}
+    .fcin{max-width:720px;margin:0 auto;}
+    .fpt{font-size:18px;font-weight:700;color:var(--fg);margin-bottom:4px;}
+    .fps{font-size:13px;color:var(--fg-3);margin-bottom:24px;}
+    .fp{display:none;}.fp.active{display:block;}
+    .fna{display:flex;justify-content:space-between;margin-top:24px;}
+
+    /* ── Copy modal ───────────────────────────────────── */
+    .scard{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r);padding:12px 14px;margin-bottom:16px;}
+    .scl{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3);margin-bottom:4px;}
+    .scn{font-size:13px;font-weight:600;color:var(--fg);margin-bottom:2px;}
+    .scm{font-size:11px;font-family:'DM Mono',monospace;color:var(--fg-3);}
+    .lpk{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;}
+    .lpb{display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:20px;border:1px solid var(--border);background:var(--surface-2);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;transition:.12s;color:var(--fg-3);}
+    .lpb.sel{border-color:var(--indigo)!important;}
+    .acs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;}
+    .ac{padding:12px 14px;border-radius:var(--r);border:1px solid var(--border);background:var(--surface-2);cursor:pointer;transition:.12s;}
+    .ac.sel{border-color:var(--indigo);background:var(--il);}
+    .acn{font-size:13px;font-weight:600;color:var(--fg-2);text-transform:capitalize;}
+    .ac.sel .acn{color:var(--indigo);}
+    .acd{font-size:11px;color:var(--fg-3);margin-top:2px;line-height:1.4;}
+
+    /* ── Import modal ─────────────────────────────────── */
+    .dz{border:2px dashed var(--border);border-radius:var(--rl);padding:40px 24px;text-align:center;cursor:pointer;transition:.15s;}
+    .dz:hover,.dz.drag{border-color:var(--indigo);background:var(--il);}
+    .dzi{width:56px;height:56px;border-radius:var(--rl);background:var(--surface-2);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;transition:background .15s;}
+    .dz:hover .dzi,.dz.drag .dzi{background:rgba(79,70,229,.12);}
+    .dzi svg{width:24px;height:24px;color:var(--fg-3);}
+    .dzt{font-size:13px;font-weight:600;color:var(--fg-2);margin-bottom:4px;}
+    .dzs{font-size:12px;color:var(--fg-3);}
+    .fhint{background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.2);border-radius:var(--r);padding:12px 14px;margin-top:14px;}
+    .fht{font-size:11px;font-weight:700;color:#D97706;display:flex;align-items:center;gap:5px;margin-bottom:8px;}
+    .fht svg{width:12px;height:12px;}
+    .frs{display:flex;flex-direction:column;gap:4px;}
+    .fr{font-size:11px;font-family:'DM Mono',monospace;color:#92400E;background:rgba(245,158,11,.1);padding:4px 8px;border-radius:4px;}
+    body.dark .fr{color:#FCD34D;}
+    .pld{display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--il);border:1px solid rgba(79,70,229,.15);border-radius:var(--r);margin-top:14px;}
+    .sp2{width:18px;height:18px;border:2px solid rgba(79,70,229,.2);border-top-color:var(--indigo);border-radius:50%;animation:spin .7s linear infinite;}
+    @keyframes spin{to{transform:rotate(360deg);}}
+    .pld p{font-size:13px;font-weight:500;color:var(--indigo);}
+    .perr{display:flex;align-items:flex-start;gap:8px;padding:12px 16px;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.15);border-radius:var(--r);margin-top:14px;}
+    .perr svg{width:14px;height:14px;color:#EF4444;flex-shrink:0;margin-top:1px;}
+    .perr p{font-size:13px;color:#DC2626;}
+    .pok{display:flex;align-items:center;gap:8px;padding:12px 16px;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.15);border-radius:var(--r);margin-bottom:16px;}
+    .pok svg{width:15px;height:15px;color:#059669;flex-shrink:0;}
+    .pok p{font-size:13px;font-weight:500;color:#059669;}
+    .pvl{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3);margin-bottom:6px;}
+    .pvv{font-size:13px;font-weight:600;color:var(--fg);background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r);padding:8px 12px;margin-bottom:14px;}
+    .pvlist{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;}
+    .pvitem{display:flex;align-items:flex-start;gap:10px;padding:8px 12px;border-bottom:1px solid var(--border-2);}
+    .pvitem:last-child{border-bottom:none;}
+    .pvn{font-size:10px;font-weight:700;color:var(--fg-3);width:18px;flex-shrink:0;margin-top:1px;}
+    .pvlbl{font-size:12px;font-weight:600;color:var(--fg-2);}
+    .pvdsc{font-size:11px;color:var(--fg-3);margin-top:1px;}
+    .bkl{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--fg-3);cursor:pointer;background:none;border:none;font-family:inherit;margin-top:10px;transition:color .12s;}
+    .bkl:hover{color:var(--fg);}
+
+    /* ── Mapping table (form) ─────────────────────────── */
+    .mtwrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--rxl);overflow:hidden;}
+    .mth{display:grid;grid-template-columns:2fr 3fr;gap:16px;padding:12px 24px;border-bottom:1px solid var(--border);background:var(--surface-2);}
+    .mth span{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3);}
+    .mtr{display:grid;grid-template-columns:2fr 3fr;gap:16px;padding:14px 24px;border-bottom:1px solid var(--border-2);align-items:start;transition:background .12s;}
+    .mtr:last-child{border-bottom:none;}
+    .mtr:hover{background:var(--surface-2);}
+    .mtd{display:flex;align-items:center;gap:8px;}
+    .mtdi{width:26px;height:26px;border-radius:var(--rs);background:var(--il);border:1px solid rgba(79,70,229,.15);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+    .mtdi svg{width:12px;height:12px;color:var(--indigo);}
+    .mtrl{font-size:12px;font-weight:700;color:var(--fg-2);}
+    .mtdc{font-size:10px;font-family:'DM Mono',monospace;color:var(--fg-3);}
+    .mti,.mtta{width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:var(--rs);background:var(--surface-2);font-size:12px;color:var(--fg);font-family:inherit;outline:none;transition:.15s;}
+    .mti:focus,.mtta:focus{border-color:var(--indigo);background:var(--surface);box-shadow:0 0 0 2px rgba(79,70,229,.1);}
+    .mtta{resize:none;line-height:1.5;}
+    .iab{display:flex;align-items:flex-start;gap:10px;padding:12px 16px;background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.2);border-radius:var(--r);margin-bottom:16px;}
+    .iab svg{width:14px;height:14px;color:#D97706;flex-shrink:0;margin-top:1px;}
+    .iab p{font-size:12px;color:#92400E;line-height:1.55;}
+    body.dark .iab p{color:#FCD34D;}
+
+    ::-webkit-scrollbar{width:5px;height:5px;}
+    ::-webkit-scrollbar-thumb{background:var(--border);border-radius:8px;}
+  </style>
+</head>
+<body>
+<div id="app">
+  <header class="hdr">
+    <div class="hdr-brand">
+      <div class="bi" id="bi"></div>
+      <span class="bn">ScrubRules</span>
+      <span style="color:var(--fg-4);margin:0 6px">&middot;</span>
+      <span class="bs">Fee Schedule Repository</span>
+    </div>
+    <div class="hdr-r">
+      <div class="chip" id="chip"></div>
+      <button class="tbtn" id="tbtn"></button>
+      <div class="av">CU</div>
+    </div>
+  </header>
+  <div class="bw">
+    <aside class="sb">
+      <div class="sb-srch"><div class="sw" id="sw"></div></div>
+      <nav class="sb-nav" id="sbnav"></nav>
+      <div class="sb-ft" id="sbft"></div>
+    </aside>
+    <main class="main" id="main"></main>
+  </div>
+</div>
+
+<!-- ═══ RULE VIEW — Centered Modal ═══ -->
+<div class="rv-ov hidden" id="rvOv">
+  <div class="rv-modal">
+    <div class="rv-head" id="rvHead"></div>
+    <div class="rv-tabs" id="rvTabs"></div>
+    <div class="rv-body" id="rvBody"></div>
+    <div class="rv-footer" id="rvFoot"></div>
+  </div>
+</div>
+
+<!-- Delete -->
+<div class="ov hidden" id="delOv"><div class="modal msm"><div class="mbdy" id="delBdy"></div><div class="mft" id="delFt"></div></div></div>
+<!-- Copy -->
+<div class="ov hidden" id="cpOv"><div class="modal mmd"><div class="mhdr" id="cpHdr"></div><div class="mbdy" id="cpBdy"></div><div class="mft" id="cpFt"></div></div></div>
+<!-- Import -->
+<div class="ov hidden" id="impOv"><div class="modal mlg"><div class="mhdr" id="impHdr"></div><div class="mbdy" id="impBdy"></div><div class="mft" id="impFt"></div></div></div>
+
+<!-- Full-page Form -->
+<div class="fo hidden" id="fo">
+  <div class="fhdr">
+    <div class="fhl">
+      <button class="fbb" id="fbb"></button>
+      <div class="fdv"></div>
+      <div class="fico" id="fico"></div>
+      <div><div class="ftl" id="ftl">New Scrub Rule</div><div class="fvh" id="fvh" style="display:none"></div></div>
+    </div>
+    <div class="fhr">
+      <button class="btn" id="fcnc">Cancel</button>
+      <button class="btn btn-p" id="fsv"></button>
+    </div>
+  </div>
+  <div class="fbdy">
+    <nav class="fnav">
+      <div class="fnt">Sections</div>
+      <button class="fnb active" data-sec="identity" id="nid"></button>
+      <button class="fnb" data-sec="general" id="ngen"></button>
+      <button class="fnb" data-sec="mapping" id="nmap"></button>
+      <div class="fntip"><div class="fntip-t">Tip</div><div class="fntip-s">All behaviors can be edited, toggled, or deleted inline. Add rules with the button at the bottom.</div></div>
+    </nav>
+    <div class="fcon"><div class="fcin">
+      <div class="fp active" id="p-identity">
+        <div class="fpt">Rule Identity</div><div class="fps">Basic identification and scheduling information.</div>
+        <div class="spy">
+          <div class="fsec"><div class="fsh" id="idsh"></div><div class="fsb">
+            <div class="g2" style="margin-bottom:14px">
+              <div><label class="fl">Rule Code <span style="color:#EF4444">*</span></label><input class="fi" id="fc" placeholder="e.g. SR-2401" /></div>
+              <div><label class="fl">Rule Name <span style="color:#EF4444">*</span></label><input class="fi" id="fn" placeholder="e.g. KY PHY INPT FEE Scrub" /></div>
+            </div>
+            <div style="margin-bottom:14px"><label class="fl">Fee Schedule</label><select class="fsel2" id="ffs"></select></div>
+            <div><label class="fl">Description</label><textarea class="fta" id="fd" rows="2" placeholder="Brief description..."></textarea></div>
+          </div></div>
+          <div class="fsec"><div class="fsh" id="stsh"></div><div class="fsb">
+            <div class="g3">
+              <div><label class="fl">Status</label><select class="fsel2" id="fst"><option>Active</option><option>Inactive</option><option>Pending</option></select></div>
+              <div><label class="fl">Effective Date</label><input type="date" class="fi" id="fef" /></div>
+              <div><label class="fl">Expiration</label><input type="date" class="fi" id="fex" /></div>
+            </div>
+          </div></div>
+          <div class="fsec" id="cnsec" style="border-color:rgba(245,158,11,.3);display:none"><div class="fsh" id="cnsh" style="color:#D97706;background:rgba(245,158,11,.05)"></div><div class="fsb"><textarea class="fta" id="fch" rows="2" placeholder="Describe what changed and why..."></textarea></div></div>
+        </div>
+        <div class="fna"><div></div><button class="btn btn-p" id="nxtgen"></button></div>
+      </div>
+      <div class="fp" id="p-general">
+        <div class="fpt">Scrub Behaviors</div><div class="fps">Edit inline. Toggle, add, or delete any row.</div>
+        <div id="bewrap"></div>
+        <div class="fna" style="margin-top:20px"><button class="btn" id="gbk"></button><button class="btn btn-p" id="nxtmap"></button></div>
+      </div>
+      <div class="fp" id="p-mapping">
+        <div class="fpt">Column Mapping</div><div class="fps">Define source logic for each Facets template destination field.</div>
+        <div class="iab" style="margin-bottom:16px" id="mapbanner"></div>
+        <div class="mtwrap" id="mtwrap"></div>
+        <div class="fna" style="margin-top:20px"><button class="btn" id="mbk"></button><button class="btn btn-p" id="fsv2"></button></div>
+      </div>
+    </div></div>
+  </div>
+</div>
+
+<script>
+// ─── Icons ────────────────────────────────────────────────────────────────────
+const I={shield:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`,search:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>`,plus:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5v14"/></svg>`,cr:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>`,cl:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>`,edit:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,trash:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,eye:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,x:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,clock:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,chk:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`,xc:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`,alt:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`,ft:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`,save:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>`,hash:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>`,cal:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>`,spark:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>`,layers:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>`,user:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,arr:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>`,tag:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>`,tbl:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/></svg>`,info:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>`,dol:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>`,set2:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg>`,copy:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`,up:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>`,dn:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>`,sun:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`,moon:`<svg width="{{s}}" height="{{s}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`};
+const ic=(n,s=16)=>(I[n]||'').replace(/\{\{s\}\}/g,s);
+
+// ─── Data ─────────────────────────────────────────────────────────────────────
+const LOBS=['AR','MI','NV','GA','OH','MS','CMS','WI','WV'];
+const DOTS={AR:'dot-AR',MI:'dot-MI',NV:'dot-NV',GA:'dot-GA',OH:'dot-OH',MS:'dot-MS',CMS:'dot-CMS',WI:'dot-WI',WV:'dot-WV'};
+const FS=[{id:'ar-med',name:'AR Medicare',lob:'AR'},{id:'ar-med-b',name:'AR Medicaid B',lob:'AR'},{id:'ar-wrk',name:'AR Workers Comp',lob:'AR'},{id:'mi-bcbs',name:'MI Blue Cross',lob:'MI'},{id:'mi-hap',name:'MI HAP HMO',lob:'MI'},{id:'mi-med',name:'MI Medicaid',lob:'MI'},{id:'nv-med',name:'NV Medicare',lob:'NV'},{id:'nv-hlt',name:'NV Health Plan',lob:'NV'},{id:'ga-med',name:'GA Medicaid',lob:'GA'},{id:'ga-bcbs',name:'GA BlueCross',lob:'GA'},{id:'oh-med',name:'OH Medicare',lob:'OH'},{id:'oh-cai',name:'OH CareSource',lob:'OH'},{id:'ms-med',name:'MS Medicaid',lob:'MS'},{id:'ms-bcbs',name:'MS BlueCross',lob:'MS'},{id:'cms-pfs',name:'CMS Physician Fee Sched',lob:'CMS'},{id:'cms-opps',name:'CMS OPPS',lob:'CMS'},{id:'cms-ascs',name:'CMS ASC',lob:'CMS'},{id:'wi-med',name:'WI Medicaid',lob:'WI'},{id:'wi-hlt',name:'WI Health Partners',lob:'WI'},{id:'wv-med',name:'WV Medicaid',lob:'WV'},{id:'wv-bcbs',name:'WV BlueCross',lob:'WV'}];
+const DB=[{id:'b1',label:'Scrub codes with "*" in Inpatient Rate Facility column',desc:'These are anesthesia procedures and should be excluded.',enabled:true},{id:'b2',label:'Scrub off all codes with blank in that column',desc:'Remove codes where the rate column has no value.',enabled:true},{id:'b3',label:'Scrub off codes with "N/A" in that column',desc:'Codes explicitly marked N/A should be excluded from the schedule.',enabled:true},{id:'b4',label:'Scrub off codes with "No Pay" in that column',desc:'No-pay codes should not be loaded into the fee schedule.',enabled:true},{id:'b5',label:'Load tech/prof component codes based on data',desc:'Any code with a value in the tech/prof component should be loaded per data.',enabled:true},{id:'b6',label:'Load codes with no modifier using rate in Tech/Prof column',desc:'Code should be loaded with no modifier using rate in respective Tech and Prof column.',enabled:true},{id:'b7',label:'Add TC modifier for codes with Tech Comp value',desc:'Codes with a value in Tech Comp should be added with TC modifier.',enabled:true},{id:'b8',label:'Add 26 modifier for codes with Prof Comp value',desc:'Codes with a value in Prof Comp should be added with 26 modifier.',enabled:true},{id:'b9',label:'Ensure 5-digit procedure code (preserve leading zeros)',desc:'If Proc Code starts with 0, ensure the 0 is not removed.',enabled:true}];
+const DM={procedureCode:'First 5 characters of HCPCS Code Column',modifier:'TC -> When Tech Comp (Col G) has values\n26 -> When Prof Comp (Col H) has values\nBlank -> When Inpatient Rate Facility (Col D) has values',modifier2:'Blank',modifier3:'Blank',modifier4:'Blank',effectiveDate:'Unless otherwise specified or blank, use first date of current year',terminationDate:'Open ended -> 12/31/9999 if no details in Notes column\nIf Notes contains "Termed" -> read date following "Termed" keyword',reimbursementMethod:'Allowed Amount -> if $ value exists in Tech/Prof Comp or Inpatient Rate Facility (Col D)\nPercent of Charge -> if value is $0',allowed:'Use value from Tech/Prof or Inpatient Rate Facility (Col D)\nIf Reimbursement Method = Percent of Charge -> enter 45'};
+const MF=[{key:'procedureCode',label:'Procedure Code',dest:'Procedure_Code',icon:'hash',multi:false},{key:'modifier',label:'Modifier',dest:'Modifier',icon:'tag',multi:true,rows:3},{key:'modifier2',label:'Modifier 2',dest:'Modifier_2',icon:'tag',multi:false},{key:'modifier3',label:'Modifier 3',dest:'Modifier_3',icon:'tag',multi:false},{key:'modifier4',label:'Modifier 4',dest:'Modifier_4',icon:'tag',multi:false},{key:'effectiveDate',label:'Effective Date',dest:'Effective_Date',icon:'cal',multi:false},{key:'terminationDate',label:'Termination Date',dest:'Termination_Date',icon:'cal',multi:true,rows:2},{key:'reimbursementMethod',label:'Reimbursement Method',dest:'Reimbursement_Method',icon:'dol',multi:true,rows:2},{key:'allowed',label:'Allowed Amount',dest:'Allowed',icon:'dol',multi:true,rows:2}];
+let rules=[{id:'r1',ruleCode:'SR-2401',ruleName:'CMS Physician Fee Schedule Scrub',feeScheduleId:'cms-pfs',description:'Standard scrub rules for CMS Physician Fee Schedule with TC/26 modifier logic.',status:'Active',version:3,effectiveDate:'2024-01-01',expirationDate:null,createdBy:'J. Hernandez',createdAt:'2023-11-15T09:00:00Z',updatedAt:'2024-03-10T14:22:00Z',behaviors:DB.map(b=>({...b})),columnMapping:{...DM},versions:[{version:1,changeNote:'Initial creation',updatedBy:'J. Hernandez',updatedAt:'2023-11-15T09:00:00Z'},{version:2,changeNote:'Updated POC percentage',updatedBy:'M. Chen',updatedAt:'2024-01-20T11:30:00Z'},{version:3,changeNote:'Added 5-digit proc code rule',updatedBy:'S. Patel',updatedAt:'2024-03-10T14:22:00Z'}]},{id:'r2',ruleCode:'SR-1801',ruleName:'MI Medicaid Inpatient Fee Scrub',feeScheduleId:'mi-med',description:'Scrub rules for Michigan Medicaid inpatient facility fee schedule.',status:'Active',version:2,effectiveDate:'2024-01-01',expirationDate:null,createdBy:'A. Thompson',createdAt:'2023-09-12T08:30:00Z',updatedAt:'2024-01-15T10:00:00Z',behaviors:DB.map(b=>({...b})),columnMapping:{...DM},versions:[{version:1,changeNote:'Initial creation',updatedBy:'A. Thompson',updatedAt:'2023-09-12T08:30:00Z'},{version:2,changeNote:'Updated per MDHHS 2024 bulletin',updatedBy:'K. Martinez',updatedAt:'2024-01-15T10:00:00Z'}]},{id:'r3',ruleCode:'SR-3101',ruleName:'AR Workers Comp Fee Scrub',feeScheduleId:'ar-wrk',description:'Arkansas Workers Comp fee schedule scrub.',status:'Active',version:1,effectiveDate:'2024-01-01',expirationDate:null,createdBy:'B. Anderson',createdAt:'2023-12-01T09:00:00Z',updatedAt:'2023-12-01T09:00:00Z',behaviors:DB.map(b=>({...b})),columnMapping:{...DM},versions:[{version:1,changeNote:'Initial creation',updatedBy:'B. Anderson',updatedAt:'2023-12-01T09:00:00Z'}]}];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const uid=()=>`id-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
+const fmtDate=d=>new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+const fmtDT=d=>new Date(d).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit'});
+const esc=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const gFS=id=>FS.find(f=>f.id===id);
+function rcMap(){const m={};rules.forEach(r=>{m[r.feeScheduleId]=(m[r.feeScheduleId]||0)+1;});return m;}
+function sPill(s){const m={Active:{i:'chk',c:'sa'},Inactive:{i:'xc',c:'si'},Pending:{i:'alt',c:'spe'}};const{i,c}=m[s]||m.Active;return`<span class="sp ${c}">${ic(i,10)} ${esc(s)}</span>`;}
+function lTag(lob){return`<span class="ltag lob-${lob}"><span class="dot ${DOTS[lob]}"></span>${lob}</span>`;}
+
+// ─── State ────────────────────────────────────────────────────────────────────
+const ST={dark:false,exp:new Set(['CMS','MI','AR']),selFS:'cms-pfs',sbQ:'',tQ:'',stF:'All',rvRule:null,rvTab:'overview',delRule:null,cp:{rule:null,lob:'CMS',fs:'cms-pfs',act:'copy'},impStep:'upload',impParsed:null,fMode:null,fRule:null,fPre:null,fBehs:[],fMap:{...DM}};
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+function initHdr(){
+  document.getElementById('bi').innerHTML=ic('shield',16);
+  document.getElementById('chip').innerHTML=`${ic('spark',12)}<span id="rc">${rules.length} rules &middot; ${FS.length} fee schedules</span>`;
+  document.getElementById('sw').innerHTML=`${ic('search',13)}<input type="text" id="sbi" placeholder="Search schedules..." />`;
+  document.getElementById('sbi').addEventListener('input',e=>{ST.sbQ=e.target.value;renderSB();});
+  document.getElementById('sbft').innerHTML=`${ic('layers',11)}<span>9 LOBs &middot; 21 schedules</span>`;
+  document.getElementById('idsh').innerHTML=`${ic('ft',14)} Identification`;
+  document.getElementById('stsh').innerHTML=`${ic('set2',14)} Status & Dates`;
+  document.getElementById('cnsh').innerHTML=`${ic('clock',14)} Version Change Note`;
+  document.getElementById('nid').innerHTML=`${ic('ft',15)} Rule Identity`;
+  document.getElementById('ngen').innerHTML=`${ic('set2',15)} Scrub Behaviors`;
+  document.getElementById('nmap').innerHTML=`${ic('tbl',15)} Column Mapping`;
+  document.getElementById('nxtgen').innerHTML=`Next: Scrub Behaviors ${ic('arr',14)}`;
+  document.getElementById('gbk').innerHTML=`${ic('cl',14)} Back`;
+  document.getElementById('nxtmap').innerHTML=`Next: Column Mapping ${ic('arr',14)}`;
+  document.getElementById('mbk').innerHTML=`${ic('cl',14)} Back`;
+  document.getElementById('mapbanner').innerHTML=`${ic('info',14)}<p>Each field corresponds to a destination column in the Facets fee schedule template.</p>`;
+  document.getElementById('fbb').innerHTML=ic('cl',18);
+  renderTheme();
+}
+function renderTheme(){
+  const b=document.getElementById('tbtn');
+  b.innerHTML=ST.dark?`<span style="color:#F59E0B">${ic('sun',14)}</span> Light Mode`:`<span style="color:#4F46E5">${ic('moon',14)}</span> Dark Mode`;
+  b.onclick=()=>{ST.dark=!ST.dark;document.body.classList.toggle('dark',ST.dark);renderTheme();};
+}
+function updRC(){const el=document.getElementById('rc');if(el)el.textContent=`${rules.length} rules · ${FS.length} fee schedules`;}
+
+// ─── Sidebar ──────────────────────────────────────────────────────────────────
+function renderSB(){
+  const q=ST.sbQ.toLowerCase(),cm=rcMap();let html='';
+  LOBS.forEach(lob=>{
+    const sc=FS.filter(f=>f.lob===lob&&(!q||f.name.toLowerCase().includes(q)||lob.toLowerCase().includes(q)));
+    if(q&&!sc.length)return;
+    const op=ST.exp.has(lob),lc=FS.filter(f=>f.lob===lob).reduce((s,f)=>s+(cm[f.id]||0),0);
+    html+=`<div><button class="lob-btn" data-lob="${lob}"><span class="lbl"><span class="ld ${DOTS[lob]}"></span>${lob}</span><span class="lbr">${lc?`<span class="lc">${lc}</span>`:''}<span class="lch${op?' open':''}">${ic('cr',12)}</span></span></button>`;
+    if(op){const list=q?sc:FS.filter(f=>f.lob===lob);html+=`<div class="fsl">`;list.forEach(f=>{const c=cm[f.id]||0,a=ST.selFS===f.id;html+=`<button class="fs-btn${a?' active':''}" data-fs="${f.id}"><span>${esc(f.name)}</span>${c?`<span class="fsc">${c}</span>`:''}</button>`;});html+=`</div>`;}
+    html+=`</div>`;
+  });
+  const nav=document.getElementById('sbnav');nav.innerHTML=html;
+  nav.querySelectorAll('.lob-btn').forEach(b=>{b.onclick=()=>{const l=b.dataset.lob;if(ST.exp.has(l))ST.exp.delete(l);else ST.exp.add(l);renderSB();};});
+  nav.querySelectorAll('.fs-btn').forEach(b=>{b.onclick=()=>{ST.selFS=b.dataset.fs;ST.tQ='';ST.stF='All';renderSB();renderMain();};});
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+function renderMain(){
+  const main=document.getElementById('main');
+  if(!ST.selFS){
+    main.innerHTML=`<div class="wl"><div class="wi"><div class="wic">${ic('shield',36)}</div><div class="wt">Scrub Rule Repository</div><div class="ws">Select a Line of Business and fee schedule from the sidebar to view and manage its scrub rules.</div><div class="lps">${LOBS.map(l=>`<span class="ltag lob-${l}" style="cursor:pointer" data-xl="${l}"><span class="dot ${DOTS[l]}"></span>${l}</span>`).join('')}</div></div></div>`;
+    main.querySelectorAll('[data-xl]').forEach(el=>{el.onclick=()=>{ST.exp.add(el.dataset.xl);renderSB();};});
+    return;
+  }
+  const fs=gFS(ST.selFS);if(!fs)return;
+  let filt=rules.filter(r=>r.feeScheduleId===ST.selFS);
+  if(ST.stF!=='All')filt=filt.filter(r=>r.status===ST.stF);
+  if(ST.tQ){const q=ST.tQ.toLowerCase();filt=filt.filter(r=>r.ruleName.toLowerCase().includes(q)||r.ruleCode.toLowerCase().includes(q));}
+  const tot=rules.filter(r=>r.feeScheduleId===ST.selFS).length;
+  let html=`<div class="ch"><div class="chr"><div><div class="bc"><button class="bbtn" id="bbtn">${ic('cl',14)}</button>${lTag(fs.lob)}<span style="display:inline-flex;color:var(--fg-4)">${ic('cr',12)}</span><span class="bt">${esc(fs.name)}</span></div><div class="cs">${tot} scrub rule${tot!==1?'s':''}</div></div><div class="ha"><div class="sbox">${ic('search',13)}<input type="text" id="tqi" placeholder="Search rules..." value="${esc(ST.tQ)}" /></div><select class="fsel" id="stfi"><option${ST.stF==='All'?' selected':''}>All Status</option><option${ST.stF==='Active'?' selected':''}>Active</option><option${ST.stF==='Inactive'?' selected':''}>Inactive</option><option${ST.stF==='Pending'?' selected':''}>Pending</option></select><button class="btn" id="impbtn">${ic('up',14)} Import Excel</button><button class="btn btn-p" id="newbtn">${ic('plus',15)} New Rule</button></div></div></div><div class="ta">`;
+  if(!filt.length){html+=`<div class="card"><div class="es"><div class="ei">${ic('ft',24)}</div><div class="et">${ST.tQ||ST.stF!=='All'?'No matching rules':'No scrub rules yet'}</div><div class="ec">${ST.tQ||ST.stF!=='All'?'Try adjusting your filters.':'Click "New Rule" or import an Excel file.'}</div></div></div>`;}
+  else{
+    html+=`<div class="card"><table><thead><tr><th>Rule</th><th>Status</th><th>Behaviors</th><th>Version</th><th>Effective</th><th></th></tr></thead><tbody>`;
+    filt.forEach(r=>{const en=r.behaviors.filter(b=>b.enabled).length,tb=r.behaviors.length,segs=Array.from({length:Math.min(tb,12)},(_,i)=>`<div class="bseg ${i<en?'on':'off'}"></div>`).join('');
+    html+=`<tr data-rule="${r.id}"><td><div class="rc"><div class="ri">${ic('hash',13)}</div><div><div class="rn">${esc(r.ruleName)}</div><div class="rcd">${esc(r.ruleCode)}</div></div></div></td><td onclick="event.stopPropagation()">${sPill(r.status)}</td><td><div class="bbar"><div class="bsegs">${segs}</div><span class="bl">${en}/${tb}</span></div></td><td><div class="vc"><span class="vm">v${r.version}.0</span>${r.versions.length>1?`<span class="rb">${r.versions.length} rev</span>`:''}</div></td><td><span style="font-size:12px;color:var(--fg-3)">${fmtDate(r.effectiveDate)}</span></td><td onclick="event.stopPropagation()"><div class="ra"><button class="ib vi" data-a="v" data-rule="${r.id}">${ic('eye',14)}</button><button class="ib ed" data-a="e" data-rule="${r.id}">${ic('edit',14)}</button><button class="ib cp" data-a="c" data-rule="${r.id}">${ic('copy',14)}</button><button class="ib dl" data-a="d" data-rule="${r.id}">${ic('trash',14)}</button></div></td></tr>`;});
+    html+=`</tbody></table><div class="tf">Showing <strong>${filt.length}</strong> of <strong>${tot}</strong> rules</div></div>`;
+  }
+  html+=`</div>`;main.innerHTML=html;
+  document.getElementById('bbtn').onclick=()=>{ST.selFS=null;renderMain();renderSB();};
+  document.getElementById('tqi').addEventListener('input',e=>{ST.tQ=e.target.value;renderMain();});
+  document.getElementById('stfi').addEventListener('change',e=>{ST.stF=e.target.value;renderMain();});
+  document.getElementById('impbtn').onclick=openImp;
+  document.getElementById('newbtn').onclick=()=>openForm(null);
+  main.querySelectorAll('tbody tr').forEach(tr=>{tr.onclick=()=>openRV(tr.dataset.rule);});
+  main.querySelectorAll('[data-a]').forEach(btn=>{btn.onclick=e=>{e.stopPropagation();const r=rules.find(r=>r.id===btn.dataset.rule);if(!r)return;const a=btn.dataset.a;if(a==='v')openRV(r.id);if(a==='e')openForm(r);if(a==='c')openCp(r);if(a==='d')openDel(r);};});
+}
+
+// ─── Rule View — Centered Modal ───────────────────────────────────────────────
+function openRV(id){
+  ST.rvRule=rules.find(r=>r.id===id);
+  ST.rvTab='overview';
+  if(!ST.rvRule)return;
+  document.getElementById('rvOv').classList.remove('hidden');
+  renderRV();
+}
+function closeRV(){document.getElementById('rvOv').classList.add('hidden');ST.rvRule=null;}
+
+function renderRV(){
+  const rule=ST.rvRule;if(!rule)return;
+  const fs=gFS(rule.feeScheduleId);
+  const en=rule.behaviors.filter(b=>b.enabled).length;
+
+  // Head
+  document.getElementById('rvHead').innerHTML=`
+    <div class="rv-head-top">
+      <div class="rv-badges">${lTag(fs.lob)}<span class="rv-code">${esc(rule.ruleCode)}</span></div>
+      <div class="rv-actions">
+        <button class="rv-ab dc" id="rvCp" title="Copy to fee schedule">${ic('copy',15)}</button>
+        <button class="rv-ab" id="rvEd" title="Edit rule">${ic('edit',15)}</button>
+        <button class="rv-ab dd" id="rvDl" title="Delete rule">${ic('trash',15)}</button>
+        <button class="rv-ab" id="rvCl" title="Close">${ic('x',15)}</button>
+      </div>
+    </div>
+    <div class="rv-title">${esc(rule.ruleName)}</div>
+    <div class="rv-fs">${esc(fs.name)}</div>
+    <div class="rv-meta">
+      ${sPill(rule.status)}
+      <span class="rv-ver">v${rule.version}.0</span>
+      <span class="rv-bc">${en}/${rule.behaviors.length} behaviors</span>
+    </div>`;
+
+  // Tabs
+  const tabs=[{k:'overview',l:'Overview'},{k:'behaviors',l:`Behaviors (${rule.behaviors.length})`},{k:'mapping',l:'Col. Mapping'},{k:'history',l:`History (${rule.versions.length})`}];
+  document.getElementById('rvTabs').innerHTML=tabs.map(t=>`<button class="rv-tab${ST.rvTab===t.k?' active':''}" data-tab="${t.k}">${t.l}</button>`).join('');
+
+  // Body
+  renderRVBody();
+
+  // Footer
+  document.getElementById('rvFoot').innerHTML=`
+    <button class="btn" id="rvClFt">Close</button>
+    <button class="btn btn-p" id="rvEdFt">${ic('edit',14)} Edit Rule</button>`;
+
+  // Wire events
+  document.getElementById('rvCl').onclick=document.getElementById('rvClFt').onclick=closeRV;
+  document.getElementById('rvEd').onclick=document.getElementById('rvEdFt').onclick=()=>{closeRV();openForm(rule);};
+  document.getElementById('rvDl').onclick=()=>{closeRV();openDel(rule);};
+  document.getElementById('rvCp').onclick=()=>{closeRV();openCp(rule);};
+  document.querySelectorAll('.rv-tab').forEach(t=>{t.onclick=()=>{ST.rvTab=t.dataset.tab;renderRV();};});
+  document.getElementById('rvOv').onclick=e=>{if(e.target===e.currentTarget)closeRV();};
+}
+
+function renderRVBody(){
+  const rule=ST.rvRule;if(!rule)return;
+  const en=rule.behaviors.filter(b=>b.enabled).length;
+  let html='';
+
+  if(ST.rvTab==='overview'){
+    html=`
+      <p style="font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-3);margin-bottom:8px">Description</p>
+      <p style="font-size:14px;color:var(--fg-2);line-height:1.65;margin-bottom:22px">${esc(rule.description||'No description provided.')}</p>
+      <div class="ig">
+        <div class="ic2"><div class="icl">${ic('cal',10)} Effective</div><div class="icv">${fmtDate(rule.effectiveDate)}</div></div>
+        <div class="ic2"><div class="icl">${ic('user',10)} Created By</div><div class="icv">${esc(rule.createdBy)}</div></div>
+        <div class="ic2"><div class="icl">${ic('clock',10)} Last Updated</div><div class="icv">${fmtDT(rule.updatedAt)}</div></div>
+        <div class="ic2"><div class="icl">${ic('hash',10)} Version</div><div class="icv">v${rule.version}.0 &mdash; ${rule.versions.length} revision${rule.versions.length!==1?'s':''}</div></div>
+      </div>
+      <div class="en-banner">
+        <span>${en} of ${rule.behaviors.length} scrub behaviors enabled</span>
+        <button id="viewBehs">View ${ic('cr',13)}</button>
+      </div>`;
+  }
+  else if(ST.rvTab==='behaviors'){
+    html=`<p style="font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-3);margin-bottom:14px">${en} of ${rule.behaviors.length} enabled</p>`;
+    rule.behaviors.forEach((b,i)=>{
+      html+=`<div class="bvi ${b.enabled?'en':'di'}">
+        <div class="bck ${b.enabled?'on':'off'}">${ic(b.enabled?'chk':'xc',12)}</div>
+        <div>
+          <div class="blb"><span class="num">${i+1}.</span>${esc(b.label||'Untitled')}</div>
+          ${b.desc?`<div class="bds">${esc(b.desc)}</div>`:''}
+        </div>
+      </div>`;
+    });
+  }
+  else if(ST.rvTab==='mapping'){
+    html=`<p style="font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-3);margin-bottom:14px">Source &rarr; Destination</p>`;
+    MF.forEach(f=>{
+      html+=`<div class="mi2">
+        <div class="mih">
+          <div class="mii">${ic(f.icon,13)}</div>
+          <span class="mfn">${f.label}</span>
+          <span class="mds">${f.dest}</span>
+        </div>
+        <div class="mlo">${esc(rule.columnMapping[f.key]||'')}</div>
+      </div>`;
+    });
+  }
+  else if(ST.rvTab==='history'){
+    html=`<div class="ht">`;
+    [...rule.versions].reverse().forEach(v=>{
+      const cu=v.version===rule.version;
+      html+=`<div class="hi">
+        <div class="hd${cu?' cu':''}"></div>
+        <div class="hc${cu?' cu':''}">
+          <div class="hct">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="hv">v${v.version}.0</span>
+              ${cu?'<span class="cb">CURRENT</span>':''}
+            </div>
+            <span class="hdt">${fmtDT(v.updatedAt)}</span>
+          </div>
+          <div class="hby">by ${esc(v.updatedBy)}</div>
+          <div class="hn">${esc(v.changeNote)}</div>
+        </div>
+      </div>`;
+    });
+    html+=`</div>`;
+  }
+
+  document.getElementById('rvBody').innerHTML=html;
+  document.getElementById('viewBehs')?.addEventListener('click',()=>{ST.rvTab='behaviors';renderRV();});
+}
+
+// ─── Delete ───────────────────────────────────────────────────────────────────
+function openDel(rule){
+  ST.delRule=rule;
+  document.getElementById('delBdy').innerHTML=`<div class="diw">${ic('trash',20)}</div><div class="dtl">Delete Scrub Rule</div><div class="dnm">${esc(rule.ruleName)}</div><div class="dsb">This is permanent. All ${rule.versions.length} version${rule.versions.length!==1?'s':''} will be removed.</div>`;
+  document.getElementById('delFt').innerHTML=`<button class="btn" id="dno">Cancel</button><button class="btn btn-d" id="dyes">${ic('trash',14)} Delete</button>`;
+  document.getElementById('delOv').classList.remove('hidden');
+  document.getElementById('dno').onclick=closeDel;
+  document.getElementById('dyes').onclick=()=>{rules=rules.filter(r=>r.id!==ST.delRule.id);closeDel();renderMain();renderSB();updRC();};
+  document.getElementById('delOv').onclick=e=>{if(e.target===e.currentTarget)closeDel();};
+}
+function closeDel(){document.getElementById('delOv').classList.add('hidden');ST.delRule=null;}
+
+// ─── Copy ─────────────────────────────────────────────────────────────────────
+function openCp(rule){ST.cp={rule,lob:'CMS',fs:'cms-pfs',act:'copy'};renderCp();document.getElementById('cpOv').classList.remove('hidden');}
+function closeCp(){document.getElementById('cpOv').classList.add('hidden');}
+function renderCp(){
+  const{rule,lob,fs,act}=ST.cp;
+  document.getElementById('cpHdr').innerHTML=`<div class="mhl"><div class="mic">${ic('copy',16)}</div><div><div class="mtitle">Copy Rule Set</div><div class="msub">Move or copy to another fee schedule</div></div></div><button class="xbtn" id="cpcl">${ic('x',18)}</button>`;
+  document.getElementById('cpBdy').innerHTML=`<div class="scard"><div class="scl">Source Rule</div><div class="scn">${esc(rule.ruleName)}</div><div class="scm">${esc(rule.ruleCode)} &middot; v${rule.version}.0 &middot; ${rule.behaviors.length} behaviors</div></div><label class="fl" style="margin-bottom:8px">Target LOB</label><div class="lpk">${LOBS.map(l=>`<button class="lpb lob-${l}${l===lob?' sel':''}" data-cl="${l}"><span class="dot ${DOTS[l]}"></span>${l}</button>`).join('')}</div><label class="fl" style="margin-bottom:6px">Target Fee Schedule</label><select class="fsel2" id="cpfs" style="margin-bottom:14px">${FS.filter(f=>f.lob===lob).map(f=>`<option value="${f.id}"${f.id===fs?' selected':''}>${f.name}</option>`).join('')}</select><label class="fl" style="margin-bottom:6px">Action</label><div class="acs"><div class="ac${act==='copy'?' sel':''}" data-ca="copy"><div class="acn">Copy</div><div class="acd">Keep original, duplicate to target</div></div><div class="ac${act==='move'?' sel':''}" data-ca="move"><div class="acn">Move</div><div class="acd">Remove from current, add to target</div></div></div>`;
+  document.getElementById('cpFt').innerHTML=`<button class="btn" id="cpno">Cancel</button><button class="btn btn-p" id="cpyes">${ic('copy',14)} ${act==='copy'?'Copy':'Move'} to Selected</button>`;
+  document.getElementById('cpcl').onclick=document.getElementById('cpno').onclick=closeCp;
+  document.getElementById('cpOv').onclick=e=>{if(e.target===e.currentTarget)closeCp();};
+  document.querySelectorAll('[data-cl]').forEach(b=>{b.onclick=()=>{ST.cp.lob=b.dataset.cl;ST.cp.fs=FS.find(f=>f.lob===b.dataset.cl)?.id||'';renderCp();};});
+  document.getElementById('cpfs').onchange=e=>{ST.cp.fs=e.target.value;};
+  document.querySelectorAll('[data-ca]').forEach(b=>{b.onclick=()=>{ST.cp.act=b.dataset.ca;renderCp();};});
+  document.getElementById('cpyes').onclick=()=>{const s=ST.cp.rule,t=ST.cp.fs,now=new Date().toISOString(),c={...s,id:`rule-${Date.now()}`,feeScheduleId:t,ruleCode:s.ruleCode+'-COPY',version:1,createdAt:now,updatedAt:now,createdBy:'Current User',behaviors:s.behaviors.map(b=>({...b,id:uid()})),versions:[{version:1,changeNote:`Copied from ${s.ruleName}`,updatedBy:'Current User',updatedAt:now}]};if(ST.cp.act==='move')rules=rules.filter(r=>r.id!==s.id);rules=[...rules,c];closeCp();renderMain();renderSB();updRC();};
+}
+
+// ─── Import ───────────────────────────────────────────────────────────────────
+function openImp(){ST.impStep='upload';ST.impParsed=null;renderImp();document.getElementById('impOv').classList.remove('hidden');}
+function closeImp(){document.getElementById('impOv').classList.add('hidden');}
+function renderImp(){
+  document.getElementById('impHdr').innerHTML=`<div class="mhl"><div class="mic">${ic('up',16)}</div><div><div class="mtitle">Import from Excel</div><div class="msub">Upload a scrub rule document (.xlsx, .xls, .csv)</div></div></div><button class="xbtn" id="impcl">${ic('x',18)}</button>`;
+  document.getElementById('impcl').onclick=closeImp;
+  document.getElementById('impOv').onclick=e=>{if(e.target===e.currentTarget)closeImp();};
+  if(ST.impStep==='upload'){
+    document.getElementById('impBdy').innerHTML=`<div class="dz" id="dz"><div class="dzi">${ic('dn',24)}</div><div class="dzt">Drop your Excel file here</div><div class="dzs">or click to browse &mdash; .xlsx, .xls, .csv</div><input type="file" id="fi" accept=".xlsx,.xls,.csv" style="display:none" /></div><div id="ps"></div><div class="fhint"><div class="fht">${ic('info',12)} Expected Format</div><div class="frs"><div class="fr">Row 1: Scrub Rule - [Name]</div><div class="fr">Rows 2-N: [#]. [Scrub behavior]</div><div class="fr">Row N+1: COLUMN MAPPING</div><div class="fr">Rows N+2...: [#]. [Field] | [Logic]</div></div></div>`;
+    document.getElementById('impFt').innerHTML=`<button class="btn" id="impno">Cancel</button>`;
+    document.getElementById('impno').onclick=closeImp;
+    const dz=document.getElementById('dz'),fi=document.getElementById('fi');
+    dz.onclick=()=>fi.click();
+    dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag');});
+    dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
+    dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag');if(e.dataTransfer.files[0])handleImpFile(e.dataTransfer.files[0]);});
+    fi.addEventListener('change',e=>{if(e.target.files[0])handleImpFile(e.target.files[0]);});
+  } else {
+    const p=ST.impParsed;
+    document.getElementById('impBdy').innerHTML=`<div class="pok">${ic('chk',15)}<p>Parsed <strong>${esc(p.fileName)}</strong> successfully</p></div><div class="pvl">Detected Rule Name</div><div class="pvv">${esc(p.title)}</div><div class="pvl">Scrub Behaviors <span style="color:var(--indigo)">(${p.behaviors.length} imported)</span></div>${p.behaviors.length===0?'<p style="font-size:12px;color:var(--fg-3);font-style:italic;margin-bottom:14px">No rows detected. Defaults will be applied.</p>':`<div class="pvlist" style="margin-bottom:14px">${p.behaviors.map((b,i)=>`<div class="pvitem"><span class="pvn">${i+1}</span><div><div class="pvlbl">${esc(b.label)}</div>${b.desc?`<div class="pvdsc">${esc(b.desc)}</div>`:''}</div></div>`).join('')}</div>`}<button class="bkl" id="impbk">${ic('cl',12)} Upload a different file</button>`;
+    document.getElementById('impFt').innerHTML=`<button class="btn" id="impno2">Cancel</button><button class="btn btn-p" id="impok">${ic('chk',15)} Import & Open in Form</button>`;
+    document.getElementById('impno2').onclick=closeImp;
+    document.getElementById('impbk').onclick=()=>{ST.impStep='upload';renderImp();};
+    document.getElementById('impok').onclick=()=>{const p=ST.impParsed,pf={ruleName:p.title,feeScheduleId:ST.selFS||'cms-pfs',behaviors:p.behaviors.length?p.behaviors:DB.map(b=>({...b})),columnMapping:{...DM,...p.columnMapping}};closeImp();openForm(null,pf);};
+  }
+}
+async function handleImpFile(file){
+  document.getElementById('ps').innerHTML=`<div class="pld"><div class="sp2"></div><p>Parsing ${esc(file.name)}...</p></div>`;
+  try{const r=await parseXL(file);r.fileName=file.name;ST.impParsed=r;ST.impStep='preview';renderImp();}
+  catch(e){document.getElementById('ps').innerHTML=`<div class="perr">${ic('alt',14)}<p>Could not parse. Ensure it is a valid .xlsx, .xls, or .csv file.</p></div>`;}
+}
+async function parseXL(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=e=>{try{const data=new Uint8Array(e.target.result),wb=XLSX.read(data,{type:'array'}),ws=wb.Sheets[wb.SheetNames[0]],rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});let title='';const behaviors=[],colMap={};let inM=false;const KEYS={'procedure_code':'procedureCode','procedure code':'procedureCode','modifier':'modifier','modifier_2':'modifier2','modifier 2':'modifier2','modifier_3':'modifier3','modifier 3':'modifier3','modifier_4':'modifier4','modifier 4':'modifier4','effective_date':'effectiveDate','effective date':'effectiveDate','termination_date':'terminationDate','termination date':'terminationDate','reimbursement_method':'reimbursementMethod','reimbursement method':'reimbursementMethod','allowed':'allowed'};for(let i=0;i<rows.length;i++){const row=rows[i],cA=String(row[0]||'').trim(),cB=String(row[1]||'').trim();if(!cA)continue;if(!title){title=cA.replace(/^scrub rule\s*[-–]\s*/i,'').trim()||cA;continue;}if(/column\s*mapping/i.test(cA)){inM=true;continue;}if(!inM){const c=cA.replace(/^\d+[\.\s]+/,'').trim();if(c.length>4)behaviors.push({id:uid(),label:c,desc:cB||'',enabled:true});}else{const fk=cA.replace(/^\d+[\.\s]+/,'').trim().toLowerCase().replace(/[^a-z0-9 _]/g,'').trim(),mk=KEYS[fk];if(mk){let desc=cB,j=i+1;while(j<rows.length){const nA=String(rows[j][0]||'').trim(),nB=String(rows[j][1]||'').trim();if(!nA&&nB){desc+='\n'+nB;j++;}else if(nA&&!/^\d+[\.\s]/.test(nA)){desc+='\n'+nA;j++;}else break;}colMap[mk]=desc.trim();}}}resolve({title:title||'Imported Rule',behaviors,columnMapping:colMap});}catch(err){reject(err);}};reader.onerror=reject;reader.readAsArrayBuffer(file);});}
+
+// ─── Form ─────────────────────────────────────────────────────────────────────
+function openForm(rule,pre=null){
+  ST.fMode=rule?'edit':'new';ST.fRule=rule;ST.fPre=pre;
+  ST.fBehs=(pre?.behaviors||rule?.behaviors||DB).map(b=>({...b}));
+  ST.fMap={...DM,...(pre?.columnMapping||{}),...(rule?.columnMapping||{})};
+  document.getElementById('fc').value=rule?.ruleCode||'';
+  document.getElementById('fn').value=pre?.ruleName||rule?.ruleName||'';
+  document.getElementById('fd').value=rule?.description||'';
+  document.getElementById('fst').value=rule?.status||'Active';
+  document.getElementById('fef').value=rule?.effectiveDate||new Date().toISOString().slice(0,10);
+  document.getElementById('fex').value=rule?.expirationDate||'';
+  document.getElementById('fch').value='';
+  document.getElementById('ffs').innerHTML=LOBS.map(lob=>`<optgroup label="-- ${lob} --">${FS.filter(f=>f.lob===lob).map(f=>`<option value="${f.id}"${(pre?.feeScheduleId||rule?.feeScheduleId||ST.selFS)===f.id?' selected':''}>${esc(f.name)}</option>`).join('')}</optgroup>`).join('');
+  document.getElementById('cnsec').style.display=rule?'block':'none';
+  document.getElementById('ftl').textContent=rule?`Editing: ${rule.ruleName}`:pre?'New Rule — imported from Excel':'New Scrub Rule';
+  document.getElementById('fvh').textContent=rule?`Saving will create version v${rule.version+1}.0`:'';
+  document.getElementById('fvh').style.display=rule?'block':'none';
+  document.getElementById('fico').innerHTML=rule?ic('edit',15):ic('plus',15);
+  const lbl=rule?`${ic('save',14)} Save as v${rule.version+1}.0`:`${ic('save',14)} Create Rule`;
+  document.getElementById('fsv').innerHTML=lbl;
+  document.getElementById('fsv2').innerHTML=lbl;
+  renderBE();renderMT();
+  showSec('identity');
+  document.getElementById('fo').classList.remove('hidden');
+}
+function closeForm(){document.getElementById('fo').classList.add('hidden');ST.fMode=null;ST.fRule=null;}
+function showSec(s){
+  document.querySelectorAll('.fp').forEach(p=>p.classList.remove('active'));
+  document.getElementById(`p-${s}`).classList.add('active');
+  document.querySelectorAll('.fnb').forEach(b=>b.classList.toggle('active',b.dataset.sec===s));
+}
+function saveForm(){
+  const code=document.getElementById('fc').value.trim(),name=document.getElementById('fn').value.trim();
+  if(!code||!name){alert('Rule Code and Rule Name are required.');showSec('identity');return;}
+  const now=new Date().toISOString(),rule=ST.fRule,nv=rule?rule.version+1:1;
+  const saved={id:rule?.id||`rule-${Date.now()}`,ruleCode:code,ruleName:name,feeScheduleId:document.getElementById('ffs').value,description:document.getElementById('fd').value,status:document.getElementById('fst').value,effectiveDate:document.getElementById('fef').value,expirationDate:document.getElementById('fex').value||null,version:nv,createdBy:rule?.createdBy||'Current User',createdAt:rule?.createdAt||now,updatedAt:now,behaviors:ST.fBehs,columnMapping:ST.fMap,versions:[...(rule?.versions||[]),{version:nv,changeNote:document.getElementById('fch').value.trim()||(rule?'Manual update':'Initial creation'),updatedBy:'Current User',updatedAt:now}]};
+  const idx=rules.findIndex(r=>r.id===saved.id);if(idx===-1)rules=[...rules,saved];else{rules=[...rules];rules[idx]=saved;}
+  ST.selFS=saved.feeScheduleId;closeForm();renderSB();renderMain();updRC();
+}
+function renderBE(){
+  const en=ST.fBehs.filter(b=>b.enabled).length;
+  let html=`<div class="be"><div class="beh"><div class="bet">${ic('set2',14)} Scrub Behaviors</div><span class="bec" id="bec">${en} of ${ST.fBehs.length} enabled</span></div><div id="blist">`;
+  ST.fBehs.forEach((b,i)=>{html+=`<div class="br" data-bid="${b.id}"><div class="bnum">${i+1}</div><div class="binp"><input class="bil" placeholder="Rule label..." value="${esc(b.label)}" data-bid="${b.id}" data-f="label" /><input class="bid" placeholder="Description (optional)..." value="${esc(b.desc)}" data-bid="${b.id}" data-f="desc" /></div><div class="brr"><label class="tw"><input type="checkbox" ${b.enabled?'checked':''} data-bid="${b.id}" class="btog" /><span class="tslider"></span></label><button class="bdl" data-bid="${b.id}">${ic('trash',13)}</button></div></div>`;});
+  html+=`</div><div class="bar"><button class="adb" id="addb"><div class="adbi">${ic('plus',13)}</div> Add Rule</button></div></div>`;
+  const w=document.getElementById('bewrap');w.innerHTML=html;
+  w.querySelectorAll('.bil,.bid').forEach(el=>{el.addEventListener('input',()=>{const b=ST.fBehs.find(b=>b.id===el.dataset.bid);if(b)b[el.dataset.f]=el.value;});});
+  w.querySelectorAll('.btog').forEach(c=>{c.addEventListener('change',()=>{const b=ST.fBehs.find(b=>b.id===c.dataset.bid);if(b){b.enabled=c.checked;const el=document.getElementById('bec');if(el){const e2=ST.fBehs.filter(b=>b.enabled).length;el.textContent=`${e2} of ${ST.fBehs.length} enabled`;}}});});
+  w.querySelectorAll('.bdl').forEach(btn=>{btn.onclick=()=>{ST.fBehs=ST.fBehs.filter(b=>b.id!==btn.dataset.bid);renderBE();};});
+  document.getElementById('addb').onclick=()=>{ST.fBehs=[...ST.fBehs,{id:uid(),label:'',desc:'',enabled:true}];renderBE();setTimeout(()=>{const ins=document.querySelectorAll('.bil');ins[ins.length-1]?.focus();},50);};
+}
+function renderMT(){
+  let html=`<div class="mth"><span>Destination Field</span><span>Source Logic</span></div>`;
+  MF.forEach(f=>{const val=esc(ST.fMap[f.key]||''),inp=f.multi?`<textarea class="mtta" data-mk="${f.key}" rows="${f.rows||2}">${val}</textarea>`:`<input class="mti" data-mk="${f.key}" value="${val}" />`;html+=`<div class="mtr"><div class="mtd"><div class="mtdi">${ic(f.icon,12)}</div><div><div class="mtrl">${f.label}</div><div class="mtdc">${f.dest}</div></div></div>${inp}</div>`;});
+  document.getElementById('mtwrap').innerHTML=html;
+  document.querySelectorAll('[data-mk]').forEach(el=>{el.addEventListener('input',()=>{ST.fMap[el.dataset.mk]=el.value;});});
+}
+
+// ─── Wire form ────────────────────────────────────────────────────────────────
+document.getElementById('fbb').onclick=closeForm;
+document.getElementById('fcnc').onclick=closeForm;
+document.getElementById('fsv').onclick=saveForm;
+document.getElementById('fsv2').onclick=saveForm;
+document.getElementById('nxtgen').onclick=()=>showSec('general');
+document.getElementById('gbk').onclick=()=>showSec('identity');
+document.getElementById('nxtmap').onclick=()=>showSec('mapping');
+document.getElementById('mbk').onclick=()=>showSec('general');
+document.querySelectorAll('.fnb').forEach(b=>{b.addEventListener('click',()=>showSec(b.dataset.sec));});
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded',()=>{initHdr();renderSB();renderMain();});
+</script>
+</body>
+</html>
