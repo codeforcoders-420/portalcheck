@@ -1,166 +1,969 @@
-import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>State Portal Monitor</title>
+<style>
+  /* ── Theme Tokens ────────────────────────────────────────────────── */
+  :root, [data-theme="light"] {
+    --bg-page:        #f0f4f8;
+    --bg-page-end:    #e8edf2;
+    --bg-card:        #ffffff;
+    --bg-header:      linear-gradient(135deg, #1e3a5f 0%, #2d5a8e 50%, #1a4a7a 100%);
+    --bg-thead:       #f8fafc;
+    --bg-hover-row:   #f8fafc;
+    --bg-input:       #ffffff;
+    --bg-stat-blue:   #dbeafe;
+    --bg-stat-orange: #ffedd5;
+    --bg-stat-green:  #dcfce7;
+    --bg-stat-purple: #ede9fe;
+    --bg-filters:     #ffffff;
+    --bg-btn-sec:     #f1f5f9;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.Objects;
-import java.util.stream.IntStream;
+    --text-primary:   #0f172a;
+    --text-secondary: #374151;
+    --text-muted:     #64748b;
+    --text-xmuted:    #94a3b8;
+    --text-btn-sec:   #475569;
+    --text-heading:   #0f172a;
 
-public class ExcelToDatConverter {
+    --border-card:    #f0f0f0;
+    --border-input:   #e2e8f0;
+    --border-table:   #f1f5f9;
+    --border-thead:   #e2e8f0;
+    --border-btn-sec: #e2e8f0;
 
-    // Column indexes (0-based)
-    private static final int COL_A = 0;
-    private static final int COL_B = 1;
-    private static final int COL_D = 3;
-    private static final int COL_F = 5;
-    private static final int COL_G = 6;
-    private static final int COL_I = 8;
-    private static final int COL_K = 10;
-    private static final int COL_L = 11;
-    private static final int COL_M = 12;
-    private static final int COL_N = 13;
-    private static final int COL_O = 14;
+    --shadow-card:    0 2px 12px rgba(0,0,0,0.07);
+    --shadow-card-hover: 0 6px 20px rgba(0,0,0,0.10);
+    --shadow-lob-hover:  0 12px 36px rgba(37,99,235,0.15);
+    --shadow-header:  0 8px 32px rgba(30,58,95,0.35);
+    --shadow-toast:   0 8px 32px rgba(0,0,0,0.18);
+    --shadow-btn-white: 0 2px 8px rgba(0,0,0,0.15);
 
-    // Start from row 11 (Excel) = index 10 (0-based)
-    private static final int START_ROW_INDEX = 10;
+    --lob-border-hover: #bfdbfe;
 
-    public static void main(String[] args) {
-        Path inputExcel = Path.of("PPRRVU2025_Oct.xlsx");
-        Path outputDat  = Path.of("PPRRVU2025_Oct.dat");
+    --state-badge-bg:    #eff6ff;
+    --state-badge-color: #1d4ed8;
+    --state-badge-border:#bfdbfe;
 
-        try {
-            convertExcelToDat(inputExcel, outputDat);
-            System.out.println("Conversion completed. Output: " + outputDat.toAbsolutePath());
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
+    --toggle-bg:      #e2e8f0;
+    --toggle-knob:    #ffffff;
+    --toggle-icon:    #f59e0b;
+  }
 
-    public static void convertExcelToDat(Path excelPath, Path datPath) throws IOException {
-        Objects.requireNonNull(excelPath);
-        Objects.requireNonNull(datPath);
+  [data-theme="dark"] {
+    --bg-page:        #0d1117;
+    --bg-page-end:    #111827;
+    --bg-card:        #1e2433;
+    --bg-header:      linear-gradient(135deg, #0f1f35 0%, #1a3356 50%, #0d1f3c 100%);
+    --bg-thead:       #161d2e;
+    --bg-hover-row:   #232d42;
+    --bg-input:       #1e2433;
+    --bg-stat-blue:   #1e3a5f;
+    --bg-stat-orange: #431407;
+    --bg-stat-green:  #14532d;
+    --bg-stat-purple: #2e1065;
+    --bg-filters:     #1e2433;
+    --bg-btn-sec:     #2a3347;
 
-        try (Workbook workbook = new XSSFWorkbook(Files.newInputStream(excelPath));
-             var writer = Files.newBufferedWriter(datPath,
-                     StandardCharsets.UTF_8,
-                     java.nio.file.StandardOpenOption.CREATE,
-                     java.nio.file.StandardOpenOption.TRUNCATE_EXISTING)) {
+    --text-primary:   #f1f5f9;
+    --text-secondary: #cbd5e1;
+    --text-muted:     #94a3b8;
+    --text-xmuted:    #64748b;
+    --text-btn-sec:   #94a3b8;
+    --text-heading:   #f1f5f9;
 
-            Sheet sheet = workbook.getSheetAt(0);
-            DataFormatter formatter = new DataFormatter();
+    --border-card:    #2a3347;
+    --border-input:   #2a3347;
+    --border-table:   #1e2d45;
+    --border-thead:   #2a3347;
+    --border-btn-sec: #2a3347;
 
-            int lastRowNum = sheet.getLastRowNum();
+    --shadow-card:    0 2px 12px rgba(0,0,0,0.35);
+    --shadow-card-hover: 0 6px 24px rgba(0,0,0,0.45);
+    --shadow-lob-hover:  0 12px 36px rgba(37,99,235,0.25);
+    --shadow-header:  0 8px 32px rgba(0,0,0,0.6);
+    --shadow-toast:   0 8px 32px rgba(0,0,0,0.55);
+    --shadow-btn-white: 0 2px 8px rgba(0,0,0,0.4);
 
-            IntStream.rangeClosed(START_ROW_INDEX, lastRowNum)
-                    .mapToObj(sheet::getRow)
-                    .takeWhile(r -> r != null && !isRowEmpty(r))
-                    .map(r -> buildDatLine(r, formatter))
-                    .forEach(line -> {
-                        try {
-                            writer.write(line);
-                            writer.newLine();
-                        } catch (IOException e) {
-                            throw new RuntimeException(e);
-                        }
-                    });
-        }
-    }
+    --lob-border-hover: #1d4ed8;
 
-    private static boolean isRowEmpty(Row row) {
-        if (row == null) return true;
+    --state-badge-bg:    #1e3a5f;
+    --state-badge-color: #93c5fd;
+    --state-badge-border:#1d4ed8;
 
-        int[] columns = { COL_A, COL_B, COL_D, COL_F, COL_G, COL_I, COL_K, COL_L, COL_M, COL_N, COL_O };
-        DataFormatter df = new DataFormatter();
+    --toggle-bg:      #1e3a5f;
+    --toggle-knob:    #1e293b;
+    --toggle-icon:    #818cf8;
+  }
 
-        for (int col : columns) {
-            Cell cell = row.getCell(col, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
-            if (cell != null) {
-                String v = df.formatCellValue(cell);
-                if (v != null && !v.isBlank()) return false;
-            }
-        }
-        return true;
-    }
+  /* ── Reset & Base ────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 14px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: linear-gradient(135deg, var(--bg-page) 0%, var(--bg-page-end) 100%);
+    min-height: 100vh;
+    color: var(--text-secondary);
+    transition: background 0.3s ease, color 0.3s ease;
+  }
 
-    private static String buildDatLine(Row row, DataFormatter formatter) {
-        StringBuilder sb = new StringBuilder(51);
+  /* ── Layout ──────────────────────────────────────────────────────── */
+  .container { max-width: 1800px; margin: 0 auto; padding: 24px; }
+  .space-y-6 > * + * { margin-top: 24px; }
+  .space-y-4 > * + * { margin-top: 16px; }
 
-        String colA = get(row, COL_A, formatter);
-        String colB = get(row, COL_B, formatter);
-        String colD = get(row, COL_D, formatter);
+  /* ── Header ──────────────────────────────────────────────────────── */
+  .header {
+    background: var(--bg-header);
+    border-radius: 16px;
+    padding: 28px 32px;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: var(--shadow-header);
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .header-left { display: flex; align-items: center; gap: 16px; }
+  .header-icon {
+    width: 52px; height: 52px;
+    background: rgba(255,255,255,0.15);
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px;
+    backdrop-filter: blur(4px);
+  }
+  .header h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; }
+  .header-sub { font-size: 0.85rem; opacity: 0.75; margin-top: 2px; }
+  .header-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .changes-badge {
+    background: rgba(255,255,255,0.18);
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 0.8rem; font-weight: 600;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .badge-pulse { width: 8px; height: 8px; border-radius: 50%; background: #fbbf24; animation: glow 1.8s ease-in-out infinite; }
+  @keyframes glow { 0%,100%{box-shadow:0 0 0 0 rgba(251,191,36,0.7)} 50%{box-shadow:0 0 0 5px rgba(251,191,36,0)} }
+  .last-update { font-size: 0.78rem; opacity: 0.7; }
 
-        String colF = get(row, COL_F, formatter);
-        String colG = get(row, COL_G, formatter);
-        String colI = get(row, COL_I, formatter);
-        String colK = get(row, COL_K, formatter);
-        String colL = get(row, COL_L, formatter);
-        String colM = get(row, COL_M, formatter);
+  /* ── Theme Toggle ────────────────────────────────────────────────── */
+  .theme-toggle {
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(255,255,255,0.13);
+    border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 24px;
+    padding: 5px 14px 5px 8px;
+    cursor: pointer;
+    transition: background 0.2s;
+    color: white;
+    font-size: 0.8rem; font-weight: 600;
+    user-select: none;
+  }
+  .theme-toggle:hover { background: rgba(255,255,255,0.22); }
+  .toggle-track {
+    width: 36px; height: 20px;
+    background: var(--toggle-bg);
+    border-radius: 20px;
+    position: relative;
+    transition: background 0.3s;
+    flex-shrink: 0;
+  }
+  .toggle-knob {
+    position: absolute;
+    top: 3px; left: 3px;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: white;
+    transition: transform 0.28s cubic-bezier(.4,0,.2,1);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  }
+  [data-theme="dark"] .toggle-knob { transform: translateX(16px); }
 
-        String colN = get(row, COL_N, formatter);
-        String colO = get(row, COL_O, formatter);
+  /* ── Buttons ─────────────────────────────────────────────────────── */
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 16px; border-radius: 8px; font-size: 0.82rem; font-weight: 600;
+    cursor: pointer; border: none; transition: all 0.18s ease;
+    white-space: nowrap;
+  }
+  .btn-white {
+    background: white; color: #1e3a5f;
+    box-shadow: var(--shadow-btn-white);
+  }
+  .btn-white:hover { background: #f0f4f8; transform: translateY(-1px); }
+  .btn-outline-white {
+    background: rgba(255,255,255,0.12); color: white;
+    border: 1px solid rgba(255,255,255,0.35);
+  }
+  .btn-outline-white:hover { background: rgba(255,255,255,0.22); }
+  .btn-primary { background: #2563eb; color: white; }
+  .btn-primary:hover { background: #1d4ed8; transform: translateY(-1px); }
+  .btn-secondary {
+    background: var(--bg-btn-sec); color: var(--text-btn-sec);
+    border: 1px solid var(--border-btn-sec);
+  }
+  .btn-secondary:hover { filter: brightness(0.95); }
+  .btn-sm { padding: 5px 10px; font-size: 0.75rem; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
 
-        sb.append(fit("MCR", 3));      // 1-3
-        sb.append(fit(colA, 5));       // 4-8
-        sb.append(fit(colB, 2));       // 9-10
-        sb.append(fit(colD, 1));       // 11
+  /* ── Stat Cards ──────────────────────────────────────────────────── */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+  }
+  .stat-card {
+    background: var(--bg-card);
+    border-radius: 14px;
+    padding: 22px 24px;
+    box-shadow: var(--shadow-card);
+    border: 1px solid var(--border-card);
+    display: flex; align-items: center; gap: 16px;
+    transition: transform 0.18s, box-shadow 0.18s, background 0.3s, border-color 0.3s;
+  }
+  .stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-card-hover); }
+  .stat-icon {
+    width: 48px; height: 48px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; flex-shrink: 0;
+    transition: background 0.3s;
+  }
+  .stat-icon.blue   { background: var(--bg-stat-blue); }
+  .stat-icon.orange { background: var(--bg-stat-orange); }
+  .stat-icon.green  { background: var(--bg-stat-green); }
+  .stat-icon.purple { background: var(--bg-stat-purple); }
+  .stat-value { font-size: 1.9rem; font-weight: 800; color: var(--text-heading); line-height: 1; }
+  .stat-label { font-size: 0.78rem; color: var(--text-muted); margin-top: 3px; font-weight: 500; }
 
-        sb.append(formatRate(colF));   // 12-17
-        sb.append(formatRate(colG));   // 18-23
-        sb.append(formatRate(colI));   // 24-29
-        sb.append(formatRate(colK));   // 30-35
-        sb.append(formatRate(colL));   // 36-41
-        sb.append(formatRate(colM));   // 42-47
+  /* ── LOB Grid ────────────────────────────────────────────────────── */
+  .lob-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 20px;
+  }
+  .lob-card {
+    background: var(--bg-card);
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: var(--shadow-card);
+    border: 1.5px solid var(--border-card);
+    cursor: pointer;
+    transition: all 0.22s ease;
+    position: relative; overflow: hidden;
+  }
+  .lob-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 4px;
+    background: linear-gradient(90deg, #2563eb, #7c3aed);
+    opacity: 0; transition: opacity 0.22s;
+  }
+  .lob-card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-lob-hover);
+    border-color: var(--lob-border-hover);
+  }
+  .lob-card:hover::before { opacity: 1; }
+  .lob-card-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
+  .lob-card-title-row { display: flex; align-items: center; gap: 12px; }
+  .lob-emoji { font-size: 2rem; }
+  .lob-name { font-size: 1.15rem; font-weight: 700; color: var(--text-heading); }
+  .lob-desc { font-size: 0.78rem; color: var(--text-muted); margin-top: 2px; }
+  .changes-pill {
+    background: #fff7ed; color: #c2410c;
+    border: 1px solid #fed7aa;
+    border-radius: 20px; padding: 3px 10px;
+    font-size: 0.72rem; font-weight: 700; white-space: nowrap;
+  }
+  .changes-pill.zero { background: #f0fdf4; color: #15803d; border-color: #bbf7d0; }
+  [data-theme="dark"] .changes-pill      { background: #431407; color: #fb923c; border-color: #92400e; }
+  [data-theme="dark"] .changes-pill.zero { background: #14532d; color: #4ade80; border-color: #166534; }
+  .lob-stats {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+    margin-top: 16px; padding-top: 16px;
+    border-top: 1px solid var(--border-table);
+  }
+  .lob-stat { text-align: center; }
+  .lob-stat-val { font-size: 1.3rem; font-weight: 800; color: #3b82f6; }
+  .lob-stat-lbl { font-size: 0.68rem; color: var(--text-xmuted); font-weight: 500; margin-top: 2px; }
+  .lob-footer { display: flex; align-items: center; gap: 6px; margin-top: 14px; font-size: 0.73rem; color: var(--text-xmuted); }
 
-        sb.append(fit(colN, 1));       // 48
-        sb.append(fit(colO, 3));       // 49-51
+  /* ── LOB Detail ──────────────────────────────────────────────────── */
+  .detail-header {
+    background: var(--bg-card);
+    border-radius: 16px; padding: 24px 28px;
+    box-shadow: var(--shadow-card); border: 1px solid var(--border-card);
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 16px;
+    transition: background 0.3s, border-color 0.3s;
+  }
+  .detail-title-row { display: flex; align-items: center; gap: 14px; }
+  .detail-emoji { font-size: 2.2rem; }
+  .detail-name { font-size: 1.5rem; font-weight: 800; color: var(--text-heading); }
+  .detail-desc { font-size: 0.82rem; color: var(--text-muted); margin-top: 3px; }
+  .detail-actions { display: flex; gap: 10px; }
 
-        // Ensure exactly 51 characters
-        if (sb.length() < 51) return padRight(sb.toString(), 51);
-        if (sb.length() > 51) return sb.substring(0, 51);
+  /* ── Filters ─────────────────────────────────────────────────────── */
+  .filters-bar {
+    background: var(--bg-filters); border-radius: 12px; padding: 16px 20px;
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    box-shadow: var(--shadow-card); border: 1px solid var(--border-card);
+    transition: background 0.3s, border-color 0.3s;
+  }
+  .search-wrap { position: relative; flex: 1; min-width: 200px; }
+  .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-xmuted); }
+  .search-input {
+    width: 100%; padding: 8px 12px 8px 32px;
+    border: 1.5px solid var(--border-input); border-radius: 8px;
+    font-size: 0.83rem; color: var(--text-secondary);
+    background: var(--bg-input); outline: none;
+    transition: border-color 0.18s, background 0.3s, color 0.3s;
+  }
+  .search-input::placeholder { color: var(--text-xmuted); }
+  .search-input:focus { border-color: #2563eb; }
+  .filter-select {
+    padding: 8px 12px; border: 1.5px solid var(--border-input); border-radius: 8px;
+    font-size: 0.83rem; color: var(--text-secondary); background: var(--bg-input);
+    outline: none; cursor: pointer;
+    transition: border-color 0.18s, background 0.3s, color 0.3s;
+  }
+  .filter-select:focus { border-color: #2563eb; }
+  .filter-label { font-size: 0.78rem; color: var(--text-muted); font-weight: 500; white-space: nowrap; }
 
-        return sb.toString();
-    }
+  /* ── Table ───────────────────────────────────────────────────────── */
+  .table-wrap {
+    background: var(--bg-card); border-radius: 14px;
+    box-shadow: var(--shadow-card); border: 1px solid var(--border-card);
+    overflow: hidden;
+    transition: background 0.3s, border-color 0.3s;
+  }
+  .table-scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; min-width: 900px; }
+  thead { background: var(--bg-thead); transition: background 0.3s; }
+  th {
+    padding: 13px 16px; text-align: left;
+    font-size: 0.72rem; font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    border-bottom: 1.5px solid var(--border-thead); white-space: nowrap;
+  }
+  td {
+    padding: 12px 16px; font-size: 0.82rem;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-table); vertical-align: middle;
+    transition: color 0.3s;
+  }
+  tr:last-child td { border-bottom: none; }
+  tbody tr { transition: background 0.12s; }
+  tbody tr:hover { background: var(--bg-hover-row); }
+  .name-cell { font-weight: 600; color: var(--text-heading); }
+  .state-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--state-badge-bg); color: var(--state-badge-color);
+    border: 1px solid var(--state-badge-border);
+    border-radius: 6px; padding: 2px 8px;
+    font-size: 0.72rem; font-weight: 700;
+    transition: background 0.3s, color 0.3s, border-color 0.3s;
+  }
+  .version-text { font-size: 0.75rem; color: var(--text-muted); font-family: monospace; }
+  .date-text { font-size: 0.75rem; color: var(--text-xmuted); }
+  .action-cell { display: flex; gap: 6px; align-items: center; }
+  .table-header {
+    padding: 14px 20px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--border-table);
+  }
+  .table-title { font-size: 0.88rem; font-weight: 700; color: var(--text-heading); }
+  .table-count { font-size: 0.78rem; color: var(--text-xmuted); }
 
-    private static String get(Row row, int col, DataFormatter formatter) {
-        Cell cell = row.getCell(col, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
-        if (cell == null) return "";
-        return formatter.formatCellValue(cell).trim();
-    }
+  /* ── Status Badges ───────────────────────────────────────────────── */
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 20px;
+    font-size: 0.72rem; font-weight: 600; white-space: nowrap;
+  }
+  .badge-dot-sm { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  /* File */
+  .badge-available    { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+  .badge-available .badge-dot-sm { background: #16a34a; }
+  .badge-not-found    { background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; }
+  .badge-not-found .badge-dot-sm { background: #ef4444; }
+  .badge-checking     { background: #dbeafe; color: #2563eb; border: 1px solid #bfdbfe; }
+  .badge-checking .badge-dot-sm  { background: #3b82f6; animation: blink 1.2s infinite; }
+  .badge-error        { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
+  .badge-error .badge-dot-sm     { background: #dc2626; }
+  /* Comparison */
+  .badge-no-changes    { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+  .badge-no-changes .badge-dot-sm    { background: #94a3b8; }
+  .badge-changes-found { background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; }
+  .badge-changes-found .badge-dot-sm { background: #f97316; }
+  .badge-pending       { background: #fefce8; color: #a16207; border: 1px solid #fef08a; }
+  .badge-pending .badge-dot-sm       { background: #eab308; }
+  .badge-new-file      { background: #f5f3ff; color: #6d28d9; border: 1px solid #ddd6fe; }
+  .badge-new-file .badge-dot-sm      { background: #8b5cf6; }
+  .badge-not-compared  { background: #f8fafc; color: #64748b; border: 1px solid #e2e8f0; }
+  .badge-not-compared .badge-dot-sm  { background: #cbd5e1; }
 
-    private static String fit(String val, int len) {
-        if (val == null) val = "";
-        val = val.trim();
-        if (val.length() > len) return val.substring(0, len);
-        return padRight(val, len);
-    }
+  /* Dark mode badge overrides */
+  [data-theme="dark"] .badge-available     { background: #14532d; color: #4ade80; border-color: #166534; }
+  [data-theme="dark"] .badge-not-found     { background: #450a0a; color: #f87171; border-color: #7f1d1d; }
+  [data-theme="dark"] .badge-checking      { background: #1e3a5f; color: #93c5fd; border-color: #1d4ed8; }
+  [data-theme="dark"] .badge-error         { background: #450a0a; color: #fca5a5; border-color: #7f1d1d; }
+  [data-theme="dark"] .badge-no-changes    { background: #1e2433; color: #94a3b8; border-color: #334155; }
+  [data-theme="dark"] .badge-changes-found { background: #431407; color: #fb923c; border-color: #92400e; }
+  [data-theme="dark"] .badge-pending       { background: #422006; color: #fbbf24; border-color: #854d0e; }
+  [data-theme="dark"] .badge-new-file      { background: #2e1065; color: #c4b5fd; border-color: #4c1d95; }
+  [data-theme="dark"] .badge-not-compared  { background: #1e2433; color: #64748b; border-color: #2a3347; }
 
-    private static String padRight(String s, int len) {
-        StringBuilder sb = new StringBuilder(s);
-        while (sb.length() < len) sb.append(' ');
-        return sb.toString();
-    }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
-    /**
-     * NEW RULE:
-     * If numeric → convert decimal (0.01 → 000001)
-     * If empty → return SPACES
-     */
-    private static String formatRate(String value) {
-        if (value == null || value.isBlank())
-            return "      "; // 6 spaces
+  /* ── Section heading ─────────────────────────────────────────────── */
+  .section-heading { display: flex; align-items: center; justify-content: space-between; }
+  .section-heading h2 { font-size: 1.25rem; font-weight: 700; color: var(--text-heading); }
+  .section-hint { font-size: 0.78rem; color: var(--text-xmuted); }
 
-        String cleaned = value.replace(",", "").replace("$", "").trim();
-        if (cleaned.isEmpty())
-            return "      ";
+  /* ── Empty State ─────────────────────────────────────────────────── */
+  .empty-state { text-align: center; padding: 60px 20px; color: var(--text-xmuted); }
+  .empty-icon  { font-size: 3rem; margin-bottom: 12px; }
+  .empty-text  { font-size: 0.9rem; }
 
-        try {
-            double d = Double.parseDouble(cleaned);
-            int scaled = (int) Math.round(d * 100);
-            return String.format("%06d", scaled);
-        } catch (Exception e) {
-            return "      "; // non-numeric → spaces
-        }
-    }
+  /* ── Toast ───────────────────────────────────────────────────────── */
+  #toast-container {
+    position: fixed; top: 20px; right: 20px; z-index: 9999;
+    display: flex; flex-direction: column; gap: 10px;
+    pointer-events: none;
+  }
+  .toast {
+    background: var(--bg-card); border-radius: 10px;
+    padding: 12px 18px;
+    box-shadow: var(--shadow-toast);
+    border-left: 4px solid #2563eb;
+    font-size: 0.83rem; color: var(--text-heading); font-weight: 500;
+    min-width: 260px; max-width: 380px;
+    pointer-events: all;
+    animation: slideIn 0.25s ease, fadeOut 0.3s ease 2.7s forwards;
+  }
+  .toast.success { border-color: #16a34a; }
+  .toast.error   { border-color: #dc2626; }
+  .toast.warning { border-color: #d97706; }
+  @keyframes slideIn { from{opacity:0;transform:translateX(40px)} to{opacity:1;transform:translateX(0)} }
+  @keyframes fadeOut { from{opacity:1} to{opacity:0;pointer-events:none} }
+
+  /* ── Spin ────────────────────────────────────────────────────────── */
+  @keyframes spin { to{transform:rotate(360deg)} }
+  .spin { animation: spin 1s linear infinite; display: inline-block; }
+
+  /* ── Responsive ──────────────────────────────────────────────────── */
+  @media (max-width: 768px) {
+    .header { flex-direction: column; align-items: flex-start; }
+    .lob-grid { grid-template-columns: 1fr; }
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .detail-header { flex-direction: column; align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+
+<div id="toast-container"></div>
+<div class="container" id="app"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+// THEME MANAGEMENT
+// ═══════════════════════════════════════════════════════════════════
+(function initTheme() {
+  const saved = localStorage.getItem('spm-theme') || 'light';
+  document.documentElement.setAttribute('data-theme', saved);
+})();
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme');
+  const next = current === 'light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('spm-theme', next);
+  render();
 }
+
+function isDark() {
+  return document.documentElement.getAttribute('data-theme') === 'dark';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DATA LAYER
+// ═══════════════════════════════════════════════════════════════════
+const STATES = ['MI','NV','MS','GA','CMS','KY','TC','AR','OH','WI','WV'];
+const SCHEDULE_TYPES = [
+  'Physician Fee Schedule','Outpatient Fee Schedule','Inpatient DRG Schedule',
+  'ASC Payment Rates','DME Fee Schedule','Lab Fee Schedule'
+];
+
+function seededRand(seed) {
+  const x = Math.sin(seed + 1) * 10000;
+  return x - Math.floor(x);
+}
+
+function generateFeeSchedules() {
+  const schedules = [];
+  let id = 1;
+  STATES.forEach((state, si) => {
+    SCHEDULE_TYPES.forEach((type, ti) => {
+      const seed = si * 6 + ti;
+      const r  = seededRand(seed);
+      const r2 = seededRand(seed + 100);
+      const r3 = seededRand(seed + 200);
+      const fileStatus = r > 0.85 ? 'not-found' : r > 0.78 ? 'checking' : 'available';
+      const compStatus = r > 0.72 ? 'changes-found' : r > 0.45 ? 'no-changes' : r > 0.25 ? 'new-file' : 'pending';
+      const now = Date.now();
+      schedules.push({
+        id: `fs-${id++}`,
+        name: `${state} ${type}`,
+        state,
+        fileStatus,
+        comparisonStatus: compStatus,
+        lastChecked:  new Date(now - r2 * 86400000),
+        lastModified: r3 > 0.3 ? new Date(now - r3 * 604800000) : null,
+        changeFileUrl: compStatus === 'changes-found' ? `#download-change-${id}.xlsx` : null,
+        previousVersion: '2026.Q1',
+        currentVersion:  compStatus === 'changes-found' ? '2026.Q2' : '2026.Q1'
+      });
+    });
+  });
+  return schedules;
+}
+
+const ALL_SCHEDULES = generateFeeSchedules();
+
+const LOB_DEFS = [
+  { id:'medicare',       name:'Medicare',       description:'Medicare fee schedules and reimbursement rates',  icon:'🏥',
+    filter:(s)=>s.name.includes('Physician')||s.name.includes('Outpatient') },
+  { id:'medicaid',       name:'Medicaid',       description:'State Medicaid programs and fee schedules',       icon:'🏛️',
+    filter:(s)=>s.name.includes('Inpatient')||s.name.includes('ASC') },
+  { id:'commercial',     name:'Commercial',     description:'Commercial payer fee schedules',                  icon:'💼',
+    filter:(s)=>s.name.includes('DME')||s.name.includes('Lab') },
+  { id:'workers-comp',   name:"Workers' Comp",  description:"Workers' compensation fee schedules",             icon:'⚕️',
+    filter:(_,i)=>i<22 },
+  { id:'auto-insurance', name:'Auto Insurance', description:'Auto insurance medical fee schedules',            icon:'🚗',
+    filter:(_,i)=>i>=22&&i<44 },
+  { id:'other',          name:'Other LOB',      description:'Additional lines of business',                    icon:'📋',
+    filter:(_,i)=>i>=44 }
+];
+
+const lobData = LOB_DEFS.map(def => {
+  const fs = ALL_SCHEDULES.filter(def.filter);
+  return {
+    ...def,
+    feeSchedules: fs,
+    totalSchedules: fs.length,
+    changesDetected: fs.filter(s=>s.comparisonStatus==='changes-found').length,
+    lastSync: new Date()
+  };
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// UTILITIES
+// ═══════════════════════════════════════════════════════════════════
+const fmtDate = d => d ? d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
+const fmtTime = d => d ? d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'}) : '—';
+const fmtDateTime = d => d ? `${fmtDate(d)} ${fmtTime(d)}` : '—';
+function fmtAgo(d) {
+  if (!d) return '—';
+  const s = (Date.now() - d.getTime()) / 1000;
+  if (s < 60)    return Math.round(s)+'s ago';
+  if (s < 3600)  return Math.round(s/60)+'m ago';
+  if (s < 86400) return Math.round(s/3600)+'h ago';
+  return Math.round(s/86400)+'d ago';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// TOAST
+// ═══════════════════════════════════════════════════════════════════
+function showToast(msg, type='info') {
+  const c = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  c.appendChild(el);
+  setTimeout(() => el.remove(), 3200);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// APP STATE
+// ═══════════════════════════════════════════════════════════════════
+let appState = {
+  selectedLOB: null,
+  isRefreshing: false,
+  lastUpdate: new Date(),
+  searchQuery: '',
+  filterState: 'all',
+  filterFile:  'all',
+  filterComp:  'all',
+};
+function setState(p) { Object.assign(appState, p); render(); }
+
+// ═══════════════════════════════════════════════════════════════════
+// BADGE RENDERERS
+// ═══════════════════════════════════════════════════════════════════
+function fileStatusBadge(s) {
+  const m = {
+    available:  ['badge-available',  '✓ Available'],
+    'not-found':['badge-not-found',  '✗ Not Found'],
+    checking:   ['badge-checking',   '↻ Checking'],
+    error:      ['badge-error',      '⚠ Error'],
+  };
+  const [cls, lbl] = m[s] || ['badge-not-compared','—'];
+  return `<span class="badge ${cls}"><span class="badge-dot-sm"></span>${lbl}</span>`;
+}
+
+function compStatusBadge(s) {
+  const m = {
+    'no-changes':   ['badge-no-changes',    '— No Changes'],
+    'changes-found':['badge-changes-found', '▲ Changes Found'],
+    pending:        ['badge-pending',        '⏳ Pending'],
+    'new-file':     ['badge-new-file',       '★ New File'],
+    'not-compared': ['badge-not-compared',   '· Not Compared'],
+  };
+  const [cls, lbl] = m[s] || ['badge-not-compared','—'];
+  return `<span class="badge ${cls}"><span class="badge-dot-sm"></span>${lbl}</span>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// COMPONENTS
+// ═══════════════════════════════════════════════════════════════════
+function renderThemeToggle() {
+  const dark = isDark();
+  return `
+  <button class="theme-toggle" onclick="toggleTheme()" title="Switch to ${dark?'light':'dark'} mode">
+    <div class="toggle-track">
+      <div class="toggle-knob">${dark ? '🌙' : '☀️'}</div>
+    </div>
+    <span>${dark ? 'Dark' : 'Light'}</span>
+  </button>`;
+}
+
+function renderHeader() {
+  const totalChanges = lobData.reduce((s,l)=>s+l.changesDetected,0);
+  return `
+  <div class="header">
+    <div class="header-left">
+      <div class="header-icon">🖥️</div>
+      <div>
+        <h1>State Portal Monitor</h1>
+        <div class="header-sub">Fee Schedule Monitoring · 11 State Portals</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="changes-badge">
+        <span class="badge-pulse"></span>
+        ${totalChanges} Changes Detected
+      </div>
+      <div class="last-update">Last update: ${fmtDateTime(appState.lastUpdate)}</div>
+      ${renderThemeToggle()}
+      <button class="btn btn-white" onclick="handleRefreshAll()" ${appState.isRefreshing?'disabled':''}>
+        <span class="${appState.isRefreshing?'spin':''}">↻</span>
+        ${appState.isRefreshing ? 'Refreshing…' : 'Refresh All'}
+      </button>
+      <button class="btn btn-outline-white" onclick="showToast('Export started…','info')">↓ Export Report</button>
+      <button class="btn btn-outline-white" onclick="showToast('Settings coming soon','info')">⚙ Settings</button>
+    </div>
+  </div>`;
+}
+
+function renderStats() {
+  const all = lobData.flatMap(l=>l.feeSchedules);
+  const stats = {
+    total:   all.length,
+    changes: all.filter(s=>s.comparisonStatus==='changes-found').length,
+    avail:   all.filter(s=>s.fileStatus==='available').length,
+    pending: all.filter(s=>s.comparisonStatus==='pending').length,
+  };
+  return `
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-icon blue">📊</div>
+      <div><div class="stat-value">${stats.total}</div><div class="stat-label">Total Fee Schedules</div></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon orange">▲</div>
+      <div><div class="stat-value">${stats.changes}</div><div class="stat-label">Changes Detected</div></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon green">✓</div>
+      <div><div class="stat-value">${stats.avail}</div><div class="stat-label">Files Available</div></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon purple">⏳</div>
+      <div><div class="stat-value">${stats.pending}</div><div class="stat-label">Pending Comparison</div></div>
+    </div>
+  </div>`;
+}
+
+function renderLOBCard(lob) {
+  const hasChanges = lob.changesDetected > 0;
+  return `
+  <div class="lob-card" onclick="handleLOBClick('${lob.id}')">
+    <div class="lob-card-header">
+      <div class="lob-card-title-row">
+        <span class="lob-emoji">${lob.icon}</span>
+        <div>
+          <div class="lob-name">${lob.name}</div>
+          <div class="lob-desc">${lob.description}</div>
+        </div>
+      </div>
+      <span class="changes-pill${hasChanges?'':' zero'}">
+        ${hasChanges ? `▲ ${lob.changesDetected} changes` : '✓ No changes'}
+      </span>
+    </div>
+    <div class="lob-stats">
+      <div class="lob-stat">
+        <div class="lob-stat-val">${lob.totalSchedules}</div>
+        <div class="lob-stat-lbl">Schedules</div>
+      </div>
+      <div class="lob-stat">
+        <div class="lob-stat-val" style="color:${hasChanges?'#f97316':'#4ade80'}">${lob.changesDetected}</div>
+        <div class="lob-stat-lbl">Changes</div>
+      </div>
+      <div class="lob-stat">
+        <div class="lob-stat-val" style="font-size:0.95rem;color:var(--text-muted)">${fmtAgo(lob.lastSync)}</div>
+        <div class="lob-stat-lbl">Last Sync</div>
+      </div>
+    </div>
+    <div class="lob-footer">🕐 Last synced ${fmtDateTime(lob.lastSync)}</div>
+  </div>`;
+}
+
+function renderFilters() {
+  return `
+  <div class="filters-bar">
+    <span class="filter-label">Filters:</span>
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input class="search-input" type="text" placeholder="Search fee schedules…"
+        value="${appState.searchQuery.replace(/"/g,'&quot;')}"
+        oninput="setState({searchQuery:this.value})" />
+    </div>
+    <select class="filter-select" onchange="setState({filterState:this.value})">
+      <option value="all">All States</option>
+      ${STATES.map(s=>`<option value="${s}"${appState.filterState===s?' selected':''}>${s}</option>`).join('')}
+    </select>
+    <select class="filter-select" onchange="setState({filterFile:this.value})">
+      <option value="all">All File Statuses</option>
+      <option value="available"${appState.filterFile==='available'?' selected':''}>Available</option>
+      <option value="not-found"${appState.filterFile==='not-found'?' selected':''}>Not Found</option>
+      <option value="checking"${appState.filterFile==='checking'?' selected':''}>Checking</option>
+      <option value="error"${appState.filterFile==='error'?' selected':''}>Error</option>
+    </select>
+    <select class="filter-select" onchange="setState({filterComp:this.value})">
+      <option value="all">All Comparison Statuses</option>
+      <option value="changes-found"${appState.filterComp==='changes-found'?' selected':''}>Changes Found</option>
+      <option value="no-changes"${appState.filterComp==='no-changes'?' selected':''}>No Changes</option>
+      <option value="new-file"${appState.filterComp==='new-file'?' selected':''}>New File</option>
+      <option value="pending"${appState.filterComp==='pending'?' selected':''}>Pending</option>
+      <option value="not-compared"${appState.filterComp==='not-compared'?' selected':''}>Not Compared</option>
+    </select>
+    <button class="btn btn-secondary btn-sm"
+      onclick="setState({searchQuery:'',filterState:'all',filterFile:'all',filterComp:'all'})">
+      ✕ Clear
+    </button>
+  </div>`;
+}
+
+function filteredSchedules(lob) {
+  return lob.feeSchedules.filter(s => {
+    const q = appState.searchQuery.toLowerCase();
+    if (q && !s.name.toLowerCase().includes(q) && !s.state.toLowerCase().includes(q)) return false;
+    if (appState.filterState !== 'all' && s.state !== appState.filterState) return false;
+    if (appState.filterFile  !== 'all' && s.fileStatus !== appState.filterFile)  return false;
+    if (appState.filterComp  !== 'all' && s.comparisonStatus !== appState.filterComp) return false;
+    return true;
+  });
+}
+
+function renderTableRow(s) {
+  const dlBtn = s.changeFileUrl
+    ? `<button class="btn btn-sm btn-primary" onclick="handleDownload('${s.id}',event)" title="Download change file">↓ Change File</button>`
+    : `<button class="btn btn-sm btn-secondary" disabled title="No change file">↓ Change File</button>`;
+  return `
+  <tr>
+    <td class="name-cell">${s.name}</td>
+    <td><span class="state-badge">${s.state}</span></td>
+    <td>${fileStatusBadge(s.fileStatus)}</td>
+    <td>${compStatusBadge(s.comparisonStatus)}</td>
+    <td>
+      <span class="version-text">${s.currentVersion||'—'}</span>
+      ${s.previousVersion&&s.previousVersion!==s.currentVersion
+        ?`<span style="color:var(--text-xmuted);font-size:0.68rem;display:block">prev: ${s.previousVersion}</span>`:''
+      }
+    </td>
+    <td class="date-text">${fmtDate(s.lastChecked)}<br><span style="opacity:.65">${fmtTime(s.lastChecked)}</span></td>
+    <td class="date-text">${s.lastModified?fmtDate(s.lastModified):'—'}</td>
+    <td>
+      <div class="action-cell">
+        <button class="btn btn-sm btn-secondary" onclick="handleRefreshSchedule('${s.id}',event)">↻ Refresh</button>
+        ${dlBtn}
+        <button class="btn btn-sm btn-secondary" onclick="showToast('Opening portal…','info')">↗</button>
+      </div>
+    </td>
+  </tr>`;
+}
+
+function renderDetail(lob) {
+  const rows     = filteredSchedules(lob);
+  const changes  = rows.filter(s=>s.comparisonStatus==='changes-found').length;
+  const avail    = rows.filter(s=>s.fileStatus==='available').length;
+  const notFound = rows.filter(s=>s.fileStatus==='not-found').length;
+  return `
+  <div class="space-y-6">
+    <div class="detail-header">
+      <div class="detail-title-row">
+        <button class="btn btn-secondary" onclick="handleBack()">← Back</button>
+        <span class="detail-emoji">${lob.icon}</span>
+        <div>
+          <div class="detail-name">${lob.name}</div>
+          <div class="detail-desc">${lob.description} · Last synced ${fmtDateTime(lob.lastSync)}</div>
+        </div>
+      </div>
+      <div class="detail-actions">
+        <button class="btn btn-secondary" onclick="handleRefreshLOB('${lob.id}')">↻ Refresh All</button>
+        <button class="btn btn-primary" onclick="showToast('Exporting ${lob.name} report…','info')">↓ Export</button>
+      </div>
+    </div>
+
+    <div class="stats-grid" style="grid-template-columns:repeat(4,1fr)">
+      <div class="stat-card">
+        <div class="stat-icon blue">📁</div>
+        <div><div class="stat-value">${rows.length}</div><div class="stat-label">Total Schedules</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon orange">▲</div>
+        <div><div class="stat-value">${changes}</div><div class="stat-label">Changes Found</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon green">✓</div>
+        <div><div class="stat-value">${avail}</div><div class="stat-label">Files Available</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon purple">✗</div>
+        <div><div class="stat-value">${notFound}</div><div class="stat-label">Not Found</div></div>
+      </div>
+    </div>
+
+    ${renderFilters()}
+
+    <div class="table-wrap">
+      <div class="table-header">
+        <span class="table-title">Fee Schedules</span>
+        <span class="table-count">${rows.length} of ${lob.feeSchedules.length} records</span>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Schedule Name</th>
+              <th>State</th>
+              <th>File Status</th>
+              <th>Comparison Status</th>
+              <th>Version</th>
+              <th>Last Checked</th>
+              <th>Last Modified</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.length
+              ? rows.map(renderTableRow).join('')
+              : `<tr><td colspan="8">
+                   <div class="empty-state">
+                     <div class="empty-icon">🔍</div>
+                     <div class="empty-text">No records match the current filters.</div>
+                   </div>
+                 </td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MAIN RENDER
+// ═══════════════════════════════════════════════════════════════════
+function render() {
+  const app = document.getElementById('app');
+  const selectedLOB = appState.selectedLOB
+    ? lobData.find(l=>l.id===appState.selectedLOB)
+    : null;
+
+  app.innerHTML = `
+  <div class="space-y-6">
+    ${renderHeader()}
+    ${selectedLOB
+      ? renderDetail(selectedLOB)
+      : `${renderStats()}
+         <div class="space-y-4">
+           <div class="section-heading">
+             <h2>Lines of Business</h2>
+             <span class="section-hint">Click on a tile to view detailed fee schedules</span>
+           </div>
+           <div class="lob-grid">
+             ${lobData.map(renderLOBCard).join('')}
+           </div>
+         </div>`
+    }
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// EVENT HANDLERS
+// ═══════════════════════════════════════════════════════════════════
+function handleRefreshAll() {
+  setState({ isRefreshing: true });
+  showToast('Refreshing all fee schedules…', 'info');
+  setTimeout(() => {
+    setState({ isRefreshing: false, lastUpdate: new Date() });
+    showToast('All fee schedules refreshed successfully!', 'success');
+  }, 2000);
+}
+
+function handleLOBClick(lobId) {
+  setState({ selectedLOB: lobId, searchQuery:'', filterState:'all', filterFile:'all', filterComp:'all' });
+}
+
+function handleBack() {
+  setState({ selectedLOB: null });
+}
+
+function handleRefreshSchedule(id, e) {
+  if (e) e.stopPropagation();
+  showToast(`Refreshing schedule ${id}…`, 'info');
+  setTimeout(() => showToast(`Schedule ${id} refreshed!`, 'success'), 1000);
+}
+
+function handleRefreshLOB(lobId) {
+  showToast(`Refreshing all schedules for ${lobId}…`, 'info');
+  setTimeout(() => {
+    const lob = lobData.find(l=>l.id===lobId);
+    lob.lastSync = new Date();
+    showToast(`${lob.name} schedules refreshed!`, 'success');
+    render();
+  }, 1500);
+}
+
+function handleDownload(id, e) {
+  if (e) e.stopPropagation();
+  showToast(`Downloading change file for ${id}…`, 'success');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════════
+render();
+</script>
+</body>
+</html>
