@@ -1,441 +1,866 @@
-/* ===================== DATA CLASS ===================== */
-private static class MismatchRow {
-    // The base row’s values (Excel or DB, depending on logic)
-    Map<String, String> base = new LinkedHashMap<>();
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>State Portal Monitor</title>
+<style>
+  /* ── Reset & Base ───────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 14px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: linear-gradient(135deg, #f0f4f8 0%, #e8edf2 100%);
+    min-height: 100vh;
+    color: #1a202c;
+  }
 
-    // Classification type (e.g., "New Code", "Rate Change", "Terminate")
-    String type;
+  /* ── Layout ─────────────────────────────────────────────────────── */
+  .container { max-width: 1800px; margin: 0 auto; padding: 24px; }
+  .space-y-6 > * + * { margin-top: 24px; }
+  .space-y-4 > * + * { margin-top: 16px; }
+  .space-y-2 > * + * { margin-top: 8px; }
 
-    // Differences text (like: "Rate1: Excel=25.00, DB=26.00; Rate2: Excel=15.0, DB=18.0")
-    String differences;
+  /* ── Header ─────────────────────────────────────────────────────── */
+  .header {
+    background: linear-gradient(135deg, #1e3a5f 0%, #2d5a8e 50%, #1a4a7a 100%);
+    border-radius: 16px;
+    padding: 28px 32px;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 8px 32px rgba(30,58,95,0.35);
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .header-left { display: flex; align-items: center; gap: 16px; }
+  .header-icon {
+    width: 52px; height: 52px;
+    background: rgba(255,255,255,0.15);
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px;
+    backdrop-filter: blur(4px);
+  }
+  .header h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; }
+  .header-sub { font-size: 0.85rem; opacity: 0.75; margin-top: 2px; }
+  .header-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .changes-badge {
+    background: rgba(255,255,255,0.18);
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .badge-dot { width: 8px; height: 8px; border-radius: 50%; background: #fbbf24; }
+  .last-update { font-size: 0.78rem; opacity: 0.7; }
+
+  /* ── Buttons ─────────────────────────────────────────────────────── */
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 16px; border-radius: 8px; font-size: 0.82rem; font-weight: 600;
+    cursor: pointer; border: none; transition: all 0.18s ease;
+    white-space: nowrap;
+  }
+  .btn-white {
+    background: white; color: #1e3a5f;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  }
+  .btn-white:hover { background: #f0f4f8; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+  .btn-outline-white {
+    background: rgba(255,255,255,0.12); color: white;
+    border: 1px solid rgba(255,255,255,0.35);
+  }
+  .btn-outline-white:hover { background: rgba(255,255,255,0.2); }
+  .btn-primary { background: #2563eb; color: white; }
+  .btn-primary:hover { background: #1d4ed8; transform: translateY(-1px); }
+  .btn-secondary { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+  .btn-secondary:hover { background: #e2e8f0; }
+  .btn-sm { padding: 5px 10px; font-size: 0.75rem; }
+  .btn-icon { padding: 6px; border-radius: 6px; }
+  .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none !important; }
+  .btn-danger-outline { background: transparent; color: #dc2626; border: 1px solid #fca5a5; }
+  .btn-danger-outline:hover { background: #fef2f2; }
+
+  /* ── Stats Overview ──────────────────────────────────────────────── */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+  }
+  .stat-card {
+    background: white;
+    border-radius: 14px;
+    padding: 22px 24px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+    border: 1px solid #f0f0f0;
+    display: flex; align-items: center; gap: 16px;
+    transition: transform 0.18s, box-shadow 0.18s;
+  }
+  .stat-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.1); }
+  .stat-icon {
+    width: 48px; height: 48px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; flex-shrink: 0;
+  }
+  .stat-icon.blue { background: #dbeafe; }
+  .stat-icon.orange { background: #ffedd5; }
+  .stat-icon.green { background: #dcfce7; }
+  .stat-icon.purple { background: #ede9fe; }
+  .stat-value { font-size: 1.9rem; font-weight: 800; color: #0f172a; line-height: 1; }
+  .stat-label { font-size: 0.78rem; color: #64748b; margin-top: 3px; font-weight: 500; }
+
+  /* ── LOB Grid ────────────────────────────────────────────────────── */
+  .lob-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 20px;
+  }
+  .lob-card {
+    background: white;
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.07);
+    border: 1.5px solid #f0f0f0;
+    cursor: pointer;
+    transition: all 0.22s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .lob-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, #2563eb, #7c3aed);
+    opacity: 0;
+    transition: opacity 0.22s;
+  }
+  .lob-card:hover { transform: translateY(-4px); box-shadow: 0 12px 36px rgba(37,99,235,0.15); border-color: #bfdbfe; }
+  .lob-card:hover::before { opacity: 1; }
+  .lob-card-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
+  .lob-card-title-row { display: flex; align-items: center; gap: 12px; }
+  .lob-emoji { font-size: 2rem; }
+  .lob-name { font-size: 1.15rem; font-weight: 700; color: #0f172a; }
+  .lob-desc { font-size: 0.78rem; color: #64748b; margin-top: 2px; }
+  .changes-pill {
+    background: #fff7ed; color: #c2410c;
+    border: 1px solid #fed7aa;
+    border-radius: 20px; padding: 3px 10px;
+    font-size: 0.72rem; font-weight: 700;
+    white-space: nowrap;
+  }
+  .changes-pill.zero { background: #f0fdf4; color: #15803d; border-color: #bbf7d0; }
+  .lob-stats {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 12px; margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #f1f5f9;
+  }
+  .lob-stat { text-align: center; }
+  .lob-stat-val { font-size: 1.3rem; font-weight: 800; color: #1e40af; }
+  .lob-stat-lbl { font-size: 0.68rem; color: #94a3b8; font-weight: 500; margin-top: 2px; }
+  .lob-footer { display: flex; align-items: center; gap: 6px; margin-top: 14px; font-size: 0.73rem; color: #94a3b8; }
+
+  /* ── LOB Detail View ─────────────────────────────────────────────── */
+  .detail-header {
+    background: white;
+    border-radius: 16px;
+    padding: 24px 28px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+    border: 1px solid #f0f0f0;
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 16px;
+  }
+  .detail-title-row { display: flex; align-items: center; gap: 14px; }
+  .detail-emoji { font-size: 2.2rem; }
+  .detail-name { font-size: 1.5rem; font-weight: 800; }
+  .detail-desc { font-size: 0.82rem; color: #64748b; margin-top: 3px; }
+  .detail-actions { display: flex; gap: 10px; }
+
+  /* ── Filters ─────────────────────────────────────────────────────── */
+  .filters-bar {
+    background: white; border-radius: 12px; padding: 16px 20px;
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+    border: 1px solid #f0f0f0;
+  }
+  .search-wrap { position: relative; flex: 1; min-width: 200px; }
+  .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 16px; }
+  .search-input {
+    width: 100%; padding: 8px 12px 8px 34px;
+    border: 1.5px solid #e2e8f0; border-radius: 8px;
+    font-size: 0.83rem; color: #1a202c;
+    outline: none; transition: border-color 0.18s;
+  }
+  .search-input:focus { border-color: #2563eb; }
+  .filter-select {
+    padding: 8px 12px; border: 1.5px solid #e2e8f0; border-radius: 8px;
+    font-size: 0.83rem; color: #374151; background: white;
+    outline: none; cursor: pointer;
+  }
+  .filter-select:focus { border-color: #2563eb; }
+  .filter-label { font-size: 0.78rem; color: #64748b; font-weight: 500; white-space: nowrap; }
+
+  /* ── Table ───────────────────────────────────────────────────────── */
+  .table-wrap {
+    background: white; border-radius: 14px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+    border: 1px solid #f0f0f0;
+    overflow: hidden;
+  }
+  .table-scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; min-width: 900px; }
+  thead { background: #f8fafc; }
+  th {
+    padding: 13px 16px;
+    text-align: left;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    border-bottom: 1.5px solid #e2e8f0;
+    white-space: nowrap;
+  }
+  td {
+    padding: 12px 16px;
+    font-size: 0.82rem;
+    color: #374151;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: middle;
+  }
+  tr:last-child td { border-bottom: none; }
+  tbody tr { transition: background 0.12s; }
+  tbody tr:hover { background: #f8fafc; }
+  .name-cell { font-weight: 600; color: #1e293b; }
+  .state-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: #eff6ff; color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+    border-radius: 6px; padding: 2px 8px;
+    font-size: 0.72rem; font-weight: 700;
+  }
+  .version-text { font-size: 0.75rem; color: #64748b; font-family: monospace; }
+  .date-text { font-size: 0.75rem; color: #94a3b8; }
+  .action-cell { display: flex; gap: 6px; align-items: center; }
+
+  /* ── Status Badges ───────────────────────────────────────────────── */
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 20px;
+    font-size: 0.72rem; font-weight: 600; white-space: nowrap;
+  }
+  .badge-dot-sm { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  /* File statuses */
+  .badge-available { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+  .badge-available .badge-dot-sm { background: #16a34a; }
+  .badge-not-found { background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; }
+  .badge-not-found .badge-dot-sm { background: #ef4444; }
+  .badge-checking { background: #dbeafe; color: #2563eb; border: 1px solid #bfdbfe; }
+  .badge-checking .badge-dot-sm { background: #3b82f6; animation: pulse 1.2s infinite; }
+  .badge-error { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
+  .badge-error .badge-dot-sm { background: #dc2626; }
+  /* Comparison statuses */
+  .badge-no-changes { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+  .badge-no-changes .badge-dot-sm { background: #94a3b8; }
+  .badge-changes-found { background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; }
+  .badge-changes-found .badge-dot-sm { background: #f97316; }
+  .badge-pending { background: #fefce8; color: #a16207; border: 1px solid #fef08a; }
+  .badge-pending .badge-dot-sm { background: #eab308; }
+  .badge-new-file { background: #f5f3ff; color: #6d28d9; border: 1px solid #ddd6fe; }
+  .badge-new-file .badge-dot-sm { background: #8b5cf6; }
+  .badge-not-compared { background: #f8fafc; color: #64748b; border: 1px solid #e2e8f0; }
+  .badge-not-compared .badge-dot-sm { background: #cbd5e1; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  /* ── Toast ───────────────────────────────────────────────────────── */
+  #toast-container {
+    position: fixed; top: 20px; right: 20px; z-index: 9999;
+    display: flex; flex-direction: column; gap: 10px;
+    pointer-events: none;
+  }
+  .toast {
+    background: white; border-radius: 10px;
+    padding: 12px 18px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+    border-left: 4px solid #2563eb;
+    font-size: 0.83rem; color: #1e293b; font-weight: 500;
+    min-width: 260px; max-width: 380px;
+    pointer-events: all;
+    animation: slideIn 0.25s ease, fadeOut 0.3s ease 2.7s forwards;
+  }
+  .toast.success { border-color: #16a34a; }
+  .toast.error { border-color: #dc2626; }
+  .toast.warning { border-color: #d97706; }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(40px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes fadeOut {
+    from { opacity: 1; }
+    to { opacity: 0; pointer-events: none; }
+  }
+
+  /* ── Empty State ─────────────────────────────────────────────────── */
+  .empty-state {
+    text-align: center; padding: 60px 20px; color: #94a3b8;
+  }
+  .empty-icon { font-size: 3rem; margin-bottom: 12px; }
+  .empty-text { font-size: 0.9rem; }
+
+  /* ── Table count ─────────────────────────────────────────────────── */
+  .table-header {
+    padding: 14px 20px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .table-title { font-size: 0.88rem; font-weight: 700; color: #0f172a; }
+  .table-count { font-size: 0.78rem; color: #94a3b8; }
+
+  /* ── Section heading ─────────────────────────────────────────────── */
+  .section-heading {
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .section-heading h2 { font-size: 1.25rem; font-weight: 700; color: #0f172a; }
+  .section-hint { font-size: 0.78rem; color: #94a3b8; }
+
+  /* ── Spin animation ──────────────────────────────────────────────── */
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spin { animation: spin 1s linear infinite; display: inline-block; }
+
+  /* ── Responsive ──────────────────────────────────────────────────── */
+  @media (max-width: 768px) {
+    .header { flex-direction: column; align-items: flex-start; }
+    .lob-grid { grid-template-columns: 1fr; }
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .detail-header { flex-direction: column; align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+
+<div id="toast-container"></div>
+<div class="container" id="app"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+// DATA LAYER
+// ═══════════════════════════════════════════════════════════════════
+const STATES = ['MI','NV','MS','GA','CMS','KY','TC','AR','OH','WI','WV'];
+const SCHEDULE_TYPES = [
+  'Physician Fee Schedule','Outpatient Fee Schedule','Inpatient DRG Schedule',
+  'ASC Payment Rates','DME Fee Schedule','Lab Fee Schedule'
+];
+const FILE_STATUSES    = ['available','available','available','available','available','available','available','available','available','checking','not-found'];
+const COMP_STATUSES    = ['no-changes','no-changes','no-changes','changes-found','changes-found','changes-found','new-file','new-file','pending','pending','not-compared'];
+
+function seededRand(seed) {
+  // Simple deterministic pseudo-random for stable data
+  let x = Math.sin(seed + 1) * 10000;
+  return x - Math.floor(x);
 }
 
-
-
-
-
-
-
-
-
-import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-
-import java.io.*;
-import java.math.BigDecimal;
-import java.nio.file.Path;
-import java.sql.*;
-import java.util.*;
-import java.util.stream.Collectors;
-
-/**
- * Tiered comparison Excel ↔ SQL Server using custom rules:
- *
- * 1) Remove Exact matches  : Proc, Mod, Eff, Term, Rate1..Rate5 all equal.
- * 2) Remove Partial matches: Same as above but ignoring Eff.
- * 3) Remaining Excel rows:
- *      - If (Proc+Mod) not found in DB -> New Code (Mismatches_ExcelToDB)
- *      - Else -> Rate Change (Differences lists Rate1..Rate5 deltas) (Mismatches_ExcelToDB)
- * 4) DB rows where (Proc+Mod) not found in Excel -> Terminate (Mismatches_DBToExcel)
- *
- * Assumptions:
- *  - Excel headers == SQL SELECT column names (alias in SQL if needed).
- *  - Windows authentication (pick a JDBC URL below).
- */
-
-public class ExcelVsSqlQueryCompare_TieredRules {
-
-    /* ===================== USER SETTINGS ===================== */
-
-    // Excel input
-    private static final Path EXCEL_PATH = Path.of("C:/temp/input.xlsx");
-    private static final String SHEET_NAME = "Source M";
-
-    // Your SQL SELECT (columns must match Excel header names!)
-    private static final String TARGET_SOURCE_SQL = """
-        SELECT
-            [Proc],
-            [Mod],
-            [Eff],
-            [Term],
-            [Rate1],
-            [Rate2],
-            [Rate3],
-            [Rate4],
-            [Rate5]
-        FROM dbo.YourTargetTable
-        WHERE IsActive = 1
-        """;
-
-    // Connection (choose ONE)
-    // (A) Native Integrated Security (requires sqljdbc_auth.dll on PATH; arch must match JVM):
-    private static final String JDBC_URL =
-        "jdbc:sqlserver://YOUR_SERVER;databaseName=YOUR_DB;" +
-        "encrypt=true;trustServerCertificate=true;" +
-        "integratedSecurity=true;authenticationScheme=NativeAuthentication";
-
-    // (B) Azure AD / domain-joined Integrated (no DLL):
-    // private static final String JDBC_URL =
-    //     "jdbc:sqlserver://YOUR_SERVER;databaseName=YOUR_DB;" +
-    //     "encrypt=true;trustServerCertificate=true;authentication=ActiveDirectoryIntegrated";
-
-    // Column names used by rules (must exist in Excel & SQL result)
-    private static final String COL_PROC = "Proc";
-    private static final String COL_MOD  = "Mod";
-    private static final String COL_EFF  = "Eff";
-    private static final String COL_TERM = "Term";
-    private static final List<String> RATE_COLS = List.of("Rate1","Rate2","Rate3","Rate4","Rate5");
-
-    // Output
-    private static final String OUTPUT_XLSX = "C:/temp/Compare_Report.xlsx";
-
-    // Batch size
-    private static final int BATCH = 2000;
-
-    /* ===================== MAIN ===================== */
-
-    public static void main(String[] args) throws Exception {
-        ExcelData excel = readExcel(EXCEL_PATH, SHEET_NAME);
-        if (!excel.headers.containsAll(requiredHeaders())) {
-            throw new IllegalStateException("Excel is missing one of required headers: " + requiredHeaders());
-        }
-
-        try (Connection con = DriverManager.getConnection(JDBC_URL)) {
-            con.setAutoCommit(false);
-
-            String stage = "#stage_" + UUID.randomUUID().toString().replace("-", "");
-            createStageTable(con, stage, excel.headers);
-            insertStage(con, stage, excel.headers, excel.rows);
-            con.commit();
-
-            // 1) Exact matches (exclude)
-            Set<Key> exactKeys = loadKeys(con, exactMatchSQL(stage));
-
-            // 2) Partial matches ignoring Eff (exclude)
-            Set<Key> partialKeys = loadKeys(con, partialMatchSQL(stage));
-
-            // Remaining Excel rows to consider
-            Set<Key> excluded = new HashSet<>(exactKeys); excluded.addAll(partialKeys);
-
-            // 3a) New Codes: remaining Excel rows where Proc+Mod not in DB
-            List<MismatchRow> newCodes = findNewCodes(con, stage, excluded, excel.headers);
-
-            // 3b) Rate Changes: remaining Excel rows where Proc+Mod exists in DB, but rates differ
-            List<MismatchRow> rateChanges = findRateChanges(con, stage, excluded, excel.headers);
-
-            // 5) DB→Excel Terminate: DB rows whose Proc+Mod not in Excel
-            List<MismatchRow> terminate = findTerminates(con, stage);
-
-            // Write report
-            writeOutput(excel.headers, newCodes, rateChanges, terminate, OUTPUT_XLSX);
-
-            System.out.println("New Codes:      " + newCodes.size());
-            System.out.println("Rate Changes:   " + rateChanges.size());
-            System.out.println("Terminates:     " + terminate.size());
-            System.out.println("Report: " + OUTPUT_XLSX);
-        }
-    }
-
-    /* ===================== EXCEL READ ===================== */
-
-    private record ExcelData(List<String> headers, List<List<String>> rows) {}
-
-    private static ExcelData readExcel(Path path, String sheetName) throws IOException {
-        try (InputStream is = new FileInputStream(path.toFile());
-             Workbook wb = new XSSFWorkbook(is)) {
-
-            Sheet sh = (sheetName == null || sheetName.isBlank()) ? wb.getSheetAt(0) : wb.getSheet(sheetName);
-            if (sh == null) throw new IllegalArgumentException("Sheet not found: " + sheetName);
-
-            Row hrow = sh.getRow(sh.getFirstRowNum());
-            List<String> headers = new ArrayList<>();
-            for (int c = 0; c < hrow.getLastCellNum(); c++) {
-                String name = getString(hrow.getCell(c));
-                headers.add(name == null ? ("COL_" + (c+1)) : name.trim());
-            }
-
-            List<List<String>> rows = new ArrayList<>();
-            for (int r = sh.getFirstRowNum() + 1; r <= sh.getLastRowNum(); r++) {
-                Row row = sh.getRow(r); if (row == null) continue;
-                List<String> vals = new ArrayList<>(headers.size());
-                boolean any = false;
-                for (int c = 0; c < headers.size(); c++) {
-                    String v = getString(row.getCell(c));
-                    if (v != null && !v.isBlank()) any = true;
-                    vals.add(v == null ? "" : v);
-                }
-                if (any) rows.add(vals);
-            }
-            return new ExcelData(headers, rows);
-        }
-    }
-
-    private static String getString(Cell cell) {
-        if (cell == null) return null;
-        return switch (cell.getCellType()) {
-            case STRING -> cell.getStringCellValue();
-            case NUMERIC -> {
-                double d = cell.getNumericCellValue();
-                long l = (long) d;
-                yield (d == l) ? Long.toString(l) : Double.toString(d);
-            }
-            case BOOLEAN -> Boolean.toString(cell.getBooleanCellValue());
-            case FORMULA -> {
-                try { yield cell.getStringCellValue(); }
-                catch (Exception e) { yield Double.toString(cell.getNumericCellValue()); }
-            }
-            default -> null;
-        };
-    }
-
-    /* ===================== SQL STAGING ===================== */
-
-    private static void createStageTable(Connection con, String stage, List<String> headers) throws SQLException {
-        String cols = headers.stream().map(ExcelVsSqlQueryCompare_TieredRules::b).map(c -> c + " NVARCHAR(4000) NULL").collect(Collectors.joining(","));
-        try (Statement st = con.createStatement()) { st.execute("CREATE TABLE " + stage + " (" + cols + ")"); }
-    }
-
-    private static void insertStage(Connection con, String stage, List<String> headers, List<List<String>> rows) throws SQLException {
-        String qMarks = headers.stream().map(h -> "?").collect(Collectors.joining(","));
-        String colList = headers.stream().map(ExcelVsSqlQueryCompare_TieredRules::b).collect(Collectors.joining(","));
-        String sql = "INSERT INTO " + stage + " (" + colList + ") VALUES (" + qMarks + ")";
-        try (PreparedStatement ps = con.prepareStatement(sql)) {
-            int cnt = 0;
-            for (List<String> r : rows) {
-                for (int i = 0; i < headers.size(); i++) ps.setString(i+1, r.get(i));
-                ps.addBatch();
-                if (++cnt % BATCH == 0) ps.executeBatch();
-            }
-            ps.executeBatch();
-        }
-    }
-
-    /* ===================== RULE SQL BUILDERS ===================== */
-
-    private static String eq(String left, String right) {
-        return "ISNULL(LTRIM(RTRIM(" + left + ")), '') = ISNULL(LTRIM(RTRIM(" + right + ")), '')";
-    }
-
-    // 1) Exact: all nine columns equal
-    private static String exactMatchSQL(String stage) {
-        List<String> all = new ArrayList<>(List.of(COL_PROC, COL_MOD, COL_EFF, COL_TERM));
-        all.addAll(RATE_COLS);
-        String on = all.stream()
-                .map(c -> eq("t." + b(c), "s." + b(c)))
-                .collect(Collectors.joining(" AND "));
-        return """
-               SELECT s.%s, s.%s
-               FROM %s s
-               INNER JOIN ( %s ) t
-                 ON %s
-               """.formatted(b(COL_PROC), b(COL_MOD), stage, TARGET_SOURCE_SQL, on);
-    }
-
-    // 2) Partial: all except Eff equal
-    private static String partialMatchSQL(String stage) {
-        List<String> cols = new ArrayList<>(List.of(COL_PROC, COL_MOD, COL_TERM));
-        cols.addAll(RATE_COLS);
-        String on = cols.stream()
-                .map(c -> eq("t." + b(c), "s." + b(c)))
-                .collect(Collectors.joining(" AND "));
-        return """
-               SELECT s.%s, s.%s
-               FROM %s s
-               INNER JOIN ( %s ) t
-                 ON %s
-               """.formatted(b(COL_PROC), b(COL_MOD), stage, TARGET_SOURCE_SQL, on);
-    }
-
-    /* ===================== CLASSIFICATION QUERIES ===================== */
-
-    // 3a) New Codes: remaining Excel rows; Proc+Mod not in DB
-    private static List<MismatchRow> findNewCodes(Connection con, String stage, Set<Key> excluded, List<String> headers) throws SQLException {
-        String onKey = eq("t." + b(COL_PROC), "s." + b(COL_PROC)) + " AND " + eq("t." + b(COL_MOD), "s." + b(COL_MOD));
-        String selectStage = headers.stream().map(h -> "s." + b(h) + " AS " + b(h)).collect(Collectors.joining(", "));
-        String sql = """
-            SELECT %s
-            FROM %s s
-            LEFT JOIN ( %s ) t ON %s
-            WHERE t.%s IS NULL
-            """.formatted(selectStage, stage, TARGET_SOURCE_SQL, onKey, b(COL_PROC));
-
-        List<MismatchRow> out = new ArrayList<>();
-        try (Statement st = con.createStatement(); ResultSet rs = st.executeQuery(sql)) {
-            while (rs.next()) {
-                Key k = new Key(rs.getString(COL_PROC), rs.getString(COL_MOD));
-                if (excluded.contains(k)) continue;
-                MismatchRow mr = new MismatchRow();
-                mr.type = "New Code";
-                mr.base = readRow(rs, headers);
-                mr.differences = "New code (not found in DB by Proc+Mod)";
-                out.add(mr);
-            }
-        }
-        return out;
-    }
-
-    // 3b) Rate Changes: remaining Excel rows; Proc+Mod exists in DB but any Rate differs
-    private static List<MismatchRow> findRateChanges(Connection con, String stage, Set<Key> excluded, List<String> headers) throws SQLException {
-        String onKey = eq("t." + b(COL_PROC), "s." + b(COL_PROC)) + " AND " + eq("t." + b(COL_MOD), "s." + b(COL_MOD));
-
-        String selectStage = headers.stream().map(h -> "s." + b(h) + " AS " + b("s_" + h)).collect(Collectors.joining(", "));
-        String selectDbRates = RATE_COLS.stream().map(h -> "t." + b(h) + " AS " + b("t_" + h)).collect(Collectors.joining(", "));
-        String anyRateDiff = RATE_COLS.stream()
-                .map(h -> "ISNULL(LTRIM(RTRIM(s." + b(h) + ")), '') <> ISNULL(LTRIM(RTRIM(t." + b(h) + ")), '')")
-                .collect(Collectors.joining(" OR "));
-
-        String sql = """
-            SELECT %s, %s
-            FROM %s s
-            INNER JOIN ( %s ) t ON %s
-            WHERE %s
-            """.formatted(selectStage, selectDbRates, stage, TARGET_SOURCE_SQL, onKey, anyRateDiff);
-
-        List<MismatchRow> out = new ArrayList<>();
-        try (Statement st = con.createStatement(); ResultSet rs = st.executeQuery(sql)) {
-            while (rs.next()) {
-                Key k = new Key(rs.getString("s_" + COL_PROC), rs.getString("s_" + COL_MOD));
-                if (excluded.contains(k)) continue;
-
-                MismatchRow mr = new MismatchRow();
-                mr.type = "Rate Change";
-                mr.base = new LinkedHashMap<>();
-                for (String h : headers) mr.base.put(h, rs.getString("s_" + h)); // Excel row as base
-
-                // Build Differences only for Rate1..Rate5
-                List<String> parts = new ArrayList<>();
-                for (String rcol : RATE_COLS) {
-                    String sv = norm(rs.getString("s_" + rcol));
-                    String tv = norm(rs.getString("t_" + rcol));
-                    if (!Objects.equals(sv, tv)) {
-                        parts.add(rcol + ": Excel=" + safeForDiff(sv) + ", DB=" + safeForDiff(tv));
-                    }
-                }
-                mr.differences = String.join("; ", parts);
-
-                out.add(mr);
-            }
-        }
-        return out;
-    }
-
-    // 5) DB rows not in Excel by Proc+Mod -> Terminate
-    private static List<MismatchRow> findTerminates(Connection con, String stage) throws SQLException {
-        String onKey = eq("t." + b(COL_PROC), "s." + b(COL_PROC)) + " AND " + eq("t." + b(COL_MOD), "s." + b(COL_MOD));
-        String selectDb = """
-            SELECT %s
-            FROM ( %s ) t
-            LEFT JOIN %s s ON %s
-            WHERE s.%s IS NULL
-            """.formatted(
-                Stream.concat(
-                    Stream.of(COL_PROC, COL_MOD, COL_EFF, COL_TERM),
-                    RATE_COLS.stream()
-                ).map(h -> "t." + b(h) + " AS " + b(h)).collect(Collectors.joining(", ")),
-                TARGET_SOURCE_SQL, stage, onKey, b(COL_PROC)
-            );
-
-        List<MismatchRow> out = new ArrayList<>();
-        try (Statement st = con.createStatement(); ResultSet rs = st.executeQuery(selectDb)) {
-            while (rs.next()) {
-                MismatchRow mr = new MismatchRow();
-                mr.type = "Terminate";
-                mr.base = readRow(rs, requiredHeaders());  // DB row as base
-                mr.differences = "DB has Proc+Mod not present in Excel (terminate)";
-                out.add(mr);
-            }
-        }
-        return out;
-    }
-
-    /* ===================== OUTPUT ===================== */
-
-    private static void writeOutput(List<String> headers,
-                                    List<MismatchRow> newCodes,
-                                    List<MismatchRow> rateChanges,
-                                    List<MismatchRow> terminates,
-                                    String outPath) throws IOException {
-
-        try (Workbook wb = new XSSFWorkbook()) {
-            // Summary
-            Sheet sum = wb.createSheet("Summary");
-            Row h = sum.createRow(0);
-            h.createCell(0).setCellValue("Category"); h.createCell(1).setCellValue("Count");
-            Row r1 = sum.createRow(1); r1.createCell(0).setCellValue("New Codes");    r1.createCell(1).setCellValue(newCodes.size());
-            Row r2 = sum.createRow(2); r2.createCell(0).setCellValue("Rate Changes"); r2.createCell(1).setCellValue(rateChanges.size());
-            Row r3 = sum.createRow(3); r3.createCell(0).setCellValue("Terminate");    r3.createCell(1).setCellValue(terminates.size());
-            sum.autoSizeColumn(0); sum.autoSizeColumn(1);
-
-            // Mismatches_ExcelToDB
-            writeMismatchSheet(wb, "Mismatches_ExcelToDB", headers, newCodes, rateChanges);
-
-            // Mismatches_DBToExcel
-            writeMismatchSheet(wb, "Mismatches_DBToExcel", headers, terminates);
-
-            try (OutputStream os = new FileOutputStream(outPath)) { wb.write(os); }
-        }
-    }
-
-    private static void writeMismatchSheet(Workbook wb, String sheetName, List<String> headers, List<MismatchRow>... groups) {
-        Sheet s = wb.createSheet(sheetName);
-        Row head = s.createRow(0);
-        int c = 0;
-        for (String h : headers) head.createCell(c++).setCellValue(h);
-        head.createCell(c++).setCellValue("Type");
-        head.createCell(c).setCellValue("Differences");
-
-        int r = 1;
-        for (List<MismatchRow> group : groups) {
-            for (MismatchRow mr : group) {
-                Row row = s.createRow(r++);
-                int cc = 0;
-                for (String h : headers) row.createCell(cc++).setCellValue(safe(mr.base.get(h)));
-                row.createCell(cc++).setCellValue(mr.type);
-                row.createCell(cc).setCellValue(mr.differences);
-            }
-        }
-        for (int i = 0; i < headers.size() + 2; i++) s.autoSizeColumn(i);
-    }
-
-    /* ===================== HELPERS ===================== */
-
-    private static Set<String> requiredHeaders() {
-        List<String> all = new ArrayList<>(List.of(COL_PROC, COL_MOD, COL_EFF, COL_TERM));
-        all.addAll(RATE_COLS);
-        return new LinkedHashSet<>(all);
-    }
-
-    private static Map<String,String> readRow(ResultSet rs, List<String> headers) throws SQLException {
-        Map<String,String> m = new LinkedHashMap<>();
-        for (String h : headers) m.put(h, rs.getString(h));
-        return m;
-    }
-    private static Map<String,String> readRow(ResultSet rs, Set<String> headers) throws SQLException {
-        Map<String,String> m = new LinkedHashMap<>();
-        for (String h : headers) m.put(h, rs.getString(h));
-        return m;
-    }
-
-    private static String b(String name) { return "[" + name.replace("]", "]]") + "]"; }
-    private static String safe(String s) { return s == null ? "" : s; }
-    private static String norm(String s) { return s == null ? "" : s.trim(); }
-
-    private static String safeForDiff(String s) {
-        if (s == null) return "<NULL>";
-        String v = s.trim();
-        if (v.isEmpty()) return "<EMPTY>";
-        try { v = new BigDecimal(v).stripTrailingZeros().toPlainString(); }
-        catch (NumberFormatException ignore) {}
-        if (v.length() > 200) v = v.substring(0,200) + "…";
-        return v;
-    }
-
-    private record Key(String proc, String mod) { }
-    private static Set<Key> loadKeys(Connection con, String sql) throws SQLException {
-        Set<Key> out = new HashSet<>();
-        try (Statement st = con.createStatement(); ResultSet rs = st.executeQuery(sql)) {
-            while (rs.next()) out.add(new Key(rs.getString(COL_PROC), rs.getString(COL_MOD)));
-        }
-        return out;
-    }
+function generateFeeSchedules() {
+  const schedules = [];
+  let id = 1;
+  STATES.forEach((state, si) => {
+    SCHEDULE_TYPES.forEach((type, ti) => {
+      const seed = si * 6 + ti;
+      const r = seededRand(seed);
+      const r2 = seededRand(seed + 100);
+      const r3 = seededRand(seed + 200);
+      const fileStatus = r > 0.85 ? 'not-found' : r > 0.78 ? 'checking' : 'available';
+      const comparisonStatus = r > 0.72 ? 'changes-found' : r > 0.45 ? 'no-changes' : r > 0.25 ? 'new-file' : 'pending';
+      const hasChange = comparisonStatus === 'changes-found';
+      const now = Date.now();
+      schedules.push({
+        id: `fs-${id++}`,
+        name: `${state} ${type}`,
+        state,
+        fileStatus,
+        comparisonStatus,
+        lastChecked: new Date(now - r2 * 86400000),
+        lastModified: r3 > 0.3 ? new Date(now - r3 * 604800000) : null,
+        changeFileUrl: hasChange ? `#download-change-${id}.xlsx` : null,
+        previousVersion: '2026.Q1',
+        currentVersion: hasChange ? '2026.Q2' : '2026.Q1'
+      });
+    });
+  });
+  return schedules;
 }
+
+const ALL_SCHEDULES = generateFeeSchedules();
+
+const LOB_DEFS = [
+  { id:'medicare',      name:'Medicare',       description:'Medicare fee schedules and reimbursement rates',        icon:'🏥',
+    filter: s => s.name.includes('Physician') || s.name.includes('Outpatient') },
+  { id:'medicaid',      name:'Medicaid',       description:'State Medicaid programs and fee schedules',             icon:'🏛️',
+    filter: s => s.name.includes('Inpatient') || s.name.includes('ASC') },
+  { id:'commercial',    name:'Commercial',     description:'Commercial payer fee schedules',                        icon:'💼',
+    filter: s => s.name.includes('DME') || s.name.includes('Lab') },
+  { id:'workers-comp',  name:"Workers' Comp",  description:"Workers' compensation fee schedules",                   icon:'⚕️',
+    filter: (s,i) => i < 22 },
+  { id:'auto-insurance',name:'Auto Insurance', description:'Auto insurance medical fee schedules',                  icon:'🚗',
+    filter: (s,i) => i >= 22 && i < 44 },
+  { id:'other',         name:'Other LOB',      description:'Additional lines of business',                          icon:'📋',
+    filter: (s,i) => i >= 44 }
+];
+
+const lobData = LOB_DEFS.map(def => {
+  const feeSchedules = ALL_SCHEDULES.filter(def.filter);
+  return {
+    ...def,
+    feeSchedules,
+    totalSchedules: feeSchedules.length,
+    changesDetected: feeSchedules.filter(fs => fs.comparisonStatus === 'changes-found').length,
+    lastSync: new Date()
+  };
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// UTILITIES
+// ═══════════════════════════════════════════════════════════════════
+function fmtDate(d) {
+  if (!d) return '—';
+  return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+}
+function fmtTime(d) {
+  if (!d) return '—';
+  return d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+}
+function fmtDateTime(d) {
+  if (!d) return '—';
+  return fmtDate(d) + ' ' + fmtTime(d);
+}
+function fmtAgo(d) {
+  if (!d) return '—';
+  const diff = (Date.now() - d.getTime()) / 1000;
+  if (diff < 60) return Math.round(diff) + 's ago';
+  if (diff < 3600) return Math.round(diff/60) + 'm ago';
+  if (diff < 86400) return Math.round(diff/3600) + 'h ago';
+  return Math.round(diff/86400) + 'd ago';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// TOAST
+// ═══════════════════════════════════════════════════════════════════
+function showToast(msg, type='info') {
+  const container = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.innerHTML = `<span>${msg}</span>`;
+  container.appendChild(el);
+  setTimeout(() => el.remove(), 3200);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════════
+let appState = {
+  selectedLOB: null,
+  isRefreshing: false,
+  lastUpdate: new Date(),
+  searchQuery: '',
+  filterState: 'all',
+  filterFile: 'all',
+  filterComp: 'all',
+};
+
+function setState(partial) {
+  Object.assign(appState, partial);
+  render();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// BADGE RENDERERS
+// ═══════════════════════════════════════════════════════════════════
+function fileStatusBadge(status) {
+  const map = {
+    'available':    ['badge-available',    '✓ Available'],
+    'not-found':    ['badge-not-found',    '✗ Not Found'],
+    'checking':     ['badge-checking',     '↻ Checking'],
+    'error':        ['badge-error',        '⚠ Error'],
+  };
+  const [cls, label] = map[status] || ['badge-not-compared','Unknown'];
+  return `<span class="badge ${cls}"><span class="badge-dot-sm"></span>${label}</span>`;
+}
+
+function compStatusBadge(status) {
+  const map = {
+    'no-changes':   ['badge-no-changes',   '— No Changes'],
+    'changes-found':['badge-changes-found','▲ Changes Found'],
+    'pending':      ['badge-pending',      '⏳ Pending'],
+    'new-file':     ['badge-new-file',     '★ New File'],
+    'not-compared': ['badge-not-compared', '· Not Compared'],
+  };
+  const [cls, label] = map[status] || ['badge-not-compared','—'];
+  return `<span class="badge ${cls}"><span class="badge-dot-sm"></span>${label}</span>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// STATS CALCULATION
+// ═══════════════════════════════════════════════════════════════════
+function calcStats(lobs) {
+  const all = lobs.flatMap(l => l.feeSchedules);
+  return {
+    total:    all.length,
+    changes:  all.filter(s => s.comparisonStatus === 'changes-found').length,
+    avail:    all.filter(s => s.fileStatus === 'available').length,
+    pending:  all.filter(s => s.comparisonStatus === 'pending').length,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// RENDER FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════
+function renderHeader() {
+  const totalChanges = lobData.reduce((s,l) => s+l.changesDetected,0);
+  const refreshIcon = appState.isRefreshing
+    ? `<span class="spin">↻</span>`
+    : `↻`;
+  return `
+  <div class="header">
+    <div class="header-left">
+      <div class="header-icon">🖥️</div>
+      <div>
+        <h1>State Portal Monitor</h1>
+        <div class="header-sub">Fee Schedule Monitoring · 11 State Portals</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="changes-badge">
+        <span class="badge-dot"></span>
+        ${totalChanges} Changes Detected
+      </div>
+      <div class="last-update">Last update: ${fmtDateTime(appState.lastUpdate)}</div>
+      <button class="btn btn-white" onclick="handleRefreshAll()" ${appState.isRefreshing?'disabled':''}>
+        ${refreshIcon} ${appState.isRefreshing ? 'Refreshing…' : 'Refresh All'}
+      </button>
+      <button class="btn btn-outline-white" onclick="showToast('Export started…','info')">
+        ↓ Export Report
+      </button>
+      <button class="btn btn-outline-white" onclick="showToast('Settings panel coming soon','info')">
+        ⚙ Settings
+      </button>
+    </div>
+  </div>`;
+}
+
+function renderStats() {
+  const s = calcStats(lobData);
+  return `
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-icon blue">📊</div>
+      <div>
+        <div class="stat-value">${s.total}</div>
+        <div class="stat-label">Total Fee Schedules</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon orange">▲</div>
+      <div>
+        <div class="stat-value">${s.changes}</div>
+        <div class="stat-label">Changes Detected</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon green">✓</div>
+      <div>
+        <div class="stat-value">${s.avail}</div>
+        <div class="stat-label">Files Available</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon purple">⏳</div>
+      <div>
+        <div class="stat-value">${s.pending}</div>
+        <div class="stat-label">Pending Comparison</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderLOBCard(lob) {
+  const hasChanges = lob.changesDetected > 0;
+  const pillClass = hasChanges ? 'changes-pill' : 'changes-pill zero';
+  const pillText  = hasChanges ? `▲ ${lob.changesDetected} changes` : `✓ No changes`;
+  return `
+  <div class="lob-card" onclick="handleLOBClick('${lob.id}')">
+    <div class="lob-card-header">
+      <div class="lob-card-title-row">
+        <span class="lob-emoji">${lob.icon}</span>
+        <div>
+          <div class="lob-name">${lob.name}</div>
+          <div class="lob-desc">${lob.description}</div>
+        </div>
+      </div>
+      <span class="${pillClass}">${pillText}</span>
+    </div>
+    <div class="lob-stats">
+      <div class="lob-stat">
+        <div class="lob-stat-val">${lob.totalSchedules}</div>
+        <div class="lob-stat-lbl">Schedules</div>
+      </div>
+      <div class="lob-stat">
+        <div class="lob-stat-val" style="color:${lob.changesDetected>0?'#c2410c':'#15803d'}">${lob.changesDetected}</div>
+        <div class="lob-stat-lbl">Changes</div>
+      </div>
+      <div class="lob-stat">
+        <div class="lob-stat-val" style="font-size:1rem;color:#64748b">${fmtAgo(lob.lastSync)}</div>
+        <div class="lob-stat-lbl">Last Sync</div>
+      </div>
+    </div>
+    <div class="lob-footer">🕐 Last synced ${fmtDateTime(lob.lastSync)}</div>
+  </div>`;
+}
+
+function renderLOBGrid() {
+  return `
+  <div class="space-y-4">
+    <div class="section-heading">
+      <h2>Lines of Business</h2>
+      <span class="section-hint">Click on a tile to view detailed fee schedules</span>
+    </div>
+    <div class="lob-grid">
+      ${lobData.map(renderLOBCard).join('')}
+    </div>
+  </div>`;
+}
+
+function renderFilters() {
+  return `
+  <div class="filters-bar">
+    <span class="filter-label">Filters:</span>
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input class="search-input" type="text" placeholder="Search fee schedules…"
+        value="${appState.searchQuery}"
+        oninput="setState({searchQuery:this.value})" />
+    </div>
+    <select class="filter-select" onchange="setState({filterState:this.value})">
+      <option value="all">All States</option>
+      ${STATES.map(s=>`<option value="${s}" ${appState.filterState===s?'selected':''}>${s}</option>`).join('')}
+    </select>
+    <select class="filter-select" onchange="setState({filterFile:this.value})">
+      <option value="all">All File Statuses</option>
+      <option value="available"   ${appState.filterFile==='available'?'selected':''}>Available</option>
+      <option value="not-found"   ${appState.filterFile==='not-found'?'selected':''}>Not Found</option>
+      <option value="checking"    ${appState.filterFile==='checking'?'selected':''}>Checking</option>
+      <option value="error"       ${appState.filterFile==='error'?'selected':''}>Error</option>
+    </select>
+    <select class="filter-select" onchange="setState({filterComp:this.value})">
+      <option value="all">All Comparison Statuses</option>
+      <option value="changes-found" ${appState.filterComp==='changes-found'?'selected':''}>Changes Found</option>
+      <option value="no-changes"    ${appState.filterComp==='no-changes'?'selected':''}>No Changes</option>
+      <option value="new-file"      ${appState.filterComp==='new-file'?'selected':''}>New File</option>
+      <option value="pending"       ${appState.filterComp==='pending'?'selected':''}>Pending</option>
+      <option value="not-compared"  ${appState.filterComp==='not-compared'?'selected':''}>Not Compared</option>
+    </select>
+    <button class="btn btn-secondary btn-sm" onclick="setState({searchQuery:'',filterState:'all',filterFile:'all',filterComp:'all'})">
+      ✕ Clear
+    </button>
+  </div>`;
+}
+
+function getFilteredSchedules(lob) {
+  return lob.feeSchedules.filter(s => {
+    const q = appState.searchQuery.toLowerCase();
+    if (q && !s.name.toLowerCase().includes(q) && !s.state.toLowerCase().includes(q)) return false;
+    if (appState.filterState !== 'all' && s.state !== appState.filterState) return false;
+    if (appState.filterFile  !== 'all' && s.fileStatus !== appState.filterFile)  return false;
+    if (appState.filterComp  !== 'all' && s.comparisonStatus !== appState.filterComp) return false;
+    return true;
+  });
+}
+
+function renderTableRow(s) {
+  const dlBtn = s.changeFileUrl
+    ? `<button class="btn btn-sm btn-primary btn-icon" title="Download change file"
+         onclick="handleDownload('${s.id}',event)">↓ Change File</button>`
+    : `<button class="btn btn-sm btn-secondary btn-icon" disabled title="No change file">↓ Change File</button>`;
+  return `
+  <tr>
+    <td class="name-cell">${s.name}</td>
+    <td><span class="state-badge">${s.state}</span></td>
+    <td>${fileStatusBadge(s.fileStatus)}</td>
+    <td>${compStatusBadge(s.comparisonStatus)}</td>
+    <td>
+      <span class="version-text">${s.currentVersion || '—'}</span>
+      ${s.previousVersion && s.previousVersion !== s.currentVersion
+        ? `<span style="color:#94a3b8;font-size:0.68rem;display:block">prev: ${s.previousVersion}</span>`
+        : ''}
+    </td>
+    <td class="date-text">${fmtDate(s.lastChecked)}<br><span style="font-size:0.7rem;opacity:.7">${fmtTime(s.lastChecked)}</span></td>
+    <td class="date-text">${s.lastModified ? fmtDate(s.lastModified) : '—'}</td>
+    <td>
+      <div class="action-cell">
+        <button class="btn btn-sm btn-secondary btn-icon" title="Refresh schedule"
+          onclick="handleRefreshSchedule('${s.id}',event)">↻ Refresh</button>
+        ${dlBtn}
+        <button class="btn btn-sm btn-secondary btn-icon" title="View portal"
+          onclick="showToast('Opening state portal…','info')">↗</button>
+      </div>
+    </td>
+  </tr>`;
+}
+
+function renderTable(lob) {
+  const rows = getFilteredSchedules(lob);
+  const changes  = rows.filter(s=>s.comparisonStatus==='changes-found').length;
+  const avail    = rows.filter(s=>s.fileStatus==='available').length;
+  const notFound = rows.filter(s=>s.fileStatus==='not-found').length;
+  return `
+  <div class="stats-grid" style="grid-template-columns:repeat(4,1fr)">
+    <div class="stat-card">
+      <div class="stat-icon blue">📁</div>
+      <div><div class="stat-value">${rows.length}</div><div class="stat-label">Total Schedules</div></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon orange">▲</div>
+      <div><div class="stat-value">${changes}</div><div class="stat-label">Changes Found</div></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon green">✓</div>
+      <div><div class="stat-value">${avail}</div><div class="stat-label">Files Available</div></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon purple">✗</div>
+      <div><div class="stat-value">${notFound}</div><div class="stat-label">Not Found</div></div>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <div class="table-header">
+      <span class="table-title">Fee Schedules</span>
+      <span class="table-count">${rows.length} of ${lob.feeSchedules.length} records</span>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Schedule Name</th>
+            <th>State</th>
+            <th>File Status</th>
+            <th>Comparison Status</th>
+            <th>Version</th>
+            <th>Last Checked</th>
+            <th>Last Modified</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.length > 0
+            ? rows.map(renderTableRow).join('')
+            : `<tr><td colspan="8"><div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-text">No records match the current filters.</div></div></td></tr>`
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function renderDetail(lob) {
+  return `
+  <div class="space-y-6">
+    <div class="detail-header">
+      <div class="detail-title-row">
+        <button class="btn btn-secondary" onclick="handleBack()">← Back</button>
+        <span class="detail-emoji">${lob.icon}</span>
+        <div>
+          <div class="detail-name">${lob.name}</div>
+          <div class="detail-desc">${lob.description} · Last synced ${fmtDateTime(lob.lastSync)}</div>
+        </div>
+      </div>
+      <div class="detail-actions">
+        <button class="btn btn-secondary" onclick="handleRefreshLOB('${lob.id}')">↻ Refresh All</button>
+        <button class="btn btn-primary" onclick="showToast('Exporting ${lob.name} report…','info')">↓ Export</button>
+      </div>
+    </div>
+    ${renderFilters()}
+    ${renderTable(lob)}
+  </div>`;
+}
+
+function renderDashboard() {
+  return `
+  <div class="space-y-6">
+    ${renderHeader()}
+    ${renderStats()}
+    ${renderLOBGrid()}
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MAIN RENDER
+// ═══════════════════════════════════════════════════════════════════
+function render() {
+  const app = document.getElementById('app');
+  if (appState.selectedLOB) {
+    const lob = lobData.find(l => l.id === appState.selectedLOB);
+    app.innerHTML = `
+      <div class="space-y-6">
+        ${renderHeader()}
+        ${renderDetail(lob)}
+      </div>`;
+  } else {
+    app.innerHTML = renderDashboard();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// EVENT HANDLERS
+// ═══════════════════════════════════════════════════════════════════
+function handleRefreshAll() {
+  setState({ isRefreshing: true });
+  showToast('Refreshing all fee schedules…', 'info');
+  setTimeout(() => {
+    setState({ isRefreshing: false, lastUpdate: new Date() });
+    showToast('All fee schedules refreshed successfully!', 'success');
+  }, 2000);
+}
+
+function handleLOBClick(lobId) {
+  setState({ selectedLOB: lobId, searchQuery:'', filterState:'all', filterFile:'all', filterComp:'all' });
+}
+
+function handleBack() {
+  setState({ selectedLOB: null });
+}
+
+function handleRefreshSchedule(scheduleId, event) {
+  if (event) event.stopPropagation();
+  showToast(`Refreshing schedule ${scheduleId}…`, 'info');
+  setTimeout(() => showToast(`Schedule ${scheduleId} refreshed!`, 'success'), 1000);
+}
+
+function handleRefreshLOB(lobId) {
+  showToast(`Refreshing all schedules for ${lobId}…`, 'info');
+  setTimeout(() => {
+    const lob = lobData.find(l => l.id === lobId);
+    lob.lastSync = new Date();
+    showToast(`${lob.name} schedules refreshed!`, 'success');
+    render();
+  }, 1500);
+}
+
+function handleDownload(scheduleId, event) {
+  if (event) event.stopPropagation();
+  showToast(`Downloading change file for ${scheduleId}…`, 'success');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════════
+render();
+</script>
+</body>
+</html>
