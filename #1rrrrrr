@@ -1,373 +1,1455 @@
-package com.example.rbrvs;
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>State Portal Monitor — Enterprise</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<style>
 
-import org.apache.poi.openxml4j.opc.OPCPackage;
-import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.xssf.eventusermodel.ReadOnlySharedStringsTable;
-import org.apache.poi.xssf.eventusermodel.XSSFReader;
-import org.apache.poi.xssf.usermodel.XSSFDataFormatter;
-import org.apache.poi.xssf.streaming.SXSSFSheet;
-import org.apache.poi.xssf.streaming.SXSSFWorkbook;
-import org.xml.sax.InputSource;
-
-import javax.xml.stream.XMLInputFactory;
-import javax.xml.stream.XMLStreamConstants;
-import javax.xml.stream.XMLStreamReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.*;
-
-/**
- * Streams ONLY the sheet "Mappingdata" in RBRVS.xlsx and writes
- * all rows whose ID is present in coreexcel.xlsx into ONE output workbook.
- */
-public class RbrvsFilterSingleOutput {
-
-    // change this if ID is not in column A of Mappingdata sheet
-    private static final int RBRVS_ID_COLUMN_INDEX = 0;
-
-    // SXSSF window size to keep memory low
-    private static final int SXSSF_ROW_WINDOW = 100;
-
-    // the exact sheet name we care about
-    private static final String TARGET_SHEET_NAME = "Mappingdata";
-
-    public static void main(String[] args) throws Exception {
-        Path inputDir = Path.of("input");
-        Path outputDir = Path.of("output");
-        Files.createDirectories(outputDir);
-
-        Path rbrvsPath = inputDir.resolve("RBRVS.xlsx");
-        Path corePath = inputDir.resolve("coreexcel.xlsx");
-        Path outputFile = outputDir.resolve("Matched_RBRVS.xlsx");
-
-        // 1. load IDs from coreexcel.xlsx
-        Set<String> wantedIds = loadIdsFromCoreExcel(corePath);
-        System.out.println("Loaded " + wantedIds.size() + " IDs from coreexcel.xlsx");
-
-        // 2. create ONE output workbook (streaming)
-        try (SXSSFWorkbook outWb = new SXSSFWorkbook(SXSSF_ROW_WINDOW)) {
-            SXSSFSheet outSheet = outWb.createSheet("Matched");
-
-            // 3. stream ONLY Mappingdata sheet and copy matching rows
-            processMappingdataSheet(rbrvsPath, wantedIds, outSheet);
-
-            // 4. write to disk
-            try (OutputStream os = Files.newOutputStream(outputFile)) {
-                outWb.write(os);
-            }
-            outWb.dispose(); // cleanup temp files
-            System.out.println("Written matched rows to: " + outputFile);
-        }
-
-        System.out.println("Done.");
-    }
-
-    /**
-     * Reads IDs from coreexcel.xlsx (sheet 0, column 0).
-     */
-    private static Set<String> loadIdsFromCoreExcel(Path coreExcel) throws IOException {
-        Set<String> ids = new LinkedHashSet<>();
-        try (InputStream is = Files.newInputStream(coreExcel);
-             Workbook wb = WorkbookFactory.create(is)) {
-
-            Sheet sheet = wb.getSheetAt(0);
-            DataFormatter formatter = new DataFormatter();
-            for (Row row : sheet) {
-                Cell cell = row.getCell(0);   // change to 1 for column B
-                if (cell == null) continue;
-                String id = formatter.formatCellValue(cell).trim();
-                if (!id.isEmpty()) {
-                    ids.add(id);
-                }
-            }
-        }
-        return ids;
-    }
-
-    /**
-     * Find the sheet named "Mappingdata" and stream only that.
-     */
-    private static void processMappingdataSheet(Path rbrvsPath,
-                                                Set<String> wantedIds,
-                                                SXSSFSheet outSheet) throws Exception {
-
-        int outRowNum = 0;
-        List<String> header = null;
-
-        try (OPCPackage opc = OPCPackage.open(rbrvsPath.toFile())) {
-            XSSFReader reader = new XSSFReader(opc);
-            ReadOnlySharedStringsTable sst = new ReadOnlySharedStringsTable(opc);
-
-            XMLInputFactory factory = XMLInputFactory.newInstance();
-            XSSFReader.SheetIterator sheets = (XSSFReader.SheetIterator) reader.getSheetsData();
-
-            boolean sheetFound = false;
-
-            while (sheets.hasNext()) {
-                InputStream sheetStream = sheets.next();
-                String sheetName = sheets.getSheetName(); // <- we can read the name here
-
-                // compare ignoring case & trimming
-                if (sheetName != null && sheetName.trim().equalsIgnoreCase(TARGET_SHEET_NAME)) {
-                    sheetFound = true;
-                    System.out.println("Processing sheet: " + sheetName);
-
-                    try (sheetStream) {
-                        XMLStreamReader parser = factory.createXMLStreamReader(new InputSource(sheetStream));
-
-                        List<String> currentRow = new ArrayList<>();
-                        int currentCol = -1;
-
-                        boolean isHeaderRow = true;
-                        String cellRef = null;
-                        String cellType = null;
-                        String cellValue = null;
-                        XSSFDataFormatter dataFormatter = new XSSFDataFormatter();
-
-                        while (parser.hasNext()) {
-                            int event = parser.next();
-                            switch (event) {
-                                case XMLStreamConstants.START_ELEMENT -> {
-                                    String name = parser.getLocalName();
-                                    if ("row".equals(name)) {
-                                        currentRow = new ArrayList<>();
-                                        currentCol = -1;
-                                    } else if ("c".equals(name)) {
-                                        cellRef = parser.getAttributeValue(null, "r");
-                                        cellType = parser.getAttributeValue(null, "t");
-                                        currentCol = colToIndex(cellRef);
-                                    } else if ("v".equals(name) || "is".equals(name)) {
-                                        cellValue = "";
-                                    }
-                                }
-                                case XMLStreamConstants.CHARACTERS -> {
-                                    if (!parser.isWhiteSpace() && cellValue != null) {
-                                        cellValue += parser.getText();
-                                    }
-                                }
-                                case XMLStreamConstants.END_ELEMENT -> {
-                                    String name = parser.getLocalName();
-                                    if ("v".equals(name) || "is".equals(name)) {
-                                        String value = getCellValue(cellType, cellValue, sst, dataFormatter);
-                                        addCellValueToRow(currentRow, currentCol, value);
-                                        cellValue = null;
-                                    } else if ("row".equals(name)) {
-                                        if (isHeaderRow) {
-                                            header = List.copyOf(currentRow);
-                                            writeRow(outSheet, outRowNum++, header);
-                                            isHeaderRow = false;
-                                        } else {
-                                            String id = getCellSafe(currentRow, RBRVS_ID_COLUMN_INDEX);
-                                            if (id != null && wantedIds.contains(id)) {
-                                                writeRow(outSheet, outRowNum++, currentRow);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // we found and processed the needed sheet — no need to look at others
-                    break;
-                } else {
-                    // not our sheet, just close stream
-                    sheetStream.close();
-                }
-            }
-
-            if (!sheetFound) {
-                System.err.println("Sheet '" + TARGET_SHEET_NAME + "' not found in " + rbrvsPath);
-            }
-        }
-    }
-
-    /**
-     * Convert Excel column letters to 0-based index.
-     */
-    private static int colToIndex(String cellRef) {
-        if (cellRef == null) return -1;
-        int i = 0;
-        while (i < cellRef.length() && !Character.isDigit(cellRef.charAt(i))) {
-            i++;
-        }
-        String colPart = cellRef.substring(0, i);
-        int col = 0;
-        for (int j = 0; j < colPart.length(); j++) {
-            col = col * 26 + (colPart.charAt(j) - 'A' + 1);
-        }
-        return col - 1;
-    }
-
-    private static void addCellValueToRow(List<String> row, int colIndex, String value) {
-        while (row.size() <= colIndex) {
-            row.add("");
-        }
-        row.set(colIndex, value == null ? "" : value);
-    }
-
-    private static String getCellValue(String cellType,
-                                       String cellValue,
-                                       ReadOnlySharedStringsTable sst,
-                                       XSSFDataFormatter formatter) {
-        if (cellValue == null) return "";
-        if ("s".equals(cellType)) {
-            int idx = Integer.parseInt(cellValue);
-            return sst.getItemAt(idx).getString();
-        }
-        return cellValue;
-    }
-
-    private static String getCellSafe(List<String> row, int index) {
-        if (index < 0 || index >= row.size()) return null;
-        String val = row.get(index);
-        return (val == null || val.isBlank()) ? null : val.trim();
-    }
-
-    private static void writeRow(SXSSFSheet sheet, int rowNum, List<String> data) {
-        org.apache.poi.ss.usermodel.Row row = sheet.createRow(rowNum);
-        for (int i = 0; i < data.size(); i++) {
-            Cell c = row.createCell(i);
-            c.setCellValue(data.get(i));
-        }
-    }
+/* ═══════════════════════════════════════════════
+   THEME TOKENS
+═══════════════════════════════════════════════ */
+:root {
+  --radius-sm: 4px;
+  --radius:    6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
 }
 
-
-**********************
-
-// we will skip the first row, treat the second as header
-int rowCounter = 0;
-boolean headerCaptured = false;
-
-...
-
-else if ("row".equals(name)) {
-    rowCounter++;
-
-    if (rowCounter == 1) {
-        // Row 1 – skip (not header)
-        continue;
-    } else if (rowCounter == 2) {
-        // Row 2 – header row
-        header = List.copyOf(currentRow);
-        writeRow(outSheet, outRowNum++, header);
-        headerCaptured = true;
-    } else {
-        // Data rows start from Row 3 onward
-        String id = getCellSafe(currentRow, RBRVS_ID_COLUMN_INDEX);
-        if (id != null && wantedIds.contains(id)) {
-            writeRow(outSheet, outRowNum++, currentRow);
-        }
-    }
+[data-theme="dark"] {
+  --bg:             #04080f;
+  --surface:        #0a1525;
+  --surface-2:      #0e1c34;
+  --surface-3:      #132641;
+  --surface-hover:  #192e4c;
+  --border:         rgba(255,255,255,0.06);
+  --border-med:     rgba(255,255,255,0.11);
+  --border-strong:  rgba(255,255,255,0.22);
+  --text-1:         #ddeeff;
+  --text-2:         #5e7a96;
+  --text-3:         #2c4260;
+  --accent:         #2e90fa;
+  --accent-dim:     rgba(46,144,250,0.12);
+  --accent-glow:    rgba(46,144,250,0.35);
+  --green:          #12b76a;
+  --green-dim:      rgba(18,183,106,0.13);
+  --amber:          #f79009;
+  --amber-dim:      rgba(247,144,9,0.13);
+  --red:            #f04438;
+  --red-dim:        rgba(240,68,56,0.13);
+  --purple:         #9e77ed;
+  --purple-dim:     rgba(158,119,237,0.13);
+  --cyan:           #06aed4;
+  --cyan-dim:       rgba(6,174,212,0.13);
 }
 
-*******************
-
-private static void processMappingdataSheet(Path rbrvsPath,
-                                            Set<String> wantedIds,
-                                            SXSSFSheet outSheet) throws Exception {
-
-    int outRowNum = 0;                 // row number in output sheet
-    List<String> header = null;        // to store header row from Mappingdata
-
-    try (OPCPackage opc = OPCPackage.open(rbrvsPath.toFile())) {
-        XSSFReader reader = new XSSFReader(opc);
-        ReadOnlySharedStringsTable sst = new ReadOnlySharedStringsTable(opc);
-
-        XMLInputFactory factory = XMLInputFactory.newInstance();
-        XSSFReader.SheetIterator sheets = (XSSFReader.SheetIterator) reader.getSheetsData();
-
-        boolean sheetFound = false;
-
-        while (sheets.hasNext()) {
-            InputStream sheetStream = sheets.next();
-            String sheetName = sheets.getSheetName(); // name of current sheet in RBRVS.xlsx
-
-            // we only care about "Mappingdata"
-            if (sheetName != null && sheetName.trim().equalsIgnoreCase(TARGET_SHEET_NAME)) {
-                sheetFound = true;
-                System.out.println("Processing sheet: " + sheetName);
-
-                try (sheetStream) {
-                    XMLStreamReader parser = factory.createXMLStreamReader(sheetStream);
-
-                    List<String> currentRow = new ArrayList<>();
-                    int currentCol = -1;
-
-                    // NEW: we will count rows in this sheet
-                    int sheetRowCounter = 0;
-
-                    String cellRef = null;
-                    String cellType = null;
-                    String cellValue = null;
-                    DataFormatter dataFormatter = new DataFormatter();
-
-                    while (parser.hasNext()) {
-                        int event = parser.next();
-                        switch (event) {
-                            case XMLStreamConstants.START_ELEMENT -> {
-                                String name = parser.getLocalName();
-                                if ("row".equals(name)) {
-                                    currentRow = new ArrayList<>();
-                                    currentCol = -1;
-                                } else if ("c".equals(name)) {
-                                    cellRef = parser.getAttributeValue(null, "r");
-                                    cellType = parser.getAttributeValue(null, "t");
-                                    currentCol = colToIndex(cellRef);
-                                } else if ("v".equals(name) || "is".equals(name)) {
-                                    cellValue = "";
-                                }
-                            }
-                            case XMLStreamConstants.CHARACTERS -> {
-                                if (!parser.isWhiteSpace() && cellValue != null) {
-                                    cellValue += parser.getText();
-                                }
-                            }
-                            case XMLStreamConstants.END_ELEMENT -> {
-                                String name = parser.getLocalName();
-                                if ("v".equals(name) || "is".equals(name)) {
-                                    String value = getCellValue(cellType, cellValue, sst, dataFormatter);
-                                    addCellValueToRow(currentRow, currentCol, value);
-                                    cellValue = null;
-                                } else if ("row".equals(name)) {
-                                    // we have a full row now
-                                    sheetRowCounter++;
-
-                                    if (sheetRowCounter == 1) {
-                                        // Row 1 in Mappingdata -> skip (you said headers start from row 2)
-                                        // do nothing
-                                    } else if (sheetRowCounter == 2) {
-                                        // Row 2 -> actual header
-                                        header = List.copyOf(currentRow);
-                                        writeRow(outSheet, outRowNum++, header);
-                                    } else {
-                                        // Data rows start from row 3
-                                        String id = getCellSafe(currentRow, RBRVS_ID_COLUMN_INDEX);
-                                        if (id != null && wantedIds.contains(id)) {
-                                            writeRow(outSheet, outRowNum++, currentRow);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // we found and processed our sheet, no need to read other sheets
-                break;
-            } else {
-                // not the sheet we want, just close it
-                sheetStream.close();
-            }
-        }
-
-        if (!sheetFound) {
-            System.err.println("Sheet '" + TARGET_SHEET_NAME + "' not found in " + rbrvsPath);
-        }
-    }
+[data-theme="light"] {
+  --bg:             #eef2f9;
+  --surface:        #ffffff;
+  --surface-2:      #f5f8fd;
+  --surface-3:      #ebf0fa;
+  --surface-hover:  #e1eaf6;
+  --border:         rgba(0,0,0,0.07);
+  --border-med:     rgba(0,0,0,0.12);
+  --border-strong:  rgba(0,0,0,0.22);
+  --text-1:         #0a1628;
+  --text-2:         #4a6280;
+  --text-3:         #9ab0c8;
+  --accent:         #1570ef;
+  --accent-dim:     rgba(21,112,239,0.08);
+  --accent-glow:    rgba(21,112,239,0.22);
+  --green:          #079455;
+  --green-dim:      rgba(7,148,85,0.1);
+  --amber:          #b54708;
+  --amber-dim:      rgba(181,71,8,0.1);
+  --red:            #d92d20;
+  --red-dim:        rgba(217,45,32,0.1);
+  --purple:         #6941c6;
+  --purple-dim:     rgba(105,65,198,0.1);
+  --cyan:           #0e7090;
+  --cyan-dim:       rgba(14,112,144,0.1);
 }
 
+/* ═══════════════════════════════════════════════
+   RESET & BASE
+═══════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-med); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+html { font-size: 13px; }
+body {
+  font-family: 'Inter', -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text-1);
+  min-height: 100vh;
+  transition: background 0.3s, color 0.3s;
+  line-height: 1.5;
+  overflow-x: hidden;
+}
+
+/* subtle ambient glow — dark only */
+[data-theme="dark"] body::before {
+  content: '';
+  position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(ellipse 55% 35% at 8% 15%,  rgba(46,144,250,0.055) 0%, transparent 100%),
+    radial-gradient(ellipse 45% 30% at 92% 75%,  rgba(158,119,237,0.04) 0%, transparent 100%),
+    radial-gradient(ellipse 35% 25% at 55% 90%,  rgba(6,174,212,0.03)  0%, transparent 100%);
+}
+* { position: relative; z-index: 1; }
+
+/* ═══════════════════════════════════════════════
+   TOPBAR
+═══════════════════════════════════════════════ */
+.topbar {
+  height: 54px;
+  display: flex; align-items: center;
+  padding: 0 20px; gap: 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 200;
+  transition: background 0.3s;
+}
+
+.logo {
+  display: flex; align-items: center; gap: 9px;
+  flex-shrink: 0; text-decoration: none;
+}
+.logo-mark {
+  width: 28px; height: 28px; border-radius: var(--radius);
+  background: linear-gradient(135deg, var(--accent) 0%, var(--purple) 100%);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; box-shadow: 0 0 14px var(--accent-glow);
+}
+.logo-text {
+  font-size: 0.88rem; font-weight: 800; letter-spacing: -0.01em;
+  color: var(--text-1);
+}
+.logo-tag {
+  font-size: 0.6rem; font-weight: 600; letter-spacing: 0.05em;
+  background: var(--accent-dim); color: var(--accent);
+  border: 1px solid rgba(46,144,250,0.2); border-radius: 20px;
+  padding: 1px 6px; font-family: 'JetBrains Mono', monospace;
+}
+
+.tb-divider { width: 1px; height: 18px; background: var(--border-med); flex-shrink: 0; }
+
+/* live indicator */
+.tb-live {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 0.62rem; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--green); flex-shrink: 0;
+}
+.live-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--green);
+  animation: livepulse 2.2s ease-in-out infinite;
+}
+@keyframes livepulse {
+  0%   { box-shadow: 0 0 0 0 rgba(18,183,106,0.7); }
+  70%  { box-shadow: 0 0 0 5px rgba(18,183,106,0); }
+  100% { box-shadow: 0 0 0 0 rgba(18,183,106,0); }
+}
+[data-theme="light"] .live-dot {
+  animation: livepulse-l 2.2s ease-in-out infinite;
+}
+@keyframes livepulse-l {
+  0%   { box-shadow: 0 0 0 0 rgba(7,148,85,0.6); }
+  70%  { box-shadow: 0 0 0 5px rgba(7,148,85,0); }
+  100% { box-shadow: 0 0 0 0 rgba(7,148,85,0); }
+}
+
+/* portal health chips in topbar */
+.tb-portals { display: flex; align-items: center; gap: 4px; flex: 1; overflow: hidden; }
+.tb-portal-chip {
+  display: flex; align-items: center; gap: 3px;
+  padding: 2px 6px; border-radius: 4px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.6rem; font-weight: 700; color: var(--text-2);
+  cursor: default; white-space: nowrap; flex-shrink: 0;
+  transition: background 0.2s, border-color 0.2s;
+}
+.tb-portal-chip:hover { background: var(--surface-3); border-color: var(--border-med); }
+.chip-dot { width: 4px; height: 4px; border-radius: 50%; flex-shrink: 0; }
+.dot-ok    { background: var(--green); }
+.dot-warn  { background: var(--amber); }
+.dot-error { background: var(--red); }
+.dot-check { background: var(--cyan); animation: blink 1.3s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.25} }
+
+.tb-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+/* clock */
+.tb-clock {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.7rem; color: var(--text-2);
+  background: var(--surface-2); border: 1px solid var(--border);
+  padding: 3px 9px; border-radius: var(--radius);
+  letter-spacing: 0.03em;
+}
+
+/* theme toggle */
+.theme-toggle {
+  display: flex; align-items: center; gap: 1px;
+  background: var(--surface-2); border: 1px solid var(--border-med);
+  border-radius: 20px; padding: 3px;
+}
+.theme-opt {
+  width: 24px; height: 24px; border-radius: 14px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; border: none; background: transparent;
+  cursor: pointer; color: var(--text-2);
+  transition: background 0.18s, color 0.18s;
+}
+.theme-opt.active {
+  background: var(--surface-3); color: var(--text-1);
+}
+
+/* ═══════════════════════════════════════════════
+   BUTTONS
+═══════════════════════════════════════════════ */
+.btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 12px; border-radius: var(--radius);
+  font-size: 0.75rem; font-weight: 600;
+  cursor: pointer; border: none;
+  transition: all 0.16s ease; white-space: nowrap;
+  font-family: 'Inter', sans-serif; line-height: 1;
+}
+.btn-primary {
+  background: var(--accent); color: #fff;
+}
+.btn-primary:hover {
+  filter: brightness(1.12);
+  box-shadow: 0 0 14px var(--accent-glow);
+  transform: translateY(-1px);
+}
+.btn-ghost {
+  background: transparent; color: var(--text-2);
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover { background: var(--surface-2); color: var(--text-1); border-color: var(--border-med); }
+.btn-surface {
+  background: var(--surface-2); color: var(--text-1);
+  border: 1px solid var(--border-med);
+}
+.btn-surface:hover { background: var(--surface-3); border-color: var(--border-strong); }
+.btn-success {
+  background: var(--green-dim); color: var(--green);
+  border: 1px solid rgba(18,183,106,0.2);
+}
+.btn-success:hover { background: var(--green); color: #fff; }
+.btn-sm  { padding: 4px 9px;  font-size: 0.7rem; }
+.btn-xs  { padding: 3px 7px;  font-size: 0.65rem; }
+.btn:disabled { opacity: 0.38; cursor: not-allowed; transform: none !important; filter: none !important; box-shadow: none !important; }
+
+/* ═══════════════════════════════════════════════
+   PAGE LAYOUT
+═══════════════════════════════════════════════ */
+.page { max-width: 1680px; margin: 0 auto; padding: 20px 20px 48px; }
+.space-4 > * + * { margin-top: 14px; }
+.space-5 > * + * { margin-top: 20px; }
+
+/* section label */
+.sec-label {
+  font-size: 0.62rem; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--text-3);
+  display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+}
+.sec-label::after { content:''; flex:1; height:1px; background: var(--border); }
+
+/* ═══════════════════════════════════════════════
+   PAGE HEADER ROW
+═══════════════════════════════════════════════ */
+.page-hdr {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  margin-bottom: 20px; gap: 16px; flex-wrap: wrap;
+}
+.page-hdr-left {}
+.page-title {
+  font-size: 1.45rem; font-weight: 800; letter-spacing: -0.025em;
+  color: var(--text-1); line-height: 1.15;
+}
+.page-sub { font-size: 0.77rem; color: var(--text-2); margin-top: 4px; }
+.page-actions { display: flex; align-items: center; gap: 8px; }
+
+/* ═══════════════════════════════════════════════
+   KPI CARDS
+═══════════════════════════════════════════════ */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px; margin-bottom: 16px;
+}
+@media (max-width: 1000px) { .kpi-grid { grid-template-columns: repeat(2,1fr); } }
+
+.kpi-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 16px 18px;
+  transition: border-color 0.2s, background 0.3s;
+  overflow: hidden;
+}
+.kpi-card:hover { border-color: var(--border-med); }
+.kpi-card-top {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px;
+}
+.kpi-label {
+  font-size: 0.65rem; font-weight: 700; color: var(--text-2);
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.kpi-badge {
+  font-size: 0.6rem; font-weight: 700; padding: 2px 6px;
+  border-radius: 20px; font-family: 'JetBrains Mono', monospace;
+}
+.kb-up      { background: var(--green-dim);  color: var(--green); }
+.kb-down    { background: var(--red-dim);    color: var(--red); }
+.kb-neutral { background: var(--accent-dim); color: var(--accent); }
+.kb-amber   { background: var(--amber-dim);  color: var(--amber); }
+.kpi-value {
+  font-size: 2.3rem; font-weight: 800;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: -0.04em; line-height: 1;
+  color: var(--text-1);
+}
+.kpi-value.v-amber  { color: var(--amber); }
+.kpi-value.v-green  { color: var(--green); }
+.kpi-value.v-red    { color: var(--red); }
+.kpi-value.v-accent { color: var(--accent); }
+.kpi-sub { font-size: 0.68rem; color: var(--text-2); margin-top: 5px; }
+.kpi-track {
+  height: 3px; background: var(--border); border-radius: 2px;
+  margin-top: 12px; overflow: hidden;
+}
+.kpi-fill { height: 100%; border-radius: 2px; transition: width 1s cubic-bezier(.4,0,.2,1); }
+
+/* ═══════════════════════════════════════════════
+   PORTAL STATUS PANEL
+═══════════════════════════════════════════════ */
+.portal-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 14px 18px;
+  margin-bottom: 16px;
+  transition: background 0.3s;
+}
+.portal-grid {
+  display: grid;
+  grid-template-columns: repeat(11, 1fr);
+  gap: 8px;
+}
+@media (max-width: 1100px) { .portal-grid { grid-template-columns: repeat(6,1fr); } }
+@media (max-width: 640px)  { .portal-grid { grid-template-columns: repeat(4,1fr); } }
+
+.portal-tile {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 5px; padding: 10px 6px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); cursor: default;
+  transition: all 0.18s ease;
+}
+.portal-tile:hover {
+  background: var(--surface-3); border-color: var(--border-med);
+  transform: translateY(-1px);
+}
+.portal-abbr {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem; font-weight: 700; color: var(--text-1);
+}
+.portal-status-dot { width: 7px; height: 7px; border-radius: 50%; }
+.portal-count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.58rem; color: var(--text-2);
+}
+
+/* ═══════════════════════════════════════════════
+   LOB GRID
+═══════════════════════════════════════════════ */
+.lob-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+@media (max-width: 1100px) { .lob-grid { grid-template-columns: repeat(2,1fr); } }
+@media (max-width: 640px)  { .lob-grid { grid-template-columns: 1fr; } }
+
+.lob-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.lob-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--lob-clr, var(--accent));
+  box-shadow: 0 6px 28px rgba(0,0,0,0.22),
+              0 0 0 1px var(--lob-clr, var(--accent));
+}
+[data-theme="light"] .lob-card:hover {
+  box-shadow: 0 6px 20px rgba(0,0,0,0.10),
+              0 0 0 1px var(--lob-clr, var(--accent));
+}
+.lob-accent-bar { height: 2px; background: var(--lob-clr, var(--accent)); }
+.lob-body { padding: 18px; flex: 1; }
+
+.lob-head {
+  display: flex; align-items: flex-start;
+  justify-content: space-between; margin-bottom: 14px;
+}
+.lob-identity { display: flex; align-items: center; gap: 11px; }
+.lob-icon {
+  width: 38px; height: 38px; border-radius: var(--radius-lg);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; flex-shrink: 0;
+  background: color-mix(in srgb, var(--lob-clr, var(--accent)) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--lob-clr, var(--accent)) 28%, transparent);
+}
+.lob-name { font-size: 0.92rem; font-weight: 700; color: var(--text-1); }
+.lob-desc { font-size: 0.7rem; color: var(--text-2); margin-top: 2px; }
+
+.lob-pill {
+  font-size: 0.62rem; font-weight: 700;
+  padding: 3px 8px; border-radius: 20px;
+  font-family: 'JetBrains Mono', monospace;
+  white-space: nowrap; flex-shrink: 0;
+}
+.lob-pill-changes {
+  background: var(--amber-dim); color: var(--amber);
+  border: 1px solid color-mix(in srgb, var(--amber) 28%, transparent);
+}
+.lob-pill-clear {
+  background: var(--green-dim); color: var(--green);
+  border: 1px solid color-mix(in srgb, var(--green) 28%, transparent);
+}
+
+/* avail bar */
+.avail-row {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 4px;
+}
+.avail-lbl { font-size: 0.64rem; color: var(--text-2); }
+.avail-pct {
+  font-size: 0.64rem; font-weight: 600;
+  font-family: 'JetBrains Mono', monospace; color: var(--green);
+}
+.avail-track { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; margin-bottom: 14px; }
+.avail-fill  { height: 100%; border-radius: 2px; background: var(--green); transition: width 1.1s cubic-bezier(.4,0,.2,1); }
+
+/* stats row */
+.lob-stats {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  overflow: hidden; margin-bottom: 14px;
+}
+.lob-stat {
+  padding: 9px 10px; text-align: center;
+  background: var(--surface-2);
+  border-right: 1px solid var(--border);
+}
+.lob-stat:last-child { border-right: none; }
+.lob-stat-val {
+  font-size: 1.2rem; font-weight: 800;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-1); line-height: 1;
+}
+.lob-stat-lbl {
+  font-size: 0.58rem; color: var(--text-3);
+  margin-top: 2px; text-transform: uppercase; letter-spacing: 0.06em;
+}
+
+.lob-footer {
+  display: flex; align-items: center; justify-content: space-between;
+}
+.lob-sync-txt { font-size: 0.63rem; color: var(--text-3); }
+
+/* ═══════════════════════════════════════════════
+   DETAIL VIEW
+═══════════════════════════════════════════════ */
+.breadcrumb {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 0.72rem; color: var(--text-2); margin-bottom: 14px;
+}
+.bc-link { cursor: pointer; transition: color 0.15s; }
+.bc-link:hover { color: var(--accent); }
+.bc-sep { color: var(--text-3); }
+.bc-cur { color: var(--text-1); font-weight: 500; }
+
+.detail-hdr-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 18px 22px;
+  margin-bottom: 14px;
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 14px;
+  transition: background 0.3s;
+  overflow: hidden;
+}
+.detail-hdr-accent {
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: var(--lob-clr, var(--accent));
+}
+.detail-hdr-glow {
+  position: absolute; top: -50px; left: -10px;
+  width: 160px; height: 100px;
+  background: radial-gradient(ellipse,
+    color-mix(in srgb, var(--lob-clr, var(--accent)) 10%, transparent) 0%,
+    transparent 70%);
+  pointer-events: none;
+}
+.detail-identity { display: flex; align-items: center; gap: 14px; }
+.detail-icon {
+  width: 46px; height: 46px; border-radius: var(--radius-xl);
+  display: flex; align-items: center; justify-content: center; font-size: 22px;
+  background: color-mix(in srgb, var(--lob-clr, var(--accent)) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--lob-clr, var(--accent)) 32%, transparent);
+  flex-shrink: 0;
+}
+.detail-name {
+  font-size: 1.25rem; font-weight: 800; color: var(--text-1);
+  letter-spacing: -0.015em;
+}
+.detail-meta { font-size: 0.72rem; color: var(--text-2); margin-top: 3px; }
+.detail-actions { display: flex; gap: 8px; align-items: center; }
+
+/* ═══════════════════════════════════════════════
+   FILTER BAR
+═══════════════════════════════════════════════ */
+.filter-bar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 10px 14px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 12px;
+  transition: background 0.3s;
+}
+.filter-search { position: relative; flex: 1; min-width: 180px; }
+.filter-search-ic {
+  position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
+  color: var(--text-3); font-size: 12px; pointer-events: none;
+}
+.f-input {
+  width: 100%; padding: 6px 10px 6px 28px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius); font-size: 0.75rem;
+  color: var(--text-1); font-family: 'Inter', sans-serif;
+  outline: none; transition: border-color 0.18s, background 0.3s;
+}
+.f-input::placeholder { color: var(--text-3); }
+.f-input:focus { border-color: var(--accent); background: var(--surface-3); }
+.f-select {
+  padding: 6px 26px 6px 9px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius); font-size: 0.75rem;
+  color: var(--text-1); font-family: 'Inter', sans-serif;
+  outline: none; cursor: pointer; appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='5'%3E%3Cpath d='M0 0l4.5 5L9 0z' fill='%235e7a96'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 8px center;
+  transition: border-color 0.18s, background 0.3s;
+}
+.f-select:focus { border-color: var(--accent); }
+.f-divider { width: 1px; height: 18px; background: var(--border-med); flex-shrink: 0; }
+.f-count {
+  font-size: 0.68rem; color: var(--text-2); white-space: nowrap;
+}
+.f-count strong {
+  color: var(--text-1); font-family: 'JetBrains Mono', monospace;
+}
+
+/* ═══════════════════════════════════════════════
+   DATA TABLE
+═══════════════════════════════════════════════ */
+.table-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  transition: background 0.3s;
+}
+.table-scroll { overflow-x: auto; }
+.data-table { width: 100%; border-collapse: collapse; min-width: 960px; }
+.data-table thead { background: var(--surface-2); }
+.data-table th {
+  padding: 10px 13px; text-align: left;
+  font-size: 0.6rem; font-weight: 700;
+  color: var(--text-2); text-transform: uppercase; letter-spacing: 0.09em;
+  border-bottom: 1px solid var(--border-med); white-space: nowrap;
+}
+.data-table th:first-child { padding-left: 18px; }
+.data-table td {
+  padding: 10px 13px; font-size: 0.75rem;
+  color: var(--text-2); border-bottom: 1px solid var(--border);
+  vertical-align: middle; transition: color 0.2s;
+}
+.data-table td:first-child { padding-left: 18px; }
+.data-table tbody tr:last-child td { border-bottom: none; }
+.data-table tbody tr { transition: background 0.12s; }
+.data-table tbody tr:hover { background: var(--surface-2); }
+.data-table tbody tr:hover td { color: var(--text-1); }
+
+.cell-name { font-weight: 600; color: var(--text-1); font-size: 0.78rem; }
+.cell-id {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.62rem; color: var(--text-3); margin-top: 1px; display: block;
+}
+.state-tag {
+  display: inline-flex; align-items: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.65rem; font-weight: 700;
+  padding: 2px 7px; border-radius: var(--radius-sm);
+  background: var(--surface-2); color: var(--text-1);
+  border: 1px solid var(--border-med);
+}
+.ver-tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.68rem; color: var(--text-1);
+}
+.ver-prev {
+  font-size: 0.6rem; color: var(--text-3);
+  font-family: 'JetBrains Mono', monospace; display: block; margin-top: 1px;
+}
+.date-cell {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.68rem; color: var(--text-2);
+}
+.time-cell { font-size: 0.6rem; color: var(--text-3); display: block; }
+
+.row-actions { display: flex; gap: 4px; align-items: center; }
+
+.tbl-footer {
+  padding: 9px 18px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.tbl-footer-txt { font-size: 0.68rem; color: var(--text-2); }
+.tbl-footer-txt strong {
+  color: var(--text-1); font-family: 'JetBrains Mono', monospace;
+}
+
+/* ═══════════════════════════════════════════════
+   STATUS BADGES
+═══════════════════════════════════════════════ */
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 20px;
+  font-size: 0.62rem; font-weight: 600; white-space: nowrap;
+  border: 1px solid transparent;
+  font-family: 'Inter', sans-serif;
+}
+.badge-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+
+.b-available {
+  background: var(--green-dim); color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 22%, transparent);
+}
+.b-available    .badge-dot { background: var(--green); box-shadow: 0 0 4px var(--green); }
+
+.b-not-found {
+  background: var(--red-dim); color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 22%, transparent);
+}
+.b-not-found    .badge-dot { background: var(--red); }
+
+.b-checking {
+  background: var(--cyan-dim); color: var(--cyan);
+  border-color: color-mix(in srgb, var(--cyan) 22%, transparent);
+}
+.b-checking     .badge-dot { background: var(--cyan); animation: blink 1.2s infinite; }
+
+.b-error {
+  background: var(--red-dim); color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 22%, transparent);
+}
+.b-error        .badge-dot { background: var(--red); }
+
+.b-no-changes {
+  background: var(--surface-2); color: var(--text-2);
+  border-color: var(--border);
+}
+.b-no-changes   .badge-dot { background: var(--text-3); }
+
+.b-changes {
+  background: var(--amber-dim); color: var(--amber);
+  border-color: color-mix(in srgb, var(--amber) 22%, transparent);
+}
+.b-changes      .badge-dot { background: var(--amber); box-shadow: 0 0 4px var(--amber); }
+
+.b-pending {
+  background: var(--purple-dim); color: var(--purple);
+  border-color: color-mix(in srgb, var(--purple) 22%, transparent);
+}
+.b-pending      .badge-dot { background: var(--purple); animation: blink 1.8s infinite; }
+
+.b-new-file {
+  background: var(--accent-dim); color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.b-new-file     .badge-dot { background: var(--accent); }
+
+.b-not-compared {
+  background: transparent; color: var(--text-3); border-color: var(--border);
+}
+.b-not-compared .badge-dot { background: var(--text-3); }
+
+/* ═══════════════════════════════════════════════
+   TOAST SYSTEM
+═══════════════════════════════════════════════ */
+#toasts {
+  position: fixed; top: 64px; right: 14px; z-index: 9999;
+  display: flex; flex-direction: column; gap: 8px;
+  pointer-events: none; width: 310px;
+}
+.toast {
+  background: var(--surface);
+  border: 1px solid var(--border-med);
+  border-radius: var(--radius-lg);
+  padding: 11px 14px;
+  display: flex; align-items: flex-start; gap: 9px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.35);
+  pointer-events: all; overflow: hidden;
+  animation: toastin 0.22s cubic-bezier(.4,0,.2,1),
+             toastout 0.22s ease 2.85s forwards;
+  transition: background 0.3s;
+}
+.toast-stripe {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+}
+.toast-stripe.s-info    { background: var(--accent); }
+.toast-stripe.s-success { background: var(--green); }
+.toast-stripe.s-warning { background: var(--amber); }
+.toast-stripe.s-error   { background: var(--red); }
+.toast-icon { font-size: 14px; margin-top: 1px; flex-shrink: 0; }
+.toast-body { flex: 1; }
+.toast-title { font-size: 0.75rem; font-weight: 700; color: var(--text-1); }
+.toast-msg   { font-size: 0.68rem; color: var(--text-2); margin-top: 2px; }
+.toast-bar {
+  position: absolute; bottom: 0; left: 0;
+  height: 2px; animation: tbar 3.1s linear forwards;
+  border-radius: 0 2px 0 0;
+}
+.toast-bar.s-info    { background: var(--accent); }
+.toast-bar.s-success { background: var(--green); }
+.toast-bar.s-warning { background: var(--amber); }
+.toast-bar.s-error   { background: var(--red); }
+
+@keyframes toastin  { from{opacity:0;transform:translateX(18px) scale(.97)} to{opacity:1;transform:none} }
+@keyframes toastout { from{opacity:1} to{opacity:0;transform:translateX(12px)} }
+@keyframes tbar     { from{width:100%} to{width:0} }
+
+/* ═══════════════════════════════════════════════
+   MISC
+═══════════════════════════════════════════════ */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin 0.75s linear infinite; display: inline-block; }
+
+.empty { padding: 52px 20px; text-align: center; color: var(--text-3); }
+.empty-icon { font-size: 2.2rem; margin-bottom: 10px; }
+.empty-msg  { font-size: 0.8rem; }
+
+</style>
+</head>
+<body>
+
+<!-- ─── TOASTS ─── -->
+<div id="toasts"></div>
+
+<!-- ─── TOPBAR ─── -->
+<header class="topbar" id="topbar">
+  <a class="logo">
+    <div class="logo-mark">⬡</div>
+    <span class="logo-text">PortalMonitor</span>
+    <span class="logo-tag">v2.4</span>
+  </a>
+
+  <div class="tb-divider"></div>
+
+  <div class="tb-live">
+    <div class="live-dot"></div>
+    Live
+  </div>
+
+  <div class="tb-divider"></div>
+
+  <div class="tb-portals" id="tb-portals"><!-- rendered by JS --></div>
+
+  <div class="tb-right">
+    <div class="tb-clock" id="tb-clock">00:00:00</div>
+    <div class="theme-toggle">
+      <button class="theme-opt" id="opt-dark"  onclick="setTheme('dark')"  title="Dark mode">🌙</button>
+      <button class="theme-opt" id="opt-light" onclick="setTheme('light')" title="Light mode">☀️</button>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="handleExport()">↓ Export</button>
+    <button class="btn btn-primary btn-sm" id="refresh-btn" onclick="handleRefreshAll()">↻ Refresh All</button>
+  </div>
+</header>
+
+<!-- ─── MAIN ─── -->
+<main class="page">
+  <div id="app"></div>
+</main>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// THEME
+// ═══════════════════════════════════════════════════════════════
+(function() {
+  const saved = localStorage.getItem('spm-theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', saved);
+})();
+
+function setTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  localStorage.setItem('spm-theme', t);
+  syncThemeButtons();
+}
+
+function syncThemeButtons() {
+  const t = document.documentElement.getAttribute('data-theme');
+  document.getElementById('opt-dark').classList.toggle('active', t === 'dark');
+  document.getElementById('opt-light').classList.toggle('active', t === 'light');
+}
+syncThemeButtons();
+
+// ═══════════════════════════════════════════════════════════════
+// CLOCK
+// ═══════════════════════════════════════════════════════════════
+function updateClock() {
+  const el = document.getElementById('tb-clock');
+  if (!el) return;
+  const now = new Date();
+  el.textContent = now.toLocaleTimeString('en-US', {
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+  });
+}
+updateClock();
+setInterval(updateClock, 1000);
+
+// ═══════════════════════════════════════════════════════════════
+// SEEDED RANDOM (stable across reloads)
+// ═══════════════════════════════════════════════════════════════
+function sr(seed) {
+  const x = Math.sin(seed + 1) * 10000;
+  return x - Math.floor(x);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DATA LAYER
+// ═══════════════════════════════════════════════════════════════
+const STATES  = ['MI','NV','MS','GA','CMS','KY','TC','AR','OH','WI','WV'];
+const STYPES  = [
+  'Physician Fee Schedule', 'Outpatient Fee Schedule', 'Inpatient DRG Schedule',
+  'ASC Payment Rates', 'DME Fee Schedule', 'Lab Fee Schedule'
+];
+const NOW = Date.now();
+
+function generateSchedules() {
+  const list = [];
+  let id = 1;
+  STATES.forEach((state, si) => {
+    STYPES.forEach((type, ti) => {
+      const seed = si * 6 + ti;
+      const r  = sr(seed);
+      const r2 = sr(seed + 100);
+      const r3 = sr(seed + 200);
+      const fileStatus = r > 0.85 ? 'not-found' : r > 0.78 ? 'checking' : 'available';
+      const compStatus = r > 0.72 ? 'changes-found' : r > 0.45 ? 'no-changes' : r > 0.25 ? 'new-file' : 'pending';
+      list.push({
+        id:         `FS-${String(id).padStart(4,'0')}`,
+        name:       `${state} ${type}`,
+        state,
+        fileStatus,
+        compStatus,
+        lastChecked:  new Date(NOW - r2 * 86400000),
+        lastModified: r3 > 0.3 ? new Date(NOW - r3 * 604800000) : null,
+        changeUrl:    compStatus === 'changes-found' ? `#dl-${id}` : null,
+        prevVer:      '2026.Q1',
+        curVer:       compStatus === 'changes-found' ? '2026.Q2' : '2026.Q1',
+      });
+      id++;
+    });
+  });
+  return list;
+}
+
+const ALL = generateSchedules();
+
+// portal-level summary
+const PORTAL_DATA = STATES.map((st, si) => {
+  const schedules = ALL.filter(s => s.state === st);
+  const r = sr(si * 17);
+  const status = r > 0.8 ? 'warn' : r > 0.9 ? 'error' : r > 0.75 ? 'check' : 'ok';
+  return {
+    abbr: st,
+    status,
+    count: schedules.length,
+    changes: schedules.filter(s => s.compStatus === 'changes-found').length,
+  };
+});
+
+// LOB definitions
+const LOB_DEFS = [
+  { id:'medicare',       name:'Medicare',       desc:'Medicare fee schedules and CMS reimbursement rates',  icon:'🏥',  clr:'#2e90fa', filter: s => s.name.includes('Physician') || s.name.includes('Outpatient') },
+  { id:'medicaid',       name:'Medicaid',       desc:'State Medicaid programs and fee schedules',           icon:'🏛️',  clr:'#12b76a', filter: s => s.name.includes('Inpatient') || s.name.includes('ASC') },
+  { id:'commercial',     name:'Commercial',     desc:'Commercial payer and managed care fee schedules',     icon:'💼',  clr:'#f79009', filter: s => s.name.includes('DME') || s.name.includes('Lab') },
+  { id:'workers-comp',   name:"Workers' Comp",  desc:"State workers' compensation fee schedules",           icon:'⚕️',  clr:'#f04438', filter: (_,i) => i < 22 },
+  { id:'auto-insurance', name:'Auto Insurance', desc:'Auto insurance medical fee schedules',                icon:'🚗',  clr:'#9e77ed', filter: (_,i) => i >= 22 && i < 44 },
+  { id:'other',          name:'Other LOB',      desc:'Additional lines of business and specialty payers',   icon:'📋',  clr:'#06aed4', filter: (_,i) => i >= 44 },
+];
+
+const LOBS = LOB_DEFS.map(def => {
+  const fs = ALL.filter(def.filter);
+  return {
+    ...def,
+    schedules: fs,
+    total:   fs.length,
+    changes: fs.filter(s => s.compStatus === 'changes-found').length,
+    avail:   fs.filter(s => s.fileStatus === 'available').length,
+    lastSync: new Date(NOW - sr(LOB_DEFS.indexOf(def)) * 3600000),
+    trend:   Array.from({length:8}, (_,i) => Math.round(2 + sr(LOB_DEFS.indexOf(def)*8+i) * 5)),
+  };
+});
+
+// ═══════════════════════════════════════════════════════════════
+// APP STATE
+// ═══════════════════════════════════════════════════════════════
+const S = {
+  view: 'dashboard',    // 'dashboard' | 'detail'
+  lobId: null,
+  isRefreshing: false,
+  lastRefresh: new Date(),
+  search: '', fState: 'all', fFile: 'all', fComp: 'all',
+};
+
+function setState(patch) { Object.assign(S, patch); render(); }
+
+// ═══════════════════════════════════════════════════════════════
+// FORMATTERS
+// ═══════════════════════════════════════════════════════════════
+const fDate = d => !d ? '—' : d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+const fTime = d => !d ? '' : d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+const fDT   = d => !d ? '—' : `${fDate(d)} ${fTime(d)}`;
+function fAgo(d) {
+  if (!d) return '—';
+  const s = (Date.now() - d) / 1000;
+  if (s < 60)    return Math.round(s)+'s ago';
+  if (s < 3600)  return Math.round(s/60)+'m ago';
+  if (s < 86400) return Math.round(s/3600)+'h ago';
+  return Math.round(s/86400)+'d ago';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TOAST
+// ═══════════════════════════════════════════════════════════════
+const TOAST_ICONS = { info:'ℹ️', success:'✅', warning:'⚠️', error:'❌' };
+function toast(title, msg='', type='info') {
+  const c = document.getElementById('toasts');
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.innerHTML = `
+    <div class="toast-stripe s-${type}"></div>
+    <div class="toast-icon">${TOAST_ICONS[type]||'ℹ️'}</div>
+    <div class="toast-body">
+      <div class="toast-title">${title}</div>
+      ${msg ? `<div class="toast-msg">${msg}</div>` : ''}
+    </div>
+    <div class="toast-bar s-${type}"></div>`;
+  c.appendChild(el);
+  setTimeout(() => el.remove(), 3300);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SPARKLINE SVG
+// ═══════════════════════════════════════════════════════════════
+function sparkline(data, clr) {
+  const W = 68, H = 22;
+  const min = Math.min(...data), max = Math.max(...data);
+  const rng = max - min || 1;
+  const pts = data.map((v,i) => {
+    const x = (i / (data.length-1)) * (W-4) + 2;
+    const y = H - 3 - ((v-min)/rng) * (H-6);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const last = pts.split(' ').pop().split(',');
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" fill="none">
+    <polyline points="${pts}" stroke="${clr}" stroke-width="1.5"
+      stroke-linejoin="round" stroke-linecap="round" opacity="0.7"/>
+    <circle cx="${last[0]}" cy="${last[1]}" r="2.5" fill="${clr}"/>
+  </svg>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BADGE RENDERERS
+// ═══════════════════════════════════════════════════════════════
+function fileBadge(s) {
+  const m = {
+    'available': ['b-available',  '✓ Available'],
+    'not-found': ['b-not-found',  '✗ Not Found'],
+    'checking':  ['b-checking',   '↻ Checking'],
+    'error':     ['b-error',      '⚠ Error'],
+  };
+  const [cls, lbl] = m[s] || ['b-not-compared','—'];
+  return `<span class="badge ${cls}"><span class="badge-dot"></span>${lbl}</span>`;
+}
+
+function compBadge(s) {
+  const m = {
+    'no-changes':   ['b-no-changes', '— No Changes'],
+    'changes-found':['b-changes',    '▲ Changes Found'],
+    'pending':      ['b-pending',    '⏳ Pending'],
+    'new-file':     ['b-new-file',   '★ New File'],
+    'not-compared': ['b-not-compared','· Not Compared'],
+  };
+  const [cls, lbl] = m[s] || ['b-not-compared','—'];
+  return `<span class="badge ${cls}"><span class="badge-dot"></span>${lbl}</span>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RENDER — TOPBAR PORTALS
+// ═══════════════════════════════════════════════════════════════
+function renderPortalChips() {
+  return PORTAL_DATA.map(p => `
+    <div class="tb-portal-chip" title="${p.abbr}: ${p.changes} change${p.changes!==1?'s':''}">
+      <span class="chip-dot dot-${p.status}"></span>
+      ${p.abbr}
+    </div>`).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RENDER — KPI STRIP
+// ═══════════════════════════════════════════════════════════════
+function renderKPIs() {
+  const allFs = LOBS.flatMap(l => l.schedules);
+  const total   = allFs.length;
+  const changes = allFs.filter(s => s.compStatus === 'changes-found').length;
+  const avail   = allFs.filter(s => s.fileStatus === 'available').length;
+  const pending = allFs.filter(s => s.compStatus === 'pending').length;
+  const availPct = Math.round(avail / total * 100);
+
+  const cards = [
+    {
+      label: 'Total Fee Schedules', val: total, cls: 'v-accent',
+      badge: '11 portals', badgeCls: 'kb-neutral',
+      sub: `Across ${STATES.length} state portals`,
+      pct: 100, barClr: 'var(--accent)',
+    },
+    {
+      label: 'Changes Detected', val: changes, cls: 'v-amber',
+      badge: `+${changes} today`, badgeCls: 'kb-amber',
+      sub: `Requiring validation`,
+      pct: Math.round(changes/total*100), barClr: 'var(--amber)',
+    },
+    {
+      label: 'Files Available', val: avail, cls: 'v-green',
+      badge: `${availPct}%`, badgeCls: 'kb-up',
+      sub: `${total - avail} unavailable`,
+      pct: availPct, barClr: 'var(--green)',
+    },
+    {
+      label: 'Pending Comparison', val: pending, cls: '',
+      badge: 'In queue', badgeCls: 'kb-neutral',
+      sub: `Awaiting diff processing`,
+      pct: Math.round(pending/total*100), barClr: 'var(--purple)',
+    },
+  ];
+
+  return `<div class="kpi-grid">
+    ${cards.map(c => `
+      <div class="kpi-card">
+        <div class="kpi-card-top">
+          <div class="kpi-label">${c.label}</div>
+          <div class="kpi-badge ${c.badgeCls}">${c.badge}</div>
+        </div>
+        <div class="kpi-value ${c.cls}">${c.val}</div>
+        <div class="kpi-sub">${c.sub}</div>
+        <div class="kpi-track">
+          <div class="kpi-fill" style="width:${c.pct}%;background:${c.barClr}"></div>
+        </div>
+      </div>`).join('')}
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RENDER — PORTAL STATUS PANEL
+// ═══════════════════════════════════════════════════════════════
+function renderPortalPanel() {
+  return `
+  <div class="portal-panel">
+    <div class="sec-label">Portal Health — All 11 State Portals</div>
+    <div class="portal-grid">
+      ${PORTAL_DATA.map(p => `
+        <div class="portal-tile">
+          <div class="portal-abbr">${p.abbr}</div>
+          <div class="portal-status-dot dot-${p.status}"></div>
+          <div class="portal-count">${p.count} / ${p.changes}▲</div>
+        </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RENDER — LOB GRID
+// ═══════════════════════════════════════════════════════════════
+function renderLOBCard(lob) {
+  const availPct = lob.total > 0 ? Math.round(lob.avail / lob.total * 100) : 0;
+  const hasChanges = lob.changes > 0;
+  return `
+  <div class="lob-card" style="--lob-clr:${lob.clr}" onclick="navToLOB('${lob.id}')">
+    <div class="lob-accent-bar"></div>
+    <div class="lob-body">
+      <div class="lob-head">
+        <div class="lob-identity">
+          <div class="lob-icon">${lob.icon}</div>
+          <div>
+            <div class="lob-name">${lob.name}</div>
+            <div class="lob-desc">${lob.desc}</div>
+          </div>
+        </div>
+        <div class="lob-pill ${hasChanges ? 'lob-pill-changes' : 'lob-pill-clear'}">
+          ${hasChanges ? `▲ ${lob.changes}` : '✓ 0'}
+        </div>
+      </div>
+
+      <div class="avail-row">
+        <div class="avail-lbl">File Availability</div>
+        <div class="avail-pct">${availPct}%</div>
+      </div>
+      <div class="avail-track">
+        <div class="avail-fill" style="width:${availPct}%"></div>
+      </div>
+
+      <div class="lob-stats">
+        <div class="lob-stat">
+          <div class="lob-stat-val">${lob.total}</div>
+          <div class="lob-stat-lbl">Schedules</div>
+        </div>
+        <div class="lob-stat">
+          <div class="lob-stat-val" style="color:${hasChanges ? 'var(--amber)' : 'var(--green)'}">${lob.changes}</div>
+          <div class="lob-stat-lbl">Changes</div>
+        </div>
+        <div class="lob-stat">
+          <div class="lob-stat-val">${lob.avail}</div>
+          <div class="lob-stat-lbl">Available</div>
+        </div>
+      </div>
+
+      <div class="lob-footer">
+        <div class="lob-sync-txt">🕐 ${fAgo(lob.lastSync)}</div>
+        ${sparkline(lob.trend, lob.clr)}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderDashboard() {
+  const totalChanges = LOBS.reduce((s,l) => s+l.changes, 0);
+  return `
+  <div class="space-5">
+    <div class="page-hdr">
+      <div class="page-hdr-left">
+        <div class="page-title">Fee Schedule Monitor</div>
+        <div class="page-sub">
+          Last refresh: ${fDT(S.lastRefresh)} &nbsp;·&nbsp;
+          <span style="color:var(--amber);font-weight:600;">${totalChanges} active changes</span>
+          &nbsp;·&nbsp; Monitoring 11 state portals
+        </div>
+      </div>
+      <div class="page-actions">
+        <button class="btn btn-ghost btn-sm" onclick="handleExport()">↓ Export Report</button>
+        <button class="btn btn-surface btn-sm" onclick="toast('Settings','Panel coming soon','info')">⚙ Settings</button>
+      </div>
+    </div>
+
+    ${renderKPIs()}
+    ${renderPortalPanel()}
+
+    <div>
+      <div class="sec-label">Lines of Business — 6 Categories</div>
+      <div class="lob-grid">${LOBS.map(renderLOBCard).join('')}</div>
+    </div>
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RENDER — DETAIL VIEW
+// ═══════════════════════════════════════════════════════════════
+function getFiltered(lob) {
+  return lob.schedules.filter(s => {
+    const q = S.search.toLowerCase();
+    if (q && !s.name.toLowerCase().includes(q) && !s.state.toLowerCase().includes(q) && !s.id.toLowerCase().includes(q)) return false;
+    if (S.fState !== 'all' && s.state !== S.fState) return false;
+    if (S.fFile  !== 'all' && s.fileStatus !== S.fFile)   return false;
+    if (S.fComp  !== 'all' && s.compStatus !== S.fComp)   return false;
+    return true;
+  });
+}
+
+function renderDetailKPIs(lob, rows) {
+  const changes  = rows.filter(s => s.compStatus === 'changes-found').length;
+  const avail    = rows.filter(s => s.fileStatus === 'available').length;
+  const notFound = rows.filter(s => s.fileStatus === 'not-found').length;
+  const pending  = rows.filter(s => s.compStatus === 'pending').length;
+  const cards = [
+    { label:'Total Schedules', val:rows.length, cls:'',        badge:'filtered', badgeCls:'kb-neutral', barClr:'var(--accent)',  pct:rows.length/lob.total*100 },
+    { label:'Changes Found',   val:changes,     cls:'v-amber', badge:'▲ delta',  badgeCls:'kb-amber',   barClr:'var(--amber)',   pct:rows.length?changes/rows.length*100:0 },
+    { label:'Files Available', val:avail,        cls:'v-green', badge:`${rows.length?Math.round(avail/rows.length*100):0}%`, badgeCls:'kb-up', barClr:'var(--green)', pct:rows.length?avail/rows.length*100:0 },
+    { label:'Not Found',       val:notFound,     cls:notFound>0?'v-red':'', badge:'missing', badgeCls:notFound>0?'kb-down':'kb-neutral', barClr:'var(--red)', pct:rows.length?notFound/rows.length*100:0 },
+  ];
+  return `<div class="kpi-grid">
+    ${cards.map(c => `
+      <div class="kpi-card">
+        <div class="kpi-card-top">
+          <div class="kpi-label">${c.label}</div>
+          <div class="kpi-badge ${c.badgeCls}">${c.badge}</div>
+        </div>
+        <div class="kpi-value ${c.cls}">${c.val}</div>
+        <div class="kpi-track">
+          <div class="kpi-fill" style="width:${c.pct}%;background:${c.barClr}"></div>
+        </div>
+      </div>`).join('')}
+  </div>`;
+}
+
+function renderFilters(lob, rows) {
+  return `
+  <div class="filter-bar">
+    <div class="filter-search">
+      <span class="filter-search-ic">🔍</span>
+      <input class="f-input" type="text" placeholder="Search by name, state, or ID…"
+        value="${S.search.replace(/"/g,'&quot;')}"
+        oninput="setState({search:this.value})"/>
+    </div>
+    <select class="f-select" onchange="setState({fState:this.value})">
+      <option value="all">All States</option>
+      ${STATES.map(st => `<option value="${st}"${S.fState===st?' selected':''}>${st}</option>`).join('')}
+    </select>
+    <select class="f-select" onchange="setState({fFile:this.value})">
+      <option value="all">All File Statuses</option>
+      <option value="available"${S.fFile==='available'?' selected':''}>Available</option>
+      <option value="not-found"${S.fFile==='not-found'?' selected':''}>Not Found</option>
+      <option value="checking"${S.fFile==='checking'?' selected':''}>Checking</option>
+      <option value="error"${S.fFile==='error'?' selected':''}>Error</option>
+    </select>
+    <select class="f-select" onchange="setState({fComp:this.value})">
+      <option value="all">All Comparison</option>
+      <option value="changes-found"${S.fComp==='changes-found'?' selected':''}>Changes Found</option>
+      <option value="no-changes"${S.fComp==='no-changes'?' selected':''}>No Changes</option>
+      <option value="new-file"${S.fComp==='new-file'?' selected':''}>New File</option>
+      <option value="pending"${S.fComp==='pending'?' selected':''}>Pending</option>
+      <option value="not-compared"${S.fComp==='not-compared'?' selected':''}>Not Compared</option>
+    </select>
+    <div class="f-divider"></div>
+    <div class="f-count"><strong>${rows.length}</strong> / ${lob.total} records</div>
+    <button class="btn btn-ghost btn-xs"
+      onclick="setState({search:'',fState:'all',fFile:'all',fComp:'all'})">✕ Clear</button>
+  </div>`;
+}
+
+function renderTableRow(s) {
+  const dlBtn = s.changeUrl
+    ? `<button class="btn btn-success btn-xs" onclick="handleDownload('${s.id}',event)" title="Download change file">↓ Diff</button>`
+    : `<button class="btn btn-ghost btn-xs" disabled>↓ Diff</button>`;
+  return `
+  <tr>
+    <td>
+      <div class="cell-name">${s.name}</div>
+      <span class="cell-id">${s.id}</span>
+    </td>
+    <td><span class="state-tag">${s.state}</span></td>
+    <td>${fileBadge(s.fileStatus)}</td>
+    <td>${compBadge(s.compStatus)}</td>
+    <td>
+      <span class="ver-tag">${s.curVer}</span>
+      ${s.prevVer !== s.curVer ? `<span class="ver-prev">← ${s.prevVer}</span>` : ''}
+    </td>
+    <td>
+      <div class="date-cell">${fDate(s.lastChecked)}<span class="time-cell">${fTime(s.lastChecked)}</span></div>
+    </td>
+    <td>
+      <div class="date-cell">${s.lastModified ? fDate(s.lastModified) : '—'}</div>
+    </td>
+    <td>
+      <div class="row-actions">
+        <button class="btn btn-ghost btn-xs" onclick="handleRefreshRow('${s.id}',event)" title="Refresh">↻</button>
+        ${dlBtn}
+        <button class="btn btn-ghost btn-xs" onclick="toast('Portal','Opening state portal…','info')" title="View portal">↗</button>
+      </div>
+    </td>
+  </tr>`;
+}
+
+function renderTable(lob, rows) {
+  return `
+  <div class="table-card">
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Schedule Name / ID</th>
+            <th>State</th>
+            <th>File Status</th>
+            <th>Comparison</th>
+            <th>Version</th>
+            <th>Last Checked</th>
+            <th>Last Modified</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.length
+            ? rows.map(renderTableRow).join('')
+            : `<tr><td colspan="8">
+                <div class="empty">
+                  <div class="empty-icon">⬡</div>
+                  <div class="empty-msg">No records match the current filters.</div>
+                </div>
+               </td></tr>`
+          }
+        </tbody>
+      </table>
+    </div>
+    <div class="tbl-footer">
+      <div class="tbl-footer-txt">
+        Showing <strong>${rows.length}</strong> of <strong>${lob.total}</strong> fee schedules
+      </div>
+      <div class="tbl-footer-txt" style="color:var(--text-3)">
+        Last sync: ${fDT(lob.lastSync)}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderDetail(lob) {
+  const rows = getFiltered(lob);
+  return `
+  <div class="space-5">
+    <div class="breadcrumb">
+      <span class="bc-link" onclick="navBack()">Dashboard</span>
+      <span class="bc-sep">/</span>
+      <span class="bc-cur">${lob.name}</span>
+    </div>
+
+    <div class="detail-hdr-card" style="--lob-clr:${lob.clr}">
+      <div class="detail-hdr-accent"></div>
+      <div class="detail-hdr-glow"></div>
+      <div class="detail-identity">
+        <button class="btn btn-surface btn-sm" onclick="navBack()">← Back</button>
+        <div class="detail-icon">${lob.icon}</div>
+        <div>
+          <div class="detail-name">${lob.name}</div>
+          <div class="detail-meta">${lob.desc} &nbsp;·&nbsp; ${lob.total} schedules &nbsp;·&nbsp; Last synced ${fDT(lob.lastSync)}</div>
+        </div>
+      </div>
+      <div class="detail-actions">
+        <button class="btn btn-ghost btn-sm" onclick="handleRefreshLOB('${lob.id}')">↻ Refresh All</button>
+        <button class="btn btn-primary btn-sm" onclick="handleExport()">↓ Export</button>
+      </div>
+    </div>
+
+    ${renderDetailKPIs(lob, rows)}
+    ${renderFilters(lob, rows)}
+    ${renderTable(lob, rows)}
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MAIN RENDER
+// ═══════════════════════════════════════════════════════════════
+function render() {
+  // sync theme buttons
+  syncThemeButtons();
+
+  // sync refresh button
+  const rb = document.getElementById('refresh-btn');
+  if (rb) {
+    rb.disabled = S.isRefreshing;
+    rb.innerHTML = S.isRefreshing ? `<span class="spin">↻</span> Refreshing…` : '↻ Refresh All';
+  }
+
+  // render portal chips
+  const tc = document.getElementById('tb-portals');
+  if (tc) tc.innerHTML = renderPortalChips();
+
+  // render main content
+  const app = document.getElementById('app');
+  if (S.view === 'detail' && S.lobId) {
+    const lob = LOBS.find(l => l.id === S.lobId);
+    if (lob) { app.innerHTML = renderDetail(lob); return; }
+  }
+  app.innerHTML = renderDashboard();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════════════════════════════
+function navToLOB(lobId) {
+  setState({ view:'detail', lobId, search:'', fState:'all', fFile:'all', fComp:'all' });
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function navBack() {
+  setState({ view:'dashboard', lobId: null });
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ACTION HANDLERS
+// ═══════════════════════════════════════════════════════════════
+function handleRefreshAll() {
+  if (S.isRefreshing) return;
+  setState({ isRefreshing: true });
+  toast('Refreshing All Portals', 'Polling 11 state portals…', 'info');
+  setTimeout(() => {
+    LOBS.forEach(l => l.lastSync = new Date());
+    setState({ isRefreshing: false, lastRefresh: new Date() });
+    toast('Refresh Complete', 'All portals updated successfully.', 'success');
+  }, 2200);
+}
+
+function handleRefreshLOB(lobId) {
+  const lob = LOBS.find(l => l.id === lobId);
+  if (!lob) return;
+  toast(`Refreshing ${lob.name}`, 'Polling portal endpoints…', 'info');
+  setTimeout(() => {
+    lob.lastSync = new Date();
+    toast(`${lob.name} Updated`, 'Schedules refreshed.', 'success');
+    render();
+  }, 1400);
+}
+
+function handleRefreshRow(id, e) {
+  if (e) e.stopPropagation();
+  toast(`Refreshing ${id}`, 'Checking portal…', 'info');
+  setTimeout(() => toast(`${id} refreshed`, '', 'success'), 900);
+}
+
+function handleDownload(id, e) {
+  if (e) e.stopPropagation();
+  toast('Download Started', `Diff file for ${id} queued.`, 'success');
+}
+
+function handleExport() {
+  toast('Export Queued', 'Generating report — check your downloads.', 'info');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════
+render();
+</script>
+</body>
+</html>
