@@ -1,616 +1,1116 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>Fee Schedule Dashboard – Live View</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>State Portal Monitor — Fee Schedule Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <style>
-:root{--font-sans:'Inter',system-ui,sans-serif;--font-mono:'Geist Mono','Menlo',monospace;--r-sm:6px;--r-md:10px;--r-lg:14px;--topbar-h:56px;--sidebar-w:224px;--t:.18s ease}
-[data-theme="dark"]{--bg:#070c18;--bg2:#0f1628;--bg3:#141d35;--bgh:rgba(255,255,255,.05);--bga:rgba(59,130,246,.08);--surf:rgba(15,22,40,.9);--surf2:rgba(255,255,255,.02);--bdr:rgba(255,255,255,.07);--bdrf:rgba(59,130,246,.5);--tx:#dde4f0;--txs:#8494b0;--txm:#4f5f7a;--txw:#fff;--blue:#3b82f6;--blues:rgba(59,130,246,.12);--bkblue:rgba(59,130,246,.3);--violet:#a78bfa;--violets:rgba(167,139,250,.12);--green:#34d399;--greens:rgba(52,211,153,.12);--gkgreen:rgba(52,211,153,.3);--amber:#fbbf24;--ambers:rgba(251,191,36,.12);--gkamber:rgba(251,191,36,.3);--red:#f87171;--reds:rgba(248,113,113,.12);--gkred:rgba(248,113,113,.3);--kgb:rgba(59,130,246,.15);--kgg:rgba(52,211,153,.12);--kga:rgba(251,191,36,.12);--kgv:rgba(167,139,250,.12);--topbarbg:rgba(7,12,24,.96);--sidebarbg:rgba(11,18,32,.9);--scrt:rgba(255,255,255,.04);--scrth:rgba(255,255,255,.12);--tgtrack:#1c2540;--tgthumb:#3b82f6;--tgtxt:#8494b0;--thodd:transparent;--theven:rgba(255,255,255,.012);--thbg:rgba(255,255,255,.02);--thtx:#4f5f7a;--dtbg:rgba(59,130,246,.04);--dtbdr:rgba(59,130,246,.2);--dthbg:rgba(59,130,246,.06);--pact:linear-gradient(135deg,#3b82f6,#6366f1);--pactx:#fff;--ptx:#8494b0;--phtx:#dde4f0;--bghost:rgba(255,255,255,.04);--bgbdr:rgba(255,255,255,.1);--bgtx:#8494b0;--bghbdr:rgba(255,255,255,.2);--bghtx:#dde4f0;--brandg:linear-gradient(135deg,#3b82f6,#6366f1);--avbg:linear-gradient(135deg,#6366f1,#3b82f6)}
-[data-theme="light"]{--bg:#f1f4f9;--bg2:#fff;--bg3:#f8fafc;--bgh:rgba(0,0,0,.04);--bga:rgba(59,130,246,.06);--surf:#fff;--surf2:rgba(0,0,0,.01);--bdr:rgba(0,0,0,.08);--bdrf:rgba(59,130,246,.4);--tx:#1e293b;--txs:#64748b;--txm:#94a3b8;--txw:#0f172a;--blue:#2563eb;--blues:rgba(37,99,235,.08);--bkblue:rgba(37,99,235,.25);--violet:#7c3aed;--violets:rgba(124,58,237,.08);--green:#059669;--greens:rgba(5,150,105,.08);--gkgreen:rgba(5,150,105,.25);--amber:#d97706;--ambers:rgba(217,119,6,.08);--gkamber:rgba(217,119,6,.25);--red:#dc2626;--reds:rgba(220,38,38,.08);--gkred:rgba(220,38,38,.25);--kgb:rgba(37,99,235,.06);--kgg:rgba(5,150,105,.06);--kga:rgba(217,119,6,.06);--kgv:rgba(124,58,237,.06);--topbarbg:rgba(255,255,255,.96);--sidebarbg:#f8fafc;--scrt:rgba(0,0,0,.03);--scrth:rgba(0,0,0,.14);--tgtrack:#e2e8f0;--tgthumb:#2563eb;--tgtxt:#64748b;--thodd:transparent;--theven:rgba(0,0,0,.012);--thbg:rgba(0,0,0,.02);--thtx:#94a3b8;--dtbg:rgba(37,99,235,.03);--dtbdr:rgba(37,99,235,.15);--dthbg:rgba(37,99,235,.05);--pact:linear-gradient(135deg,#2563eb,#4f46e5);--pactx:#fff;--ptx:#64748b;--phtx:#1e293b;--bghost:#f8fafc;--bgbdr:rgba(0,0,0,.12);--bgtx:#64748b;--bghbdr:rgba(0,0,0,.2);--bghtx:#1e293b;--brandg:linear-gradient(135deg,#2563eb,#4f46e5);--avbg:linear-gradient(135deg,#4f46e5,#2563eb)}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-html{font-size:16px}
-body{font-family:var(--font-sans);background:var(--bg);color:var(--tx);min-height:100vh;-webkit-font-smoothing:antialiased;transition:background var(--t),color var(--t)}
-::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-track{background:var(--scrt)}::-webkit-scrollbar-thumb{background:var(--scrth);border-radius:99px}
-*{scrollbar-width:thin;scrollbar-color:var(--scrth) var(--scrt)}
-.mono{font-family:var(--font-mono)}.ab{color:var(--blue)}
+:root{
+  --bg:#060c1a;
+  --bg2:#0b1225;
+  --bg3:#0f1a30;
+  --card:#101c33;
+  --card2:#132038;
+  --border:#1c2e4a;
+  --border2:#243650;
+  --blue:#3b82f6;
+  --blue-dim:#1d4ed8;
+  --cyan:#06b6d4;
+  --green:#10b981;
+  --amber:#f59e0b;
+  --red:#ef4444;
+  --purple:#8b5cf6;
+  --pink:#ec4899;
+  --text:#e2e8f0;
+  --text2:#94a3b8;
+  --text3:#64748b;
+  --mono:'JetBrains Mono',monospace;
+  --sans:'Inter',sans-serif;
+  --radius:10px;
+  --radius-sm:6px;
+  --shadow:0 4px 24px rgba(0,0,0,.45);
+  --shadow-lg:0 12px 48px rgba(0,0,0,.6);
+}
+html{font-family:var(--sans);background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
+body{min-height:100vh;overflow-x:hidden}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:var(--bg2)}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--text3)}
 
-/* TOPBAR */
-.topbar{position:sticky;top:0;z-index:50;height:var(--topbar-h);display:flex;align-items:center;gap:20px;padding:0 24px;background:var(--topbarbg);border-bottom:1px solid var(--bdr);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);transition:background var(--t),border-color var(--t)}
-.tb-brand{display:flex;align-items:center;gap:10px;flex-shrink:0;user-select:none}
-.brand-icon{width:30px;height:30px;border-radius:8px;background:var(--brandg);display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.brand-name{font-size:14px;font-weight:600;color:var(--txw);letter-spacing:-.2px;transition:color var(--t)}
-.brand-sep{color:var(--txm);font-size:13px;opacity:.5}
-.brand-sub{font-size:12px;font-weight:500;color:var(--txs);transition:color var(--t)}
-.tb-nav{display:flex;align-items:center;gap:2px}
-.nav-tab{padding:6px 12px;font-size:12px;font-weight:500;border-radius:var(--r-sm);border:none;cursor:pointer;background:transparent;color:var(--txs);transition:background var(--t),color var(--t);font-family:var(--font-sans)}
-.nav-tab:hover{background:var(--bgh);color:var(--tx)}
-.nav-tab.on{background:rgba(255,255,255,.09)!important;color:var(--txw)!important}
-[data-theme="light"] .nav-tab.on{background:rgba(0,0,0,.07)!important;color:var(--tx)!important}
-.tb-right{display:flex;align-items:center;gap:12px;margin-left:auto;flex-shrink:0}
-.clock{display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px;color:var(--txs)}
-.env-sel{display:flex;align-items:center;gap:7px;padding:5px 10px;border:1px solid var(--bdr);border-radius:var(--r-sm);background:var(--bgh);transition:background var(--t),border-color var(--t)}
-.env-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;transition:background var(--t)}
-.env-select{background:transparent;border:none;outline:none;font-size:12px;font-weight:500;font-family:var(--font-sans);cursor:pointer;color:var(--tx)}
-.env-select option{background:var(--bg2);color:var(--tx)}
-.theme-toggle{display:flex;align-items:center;gap:8px;padding:5px 10px 5px 6px;border:1px solid var(--bdr);border-radius:99px;background:var(--bghost);cursor:pointer;transition:all var(--t);font-family:var(--font-sans)}
-.theme-toggle:hover{border-color:var(--bghbdr)}
-.tg-track{width:32px;height:18px;border-radius:99px;background:var(--tgtrack);position:relative;flex-shrink:0;transition:background var(--t)}
-.tg-thumb{position:absolute;top:3px;left:3px;width:12px;height:12px;border-radius:50%;background:var(--tgthumb);display:flex;align-items:center;justify-content:center;transition:transform .22s cubic-bezier(.4,0,.2,1),background var(--t);box-shadow:0 1px 4px rgba(0,0,0,.3)}
-[data-theme="dark"] .tg-thumb{transform:translateX(14px)}
-[data-theme="light"] .tg-thumb{transform:translateX(0)}
-.icon-sun,.icon-moon{position:absolute;color:#fff;transition:opacity .18s ease}
-[data-theme="dark"] .icon-sun{opacity:0}[data-theme="dark"] .icon-moon{opacity:1}
-[data-theme="light"] .icon-sun{opacity:1}[data-theme="light"] .icon-moon{opacity:0}
-.tg-label{font-size:11px;font-weight:600;color:var(--tgtxt);letter-spacing:.01em;white-space:nowrap;transition:color var(--t)}
-.live-badge{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--green)}
-.live-dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 1.8s ease-in-out infinite}
-@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.85)}}
-.user-av{width:30px;height:30px;border-radius:50%;background:var(--avbg);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+/* ── LAYOUT ────────────────────────── */
+.shell{display:flex;flex-direction:column;min-height:100vh}
 
-/* LAYOUT */
-.layout{display:flex;height:calc(100vh - var(--topbar-h))}
+/* ── TOPBAR ────────────────────────── */
+.topbar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 28px;height:60px;
+  background:var(--bg2);
+  border-bottom:1px solid var(--border);
+  position:sticky;top:0;z-index:100;
+  backdrop-filter:blur(12px);
+}
+.topbar-brand{display:flex;align-items:center;gap:12px}
+.topbar-brand svg{color:var(--blue)}
+.topbar-title{font-size:16px;font-weight:700;letter-spacing:-.3px;color:var(--text)}
+.topbar-badge{
+  font-family:var(--mono);font-size:10px;font-weight:600;
+  padding:2px 7px;border-radius:4px;
+  background:rgba(59,130,246,.15);color:var(--blue);
+  border:1px solid rgba(59,130,246,.25);
+  letter-spacing:.5px
+}
+.topbar-right{display:flex;align-items:center;gap:16px}
+.topbar-clock{
+  font-family:var(--mono);font-size:12px;color:var(--text3);
+  display:flex;align-items:center;gap:6px
+}
+.pulse-dot{
+  width:7px;height:7px;border-radius:50%;background:var(--green);
+  box-shadow:0 0 0 0 rgba(16,185,129,.5);
+  animation:pulse 2s infinite
+}
+@keyframes pulse{
+  0%{box-shadow:0 0 0 0 rgba(16,185,129,.5)}
+  70%{box-shadow:0 0 0 7px rgba(16,185,129,0)}
+  100%{box-shadow:0 0 0 0 rgba(16,185,129,0)}
+}
+.btn{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:7px 14px;border-radius:var(--radius-sm);
+  font-size:13px;font-weight:600;cursor:pointer;
+  border:1px solid transparent;transition:all .15s ease;
+  white-space:nowrap;text-decoration:none
+}
+.btn-primary{background:var(--blue);color:#fff;border-color:var(--blue)}
+.btn-primary:hover{background:#2563eb;border-color:#2563eb;transform:translateY(-1px);box-shadow:0 4px 16px rgba(59,130,246,.35)}
+.btn-ghost{background:transparent;color:var(--text2);border-color:var(--border2)}
+.btn-ghost:hover{background:var(--card2);color:var(--text);border-color:var(--border2)}
+.btn-sm{padding:5px 10px;font-size:11px}
+.btn-icon{padding:7px;gap:0}
 
-/* SIDEBAR */
-.sidebar{width:var(--sidebar-w);flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid var(--bdr);background:var(--sidebarbg);overflow-y:auto;transition:background var(--t),border-color var(--t)}
-.sb-section{padding:18px 12px 8px}
-.sb-heading{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--txm);padding:0 10px;margin-bottom:10px}
-.sb-list{display:flex;flex-direction:column;gap:2px}
-.sb-item{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:var(--r-sm);border:none;background:transparent;color:var(--txs);font-size:12px;font-weight:500;font-family:var(--font-sans);cursor:pointer;text-align:left;transition:all var(--t);width:100%}
-.sb-item:hover{background:var(--bgh);color:var(--tx)}
-.sb-item.on{background:var(--bga);color:var(--txw)}
-[data-theme="light"] .sb-item.on{color:var(--tx)}
-.sb-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
-.sb-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sb-tfs{font-size:10px;font-weight:600;font-family:var(--font-mono);color:var(--blue);background:var(--blues);padding:1px 5px;border-radius:4px;flex-shrink:0}
-.sb-footer{margin-top:auto;padding:14px 22px;border-top:1px solid var(--bdr);display:flex;flex-direction:column;gap:8px}
-.sb-stat{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--txs)}
-.sb-stat .mono{font-weight:600;color:var(--tx)}
-.sb-stat .mono.ab{color:var(--blue)}
+/* ── MAIN CONTENT ────────────────────────── */
+.main{flex:1;padding:24px 28px;display:flex;flex-direction:column;gap:20px}
 
-/* MAIN */
-.main{flex:1;min-width:0;overflow-y:auto;padding:24px;display:flex;flex-direction:column;gap:20px}
+/* ── STATS BAR ────────────────────────── */
+.stats-bar{
+  display:grid;grid-template-columns:repeat(5,1fr);gap:12px
+}
+.stat-card{
+  background:var(--card);border:1px solid var(--border);
+  border-radius:var(--radius);padding:14px 18px;
+  display:flex;flex-direction:column;gap:4px;
+  position:relative;overflow:hidden;transition:border-color .2s
+}
+.stat-card::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:var(--accent-color,var(--blue))
+}
+.stat-card:hover{border-color:var(--border2)}
+.stat-label{font-size:11px;font-weight:600;color:var(--text3);letter-spacing:.5px;text-transform:uppercase}
+.stat-value{font-size:28px;font-weight:800;line-height:1;color:var(--text);font-variant-numeric:tabular-nums}
+.stat-sub{font-family:var(--mono);font-size:11px;color:var(--text3);display:flex;align-items:center;gap:4px}
+.stat-sub .up{color:var(--green)}
+.stat-sub .down{color:var(--red)}
 
-/* PAGE HEADER */
-.pg-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}
-.pg-title{font-size:18px;font-weight:700;color:var(--txw);letter-spacing:-.3px;transition:color var(--t)}
-[data-theme="light"] .pg-title{color:var(--tx)}
-.pg-sub{font-size:12px;color:var(--txs);margin-top:3px}
-.pg-actions{display:flex;align-items:center;gap:8px}
-.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;font-size:12px;font-weight:600;border-radius:var(--r-sm);cursor:pointer;border:1px solid transparent;transition:all var(--t);font-family:var(--font-sans);white-space:nowrap}
-.btn-ghost{background:var(--bghost);border-color:var(--bgbdr);color:var(--bgtx)}
-.btn-ghost:hover{border-color:var(--bghbdr);color:var(--bghtx)}
-.btn-primary{background:linear-gradient(135deg,var(--blue),#6366f1);color:#fff}
-.btn-primary:hover{opacity:.88}
+/* ── TOOLBAR ────────────────────────── */
+.toolbar{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap
+}
+.toolbar-left{display:flex;align-items:center;gap:10px;flex:1}
+.search-box{
+  position:relative;flex:1;max-width:320px
+}
+.search-box input{
+  width:100%;padding:8px 12px 8px 36px;
+  background:var(--card);border:1px solid var(--border2);
+  border-radius:var(--radius-sm);color:var(--text);font-size:13px;
+  font-family:var(--sans);outline:none;transition:all .2s
+}
+.search-box input::placeholder{color:var(--text3)}
+.search-box input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(59,130,246,.15)}
+.search-box svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3);pointer-events:none}
+.filter-tabs{display:flex;gap:4px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm);padding:3px}
+.filter-tab{
+  padding:5px 12px;border-radius:4px;font-size:12px;font-weight:600;
+  cursor:pointer;transition:all .15s;color:var(--text3);border:none;background:transparent;
+  white-space:nowrap
+}
+.filter-tab.active{background:var(--blue);color:#fff}
+.filter-tab:hover:not(.active){background:var(--card2);color:var(--text)}
 
-/* KPI */
-.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-@media(max-width:900px){.kpi-grid{grid-template-columns:repeat(2,1fr)}}
-.kpi-card{border-radius:var(--r-lg);border:1px solid var(--bdr);padding:18px;display:flex;align-items:center;gap:14px;position:relative;overflow:hidden;background:var(--surf);transition:all var(--t)}
-.kpi-card::before{content:'';position:absolute;inset:0;background:var(--kg);pointer-events:none}
-.kpi-gauge{position:relative;flex-shrink:0;width:44px;height:44px}
-.kpi-gauge svg{display:block}
-.kpi-gi{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
-.kpi-body{position:relative;min-width:0}
-.kpi-val{font-family:var(--font-mono);font-size:26px;font-weight:700;color:var(--txw);line-height:1;letter-spacing:-.5px;transition:color var(--t)}
-[data-theme="light"] .kpi-val{color:var(--tx)}
-.kpi-lbl{font-size:11px;font-weight:600;color:var(--txs);margin-top:4px}
-.kpi-sub{font-size:11px;color:var(--txm);margin-top:2px}
+/* ── TILES GRID ────────────────────────── */
+.section-title{font-size:13px;font-weight:700;color:var(--text3);letter-spacing:.5px;text-transform:uppercase;margin-bottom:-4px}
+.tiles-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(240px,1fr));
+  gap:14px
+}
+.state-tile{
+  background:var(--card);border:1px solid var(--border);
+  border-radius:var(--radius);padding:0;
+  cursor:pointer;transition:all .2s ease;overflow:hidden;
+  position:relative
+}
+.state-tile:hover{
+  border-color:var(--tile-color,var(--blue));
+  transform:translateY(-2px);
+  box-shadow:0 8px 32px rgba(0,0,0,.4),0 0 0 1px var(--tile-color,var(--blue))
+}
+.state-tile.active{
+  border-color:var(--tile-color,var(--blue));
+  box-shadow:0 8px 32px rgba(0,0,0,.4),0 0 0 1px var(--tile-color,var(--blue))
+}
+.tile-accent{height:3px;background:var(--tile-color,var(--blue));width:100%}
+.tile-body{padding:16px}
+.tile-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px}
+.tile-abbr{
+  font-size:32px;font-weight:800;letter-spacing:-1px;
+  color:var(--tile-color,var(--blue));line-height:1;font-family:var(--sans)
+}
+.tile-status-badge{
+  display:flex;align-items:center;gap:5px;
+  padding:3px 8px;border-radius:20px;font-size:10px;font-weight:700;
+  letter-spacing:.3px;text-transform:uppercase;font-family:var(--mono)
+}
+.status-ok{background:rgba(16,185,129,.12);color:var(--green);border:1px solid rgba(16,185,129,.2)}
+.status-warn{background:rgba(245,158,11,.12);color:var(--amber);border:1px solid rgba(245,158,11,.2)}
+.status-error{background:rgba(239,68,68,.12);color:var(--red);border:1px solid rgba(239,68,68,.2)}
+.status-checking{background:rgba(59,130,246,.12);color:var(--blue);border:1px solid rgba(59,130,246,.2)}
+.status-dot{width:5px;height:5px;border-radius:50%;background:currentColor}
+.tile-name{font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px}
+.tile-dept{font-size:11px;color:var(--text3);line-height:1.4}
+.tile-metrics{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px;
+  padding-top:14px;border-top:1px solid var(--border)
+}
+.tile-metric{display:flex;flex-direction:column;align-items:center;gap:2px}
+.tile-metric-val{
+  font-family:var(--mono);font-size:16px;font-weight:700;color:var(--text);line-height:1
+}
+.tile-metric-val.warn{color:var(--amber)}
+.tile-metric-val.err{color:var(--red)}
+.tile-metric-val.ok{color:var(--green)}
+.tile-metric-lbl{font-size:10px;color:var(--text3);font-weight:500;text-align:center}
+.tile-footer{
+  padding:10px 16px;background:var(--bg3);
+  border-top:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between
+}
+.tile-ts{font-family:var(--mono);font-size:10px;color:var(--text3);display:flex;align-items:center;gap:5px}
+.tile-action{
+  font-size:11px;font-weight:600;color:var(--tile-color,var(--blue));
+  display:flex;align-items:center;gap:3px;cursor:pointer
+}
+.spinning{animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 
-/* TOOLBAR */
-.toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:12px 16px;border-radius:var(--r-md);border:1px solid var(--bdr);background:var(--surf);transition:all var(--t)}
-.tb-search{position:relative;flex:1;min-width:180px;display:flex;align-items:center}
-.tb-search svg{position:absolute;left:10px;color:var(--txm);pointer-events:none}
-.search-inp{width:100%;padding:7px 10px 7px 30px;font-size:12px;font-family:var(--font-sans);border:1px solid var(--bdr);border-radius:var(--r-sm);background:var(--bg3);color:var(--tx);outline:none;transition:all var(--t)}
-.search-inp::placeholder{color:var(--txm)}
-.search-inp:focus{border-color:var(--bdrf);box-shadow:0 0 0 3px var(--bkblue)}
-.filter-pills{display:flex;align-items:center;gap:3px;flex-wrap:wrap}
-.pill{padding:6px 12px;font-size:12px;font-weight:500;border-radius:99px;border:none;cursor:pointer;background:transparent;color:var(--ptx);font-family:var(--font-sans);transition:all var(--t)}
-.pill:hover{color:var(--phtx)}
-.pill.on{background:var(--pact)!important;color:var(--pactx)!important}
-.tb-sort{display:flex;align-items:center;gap:8px;margin-left:auto}
-.sort-lbl{font-size:12px;color:var(--txm)}
-.sort-sel{font-size:12px;font-family:var(--font-sans);border:1px solid var(--bdr);border-radius:var(--r-sm);padding:6px 10px;background:var(--bg3);color:var(--tx);outline:none;cursor:pointer;transition:all var(--t)}
+/* ── DETAIL PANEL (OVERLAY) ────────────────────────── */
+.overlay{
+  position:fixed;inset:0;background:rgba(6,12,26,.75);
+  z-index:200;opacity:0;pointer-events:none;
+  transition:opacity .25s ease;backdrop-filter:blur(6px)
+}
+.overlay.open{opacity:1;pointer-events:all}
+.detail-panel{
+  position:fixed;top:0;right:0;bottom:0;width:min(920px,95vw);
+  background:var(--bg2);border-left:1px solid var(--border2);
+  z-index:201;transform:translateX(100%);
+  transition:transform .3s cubic-bezier(.4,0,.2,1);
+  display:flex;flex-direction:column;overflow:hidden;
+  box-shadow:-12px 0 60px rgba(0,0,0,.6)
+}
+.detail-panel.open{transform:translateX(0)}
+.panel-header{
+  padding:20px 24px;border-bottom:1px solid var(--border);
+  display:flex;align-items:flex-start;justify-content:space-between;
+  background:var(--card);flex-shrink:0
+}
+.panel-header-left{display:flex;align-items:center;gap:14px}
+.panel-state-abbr{
+  font-size:42px;font-weight:800;line-height:1;letter-spacing:-2px;
+  color:var(--panel-color,var(--blue))
+}
+.panel-info h2{font-size:18px;font-weight:700;color:var(--text);margin-bottom:3px}
+.panel-info p{font-size:13px;color:var(--text3)}
+.panel-close{
+  background:var(--card2);border:1px solid var(--border2);border-radius:var(--radius-sm);
+  color:var(--text2);cursor:pointer;padding:8px;transition:all .15s;line-height:0;
+  display:flex;align-items:center
+}
+.panel-close:hover{background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.3);color:var(--red)}
+.panel-stats{
+  display:flex;gap:0;border-bottom:1px solid var(--border);flex-shrink:0
+}
+.panel-stat{
+  flex:1;padding:12px 20px;text-align:center;border-right:1px solid var(--border);
+  display:flex;flex-direction:column;gap:2px
+}
+.panel-stat:last-child{border-right:none}
+.panel-stat-val{font-family:var(--mono);font-size:20px;font-weight:700;color:var(--text)}
+.panel-stat-val.warn{color:var(--amber)}
+.panel-stat-val.ok{color:var(--green)}
+.panel-stat-val.err{color:var(--red)}
+.panel-stat-lbl{font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.3px}
 
-/* TABLE */
-.tbl-card{border-radius:var(--r-lg);border:1px solid var(--bdr);overflow:hidden;background:var(--surf);transition:all var(--t)}
-.tbl-scroll{overflow-x:auto}
-.dtable{width:100%;border-collapse:collapse;font-size:12px}
-.dtable thead tr{border-bottom:1px solid var(--bdr)}
-.dtable th{padding:10px 16px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--thtx);background:var(--thbg);white-space:nowrap;transition:background var(--t),color var(--t)}
-.dtable th.c{text-align:center}
-.dtable tbody tr{border-bottom:1px solid var(--bdr);cursor:pointer;transition:background var(--t)}
-.dtable tbody tr:nth-child(odd){background:var(--thodd)}
-.dtable tbody tr:nth-child(even){background:var(--theven)}
-.dtable tbody tr:hover{background:var(--bgh)!important}
-.dtable tbody tr.sel{background:var(--bga)!important}
-.dtable tbody tr:last-child{border-bottom:none}
-.dtable td{padding:13px 16px;vertical-align:middle;color:var(--tx);transition:color var(--t)}
-.dtable td.c{text-align:center}
-.cn{font-weight:600;color:var(--txw);transition:color var(--t)}
-[data-theme="light"] .cn{color:var(--tx)}
-.cd{font-size:11px;color:var(--txm);margin-top:2px}
-.cbig{font-family:var(--font-mono);font-size:17px;font-weight:700;color:var(--txw);line-height:1;transition:color var(--t)}
-[data-theme="light"] .cbig{color:var(--tx)}
-.pmini{display:flex;align-items:center;gap:7px;margin-top:6px}
-.pmini-track{flex:1;height:4px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden;transition:background var(--t)}
-[data-theme="light"] .pmini-track{background:rgba(0,0,0,.08)}
-.pmini-fill{height:100%;border-radius:99px;background:var(--green)}
-.pmini-lbl{font-size:11px;color:var(--txm);white-space:nowrap}
-.sp{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:99px;font-size:11px;font-weight:600;white-space:nowrap}
-.sp-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
-.sp.synced{background:var(--greens);color:var(--green);box-shadow:0 0 0 1px var(--gkgreen)}
-.sp.stale{background:var(--ambers);color:var(--amber);box-shadow:0 0 0 1px var(--gkamber)}
-.sp.offline{background:var(--reds);color:var(--red);box-shadow:0 0 0 1px var(--gkred)}
-.ds{background:var(--green)}.da{background:var(--amber)}.dr{background:var(--red)}
-.apu{animation:pulse 1.8s ease-in-out infinite}
-.st{color:var(--txs)}
-.sa{font-size:11px;font-weight:500;margin-top:2px}
-.sa.ok{color:var(--txm)}.sa.warn{color:var(--amber)}.sa.bad{color:var(--red)}
-.oc{display:flex;align-items:center;gap:8px}
-.oav{width:26px;height:26px;border-radius:50%;background:var(--avbg);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.on2{font-size:12px;color:var(--txs)}
-.tfsb{display:inline-flex;flex-direction:column;align-items:center;gap:2px}
-.tfsb-n{width:30px;height:30px;border-radius:8px;background:var(--violets);color:var(--violet);font-family:var(--font-mono);font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center}
-.tfsb-s{font-size:10px;color:var(--txm)}
-.tfs-nil{color:var(--txm);opacity:.3}
-.spkc{display:flex;align-items:center;gap:8px}
-.spkd{font-family:var(--font-mono);font-size:11px;font-weight:600;min-width:28px}
-.spkd.up{color:var(--green)}.spkd.dn{color:var(--red)}.spkd.fl{color:var(--txm)}
-.rchev{color:var(--txm);background:none;border:none;cursor:pointer;padding:4px;display:flex;align-items:center;justify-content:center;transition:color var(--t),transform var(--t)}
-.rchev:hover{color:var(--tx)}
-.rchev.open{color:var(--blue);transform:rotate(90deg)}
-.tbl-footer{padding:10px 16px;border-top:1px solid var(--bdr);display:flex;align-items:center;justify-content:space-between;background:var(--surf2);transition:all var(--t)}
-.row-cnt{font-size:11px;color:var(--txm)}
-.legend{display:flex;align-items:center;gap:16px}
-.legend-item{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--txm)}
-.ldot{width:7px;height:7px;border-radius:50%}
-.ldot.synced{background:var(--green)}.ldot.stale{background:var(--amber)}.ldot.offline{background:var(--red)}
+/* LOB Tabs */
+.lob-tabs-bar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 24px;border-bottom:1px solid var(--border);background:var(--card);flex-shrink:0
+}
+.lob-tabs{display:flex;gap:0}
+.lob-tab{
+  padding:13px 18px;font-size:13px;font-weight:600;cursor:pointer;
+  color:var(--text3);border-bottom:2px solid transparent;transition:all .15s;
+  white-space:nowrap;border:none;background:transparent;border-bottom:2px solid transparent
+}
+.lob-tab:hover{color:var(--text)}
+.lob-tab.active{color:var(--panel-color,var(--blue));border-bottom-color:var(--panel-color,var(--blue))}
+.lob-count{
+  display:inline-flex;align-items:center;justify-content:center;
+  min-width:18px;height:18px;border-radius:9px;font-size:10px;font-weight:700;
+  background:rgba(255,255,255,.08);color:var(--text3);margin-left:5px;padding:0 4px
+}
+.lob-tab.active .lob-count{background:rgba(59,130,246,.2);color:var(--panel-color,var(--blue))}
 
-/* DETAIL PANEL */
-.detail-panel{border-radius:var(--r-lg);border:1px solid var(--dtbdr);overflow:hidden;background:var(--dtbg);transition:all var(--t)}
-.detail-panel.hidden{display:none}
-.dp-hdr{padding:16px 20px;border-bottom:1px solid var(--bdr);background:var(--dthbg);display:flex;align-items:center;justify-content:space-between;transition:all var(--t)}
-.dp-left{display:flex;align-items:center;gap:12px}
-.dp-av{width:36px;height:36px;border-radius:10px;background:var(--avbg);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
-.dp-lob{font-size:14px;font-weight:700;color:var(--txw);transition:color var(--t)}
-[data-theme="light"] .dp-lob{color:var(--tx)}
-.dp-div{font-size:11px;color:var(--txs);margin-top:2px}
-.dp-close{width:28px;height:28px;border-radius:6px;border:none;background:var(--bgh);color:var(--txm);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all var(--t)}
-.dp-close:hover{color:var(--tx);background:var(--bdr)}
-.dp-body{padding:20px;display:flex;flex-direction:column;gap:16px}
-.ds-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
-@media(max-width:700px){.ds-grid{grid-template-columns:repeat(2,1fr)}}
-.ds-card{border-radius:var(--r-md);border:1px solid var(--bdr);padding:12px 14px;background:var(--surf2);transition:all var(--t)}
-.ds-lbl{font-size:11px;color:var(--txm);margin-bottom:4px}
-.ds-val{font-family:var(--font-mono);font-size:20px;font-weight:700;line-height:1;transition:color var(--t)}
-.ds-val.cw{color:var(--txw)}[data-theme="light"] .ds-val.cw{color:var(--tx)}
-.ds-val.cg{color:var(--green)}.ds-val.ca{color:var(--amber)}.ds-val.cv{color:var(--violet)}
-.dt-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--txm);margin-bottom:8px}
-.dt-rows{display:flex;flex-direction:column;gap:6px}
-.dt-row{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--r-sm);border:1px solid var(--bdr);background:var(--surf2);transition:all var(--t)}
-.dt-id{font-family:var(--font-mono);font-size:11px;color:var(--blue);flex-shrink:0}
-.dt-name{flex:1;font-size:12px;color:var(--txs);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dt-prog{width:64px;height:5px;border-radius:99px;background:rgba(255,255,255,.07);flex-shrink:0;overflow:hidden;transition:background var(--t)}
-[data-theme="light"] .dt-prog{background:rgba(0,0,0,.08)}
-.dt-fill{height:100%;border-radius:99px}
-.dt-pct{font-family:var(--font-mono);font-size:11px;color:var(--txm);width:28px;text-align:right;flex-shrink:0}
+/* Panel table */
+.panel-body{flex:1;overflow-y:auto;padding:20px 24px;display:flex;flex-direction:column;gap:16px}
+.panel-table-wrap{
+  border:1px solid var(--border);border-radius:var(--radius);overflow:hidden
+}
+.panel-table{width:100%;border-collapse:collapse;font-size:13px}
+.panel-table thead{background:var(--bg3)}
+.panel-table th{
+  padding:10px 14px;font-size:11px;font-weight:700;color:var(--text3);
+  text-align:left;text-transform:uppercase;letter-spacing:.5px;
+  border-bottom:1px solid var(--border);white-space:nowrap
+}
+.panel-table td{
+  padding:12px 14px;border-bottom:1px solid var(--border);
+  color:var(--text);vertical-align:middle;
+}
+.panel-table tbody tr:last-child td{border-bottom:none}
+.panel-table tbody tr:hover td{background:rgba(255,255,255,.02)}
+.sched-name{font-weight:600;color:var(--text);font-size:13px}
+.sched-file{font-family:var(--mono);font-size:11px;color:var(--text3);margin-top:2px}
+.portal-status{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600}
+.portal-status.avail{color:var(--green)}
+.portal-status.unavail{color:var(--red)}
+.portal-status.checking{color:var(--blue)}
+.new-file-badge{
+  display:inline-flex;align-items:center;gap:4px;
+  padding:3px 8px;border-radius:20px;font-size:11px;font-weight:700;
+  font-family:var(--mono)
+}
+.new-file-yes{background:rgba(16,185,129,.12);color:var(--green);border:1px solid rgba(16,185,129,.2)}
+.new-file-no{background:rgba(100,116,139,.1);color:var(--text3);border:1px solid rgba(100,116,139,.15)}
+.comp-badge{
+  display:inline-flex;align-items:center;gap:4px;
+  padding:3px 8px;border-radius:4px;font-size:11px;font-weight:700;
+  white-space:nowrap;font-family:var(--mono)
+}
+.comp-matched{background:rgba(16,185,129,.1);color:var(--green)}
+.comp-changes{background:rgba(245,158,11,.1);color:var(--amber)}
+.comp-pending{background:rgba(139,92,246,.1);color:var(--purple)}
+.comp-na{background:rgba(100,116,139,.08);color:var(--text3)}
+.comp-error{background:rgba(239,68,68,.1);color:var(--red)}
+.dl-btn{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:5px 10px;border-radius:var(--radius-sm);font-size:11px;font-weight:700;
+  cursor:pointer;border:none;transition:all .15s;text-decoration:none;font-family:var(--sans)
+}
+.dl-diff{background:rgba(245,158,11,.15);color:var(--amber);border:1px solid rgba(245,158,11,.25)}
+.dl-diff:hover{background:rgba(245,158,11,.25);transform:translateY(-1px)}
+.dl-orig{background:rgba(59,130,246,.12);color:var(--blue);border:1px solid rgba(59,130,246,.2)}
+.dl-orig:hover{background:rgba(59,130,246,.22);transform:translateY(-1px)}
+.dl-none{color:var(--text3);font-size:11px;font-style:italic}
+.run-btn{
+  padding:5px 10px;border-radius:var(--radius-sm);font-size:11px;font-weight:600;
+  cursor:pointer;border:1px solid var(--border2);background:transparent;color:var(--text2);
+  transition:all .15s;display:inline-flex;align-items:center;gap:4px;font-family:var(--sans)
+}
+.run-btn:hover{border-color:var(--blue);color:var(--blue);background:rgba(59,130,246,.08)}
+.ts-cell{font-family:var(--mono);font-size:11px;color:var(--text3)}
+.changes-count{
+  font-family:var(--mono);font-size:13px;font-weight:700;color:var(--amber)
+}
+.changes-zero{color:var(--text3);font-family:var(--mono);font-size:12px}
 
-/* TFS SECTION */
-.tfs-hdr{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--bdr);background:var(--surf2);flex-wrap:wrap;gap:10px;transition:all var(--t)}
-.tfs-tr{display:flex;align-items:center;gap:10px}
-.sec-ttl{font-size:14px;font-weight:600;color:var(--txw);transition:color var(--t)}
-[data-theme="light"] .sec-ttl{color:var(--tx)}
-.tfs-cbdg{font-size:11px;font-weight:700;color:var(--violet);background:var(--violets);padding:2px 9px;border-radius:99px;box-shadow:0 0 0 1px rgba(167,139,250,.25)}
-.stpill{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:99px;font-size:11px;font-weight:600;white-space:nowrap}
-.stpill.active{background:var(--blues);color:var(--blue);box-shadow:0 0 0 1px var(--bkblue)}
-.stpill.review{background:var(--violets);color:var(--violet);box-shadow:0 0 0 1px rgba(167,139,250,.25)}
-.stpill.blocked{background:var(--reds);color:var(--red);box-shadow:0 0 0 1px var(--gkred)}
-.stpill.completed{background:var(--greens);color:var(--green);box-shadow:0 0 0 1px var(--gkgreen)}
-.pdot{width:6px;height:6px;border-radius:50%;display:inline-block}
-.ph{background:var(--red)}.pm{background:var(--amber)}.pl{background:var(--txm)}
-.tprog-cell{display:flex;align-items:center;gap:8px}
-.tprog-track{width:80px;height:5px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden;flex-shrink:0;transition:background var(--t)}
-[data-theme="light"] .tprog-track{background:rgba(0,0,0,.08)}
-.tprog-fill{height:100%;border-radius:99px;transition:width .6s ease}
-.tprog-fill.active{background:var(--blue)}.tprog-fill.review{background:var(--violet)}.tprog-fill.blocked{background:var(--red)}.tprog-fill.completed{background:var(--green)}
-.tprog-pct{font-family:var(--font-mono);font-size:11px;color:var(--txm);min-width:28px}
-.tfs-id{font-family:var(--font-mono);font-size:12px;color:var(--blue);white-space:nowrap}
-.pcell{display:flex;align-items:center;gap:6px;color:var(--txs)}
+/* ── RUN ALL BANNER ────────────────────────── */
+.run-banner{
+  background:linear-gradient(135deg,rgba(59,130,246,.08),rgba(6,182,212,.08));
+  border:1px solid rgba(59,130,246,.2);border-radius:var(--radius);
+  padding:14px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px
+}
+.run-banner-text h3{font-size:14px;font-weight:700;color:var(--text);margin-bottom:2px}
+.run-banner-text p{font-size:12px;color:var(--text3)}
+.run-banner-actions{display:flex;align-items:center;gap:10px}
 
-@media(max-width:1024px){.sidebar{display:none}.tb-nav{display:none}}
-@media(max-width:640px){.main{padding:14px}.topbar{padding:0 14px;gap:10px}.clock{display:none}.brand-sub{display:none}.kpi-grid{grid-template-columns:repeat(2,1fr)}}
+/* ── ACTIVITY LOG ────────────────────────── */
+.activity-row{
+  display:flex;align-items:center;gap:10px;padding:8px 0;
+  border-bottom:1px solid var(--border);font-size:12px
+}
+.activity-row:last-child{border-bottom:none}
+.activity-icon{
+  width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0
+}
+.activity-green{background:rgba(16,185,129,.12);color:var(--green)}
+.activity-amber{background:rgba(245,158,11,.12);color:var(--amber)}
+.activity-blue{background:rgba(59,130,246,.12);color:var(--blue)}
+.activity-red{background:rgba(239,68,68,.12);color:var(--red)}
+.activity-text{flex:1;color:var(--text2)}
+.activity-text strong{color:var(--text);font-weight:600}
+.activity-ts{font-family:var(--mono);font-size:10px;color:var(--text3);white-space:nowrap}
+
+/* ── EMPTY STATE ────────────────────────── */
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:48px;color:var(--text3)}
+.empty svg{opacity:.3}
+.empty p{font-size:14px;font-weight:500}
+
+/* ── TOAST ────────────────────────── */
+.toast-container{position:fixed;bottom:24px;right:24px;z-index:999;display:flex;flex-direction:column;gap:10px}
+.toast{
+  display:flex;align-items:center;gap:10px;padding:12px 16px;
+  border-radius:var(--radius);border:1px solid;min-width:280px;
+  box-shadow:var(--shadow-lg);animation:slideIn .25s ease;font-size:13px;font-weight:500
+}
+@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:none;opacity:1}}
+.toast-success{background:#0a2818;border-color:rgba(16,185,129,.3);color:var(--green)}
+.toast-warn{background:#2a1a06;border-color:rgba(245,158,11,.3);color:var(--amber)}
+.toast-info{background:#0a1628;border-color:rgba(59,130,246,.3);color:var(--blue)}
+
+/* ── LOB HEADER ROW ────────────────────────── */
+.lob-group-header{
+  display:flex;align-items:center;gap:10px;padding:8px 14px;
+  background:var(--bg3);border-bottom:1px solid var(--border);
+}
+.lob-group-name{font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.5px;text-transform:uppercase}
+.lob-group-tag{
+  padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;
+  background:rgba(139,92,246,.12);color:var(--purple);border:1px solid rgba(139,92,246,.2)
+}
+
+/* Responsive */
+@media(max-width:1100px){
+  .stats-bar{grid-template-columns:repeat(3,1fr)}
+  .tiles-grid{grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}
+}
+@media(max-width:700px){
+  .main{padding:14px 14px}
+  .topbar{padding:0 16px}
+  .stats-bar{grid-template-columns:repeat(2,1fr)}
+  .detail-panel{width:100%}
+  .panel-table{font-size:11px}
+}
 </style>
 </head>
 <body>
 
+<div class="shell">
+
+<!-- ── TOP BAR ── -->
 <header class="topbar">
-  <div class="tb-brand">
-    <div class="brand-icon">
-      <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-        <rect x="1" y="1" width="5.5" height="5.5" rx="1" fill="white"/>
-        <rect x="8.5" y="1" width="5.5" height="5.5" rx="1" fill="white" opacity=".7"/>
-        <rect x="1" y="8.5" width="5.5" height="5.5" rx="1" fill="white" opacity=".7"/>
-        <rect x="8.5" y="8.5" width="5.5" height="5.5" rx="1" fill="white" opacity=".4"/>
-      </svg>
-    </div>
-    <span class="brand-name">Fee Schedule</span>
-    <span class="brand-sep">/</span>
-    <span class="brand-sub">Health Dashboard</span>
+  <div class="topbar-brand">
+    <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+    </svg>
+    <span class="topbar-title">State Portal Monitor</span>
+    <span class="topbar-badge">FEE SCHEDULES</span>
   </div>
-  <nav class="tb-nav">
-    <button class="nav-tab on">Overview</button>
-    <button class="nav-tab">Schedule Explorer</button>
-    <button class="nav-tab">TFS Tracker</button>
-    <button class="nav-tab">Reports</button>
-  </nav>
-  <div class="tb-right">
-    <div class="clock">
-      <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><circle cx="5.5" cy="5.5" r="4.5" stroke="currentColor" stroke-width="1.2"/><path d="M5.5 2.8V5.5l1.8 1.8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <span id="clockTime">--:--:--</span>
+  <div class="topbar-right">
+    <div class="topbar-clock">
+      <span class="pulse-dot"></span>
+      <span id="live-clock">—</span>
     </div>
-    <div class="env-sel">
-      <span class="env-dot" id="envDot"></span>
-      <select id="envSelect" class="env-select">
-        <option value="Production">Production</option>
-        <option value="UAT">UAT</option>
-        <option value="SIT">SIT</option>
-        <option value="Development">Development</option>
-      </select>
-    </div>
-    <button class="theme-toggle" id="themeToggle" title="Toggle light / dark mode">
-      <span class="tg-track">
-        <span class="tg-thumb">
-          <svg class="icon-sun" width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="2.3" stroke="currentColor" stroke-width="1.3"/><path d="M6 1v1.2M6 9.8V11M1 6h1.2M9.8 6H11M2.5 2.5l.85.85M8.65 8.65l.85.85M9.5 2.5l-.85.85M3.35 8.65l-.85.85" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
-          <svg class="icon-moon" width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M9.5 6.5A4 4 0 1 1 4.5 1.5a3 3 0 0 0 5 5z" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </span>
-      </span>
-      <span class="tg-label" id="themeLabel">Light Mode</span>
+    <button class="btn btn-ghost btn-sm" onclick="runAllChecks()">
+      <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+      </svg>
+      Run All Checks
     </button>
-    <div class="live-badge"><span class="live-dot"></span>LIVE</div>
-    <div class="user-av">OP</div>
+    <button class="btn btn-primary btn-sm" onclick="showToast('Export report generated — 11 portals.','info')">
+      <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+      </svg>
+      Export Report
+    </button>
   </div>
 </header>
 
-<div class="layout">
-  <aside class="sidebar">
-    <div class="sb-section">
-      <p class="sb-heading">Lines of Business</p>
-      <div class="sb-list" id="sidebarList"></div>
-    </div>
-    <div class="sb-footer">
-      <div class="sb-stat"><span>Total LOBs</span><span class="mono" id="sfTotal">19</span></div>
-      <div class="sb-stat"><span>Total Schedules</span><span class="mono ab" id="sfSched">1,338</span></div>
-      <div class="sb-stat"><span>Active TFS</span><span class="mono ab" id="sfTFS">0</span></div>
-    </div>
-  </aside>
+<!-- ── MAIN ── -->
+<main class="main">
 
-  <main class="main">
-    <div class="pg-header">
-      <div>
-        <h1 class="pg-title">Fee Schedule Overview</h1>
-        <p class="pg-sub">Live sync status, schedule counts, and TFS activity per LOB</p>
+  <!-- Stats Bar -->
+  <div class="stats-bar">
+    <div class="stat-card" style="--accent-color:var(--blue)">
+      <div class="stat-label">Portals Monitored</div>
+      <div class="stat-value">11</div>
+      <div class="stat-sub"><span>MI · NV · MS · GA · CMS · KY · TC · AR · OH · WI · WV</span></div>
+    </div>
+    <div class="stat-card" style="--accent-color:var(--green)">
+      <div class="stat-label">Files Checked Today</div>
+      <div class="stat-value" id="stat-checked">47</div>
+      <div class="stat-sub"><span class="up">↑ 3</span><span>from yesterday</span></div>
+    </div>
+    <div class="stat-card" style="--accent-color:var(--amber)">
+      <div class="stat-label">New Files Found</div>
+      <div class="stat-value" id="stat-new">12</div>
+      <div class="stat-sub"><span class="up">↑ 12</span><span>since last run</span></div>
+    </div>
+    <div class="stat-card" style="--accent-color:var(--red)">
+      <div class="stat-label">Changes Detected</div>
+      <div class="stat-value" id="stat-changes">8</div>
+      <div class="stat-sub"><span class="down">!</span><span>require review</span></div>
+    </div>
+    <div class="stat-card" style="--accent-color:var(--purple)">
+      <div class="stat-label">Last Full Scan</div>
+      <div class="stat-value" style="font-size:18px;padding-top:4px" id="stat-lastscan">08:30 AM</div>
+      <div class="stat-sub">Jul 06, 2026 · All portals</div>
+    </div>
+  </div>
+
+  <!-- Run Banner -->
+  <div class="run-banner">
+    <div class="run-banner-text">
+      <h3>Daily Scheduled Check — Next Run at 06:00 PM ET</h3>
+      <p>Automated comparison and diff file generation enabled · 11 portals active · 47 fee schedules tracked</p>
+    </div>
+    <div class="run-banner-actions">
+      <button class="btn btn-ghost btn-sm" onclick="showToast('Schedule configuration opened.','info')">Configure Schedule</button>
+      <button class="btn btn-primary btn-sm" onclick="runAllChecks()">
+        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" id="run-icon">
+          <polygon points="5,3 19,12 5,21" fill="currentColor" stroke="none"/>
+        </svg>
+        Run Now
+      </button>
+    </div>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <div class="search-box">
+        <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/><path stroke-linecap="round" d="M21 21l-4.35-4.35"/>
+        </svg>
+        <input type="text" placeholder="Search portals or schedules…" id="search-input" oninput="filterTiles()" />
       </div>
-      <div class="pg-actions">
-        <button class="btn btn-ghost">
-          <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 1v8M4 6.5l2.5 2.5 2.5-2.5M1.5 11h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Export CSV
-        </button>
-        <button class="btn btn-primary">
-          <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M1 6.5h11M7.5 2l4.5 4.5L7.5 11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Full TFS Board
-        </button>
+      <div class="filter-tabs">
+        <button class="filter-tab active" onclick="setFilter('all',this)">All <span style="font-family:var(--mono);font-size:10px;margin-left:2px">(11)</span></button>
+        <button class="filter-tab" onclick="setFilter('changes',this)">Changes Found</button>
+        <button class="filter-tab" onclick="setFilter('ok',this)">No Changes</button>
+        <button class="filter-tab" onclick="setFilter('error',this)">Unavailable</button>
       </div>
     </div>
-
-    <div class="kpi-grid" id="kpiGrid"></div>
-
-    <div class="toolbar">
-      <div class="tb-search">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.3"/><path d="M10 10l2.5 2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-        <input type="text" id="searchInput" placeholder="Search LOB, owner…" class="search-inp"/>
-      </div>
-      <div class="filter-pills" id="filterPills">
-        <button class="pill on" data-f="all">All LOBs</button>
-        <button class="pill" data-f="synced">Synced</button>
-        <button class="pill" data-f="stale">Stale</button>
-        <button class="pill" data-f="offline">Offline</button>
-      </div>
-      <div class="tb-sort">
-        <span class="sort-lbl">Sort:</span>
-        <select id="sortSelect" class="sort-sel">
-          <option value="lob">LOB Name</option>
-          <option value="count">Schedule Count</option>
-          <option value="tfs">TFS Count</option>
-          <option value="sync">Last Sync</option>
-        </select>
-      </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <span style="font-size:12px;color:var(--text3)">Sort:</span>
+      <select id="sort-sel" onchange="renderTiles()" style="background:var(--card);border:1px solid var(--border2);color:var(--text);padding:6px 10px;border-radius:var(--radius-sm);font-size:12px;cursor:pointer;outline:none">
+        <option value="name">State Name</option>
+        <option value="changes">Changes Count</option>
+        <option value="status">Status</option>
+      </select>
     </div>
+  </div>
 
-    <div class="tbl-card">
-      <div class="tbl-scroll">
-        <table class="dtable">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>LOB</th>
-              <th>Total Schedules</th>
-              <th>Active Schedules</th>
-              <th>Sync Status</th>
-              <th>Last Sync</th>
-              <th>Owner</th>
-              <th class="c">TFS In-Flight</th>
-              <th>7-Day Trend</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="lobBody"></tbody>
-        </table>
-      </div>
-      <div class="tbl-footer">
-        <span class="row-cnt" id="rowCnt">19 of 19 LOBs</span>
-        <div class="legend">
-          <span class="legend-item"><span class="ldot synced"></span>Synced</span>
-          <span class="legend-item"><span class="ldot stale"></span>Stale</span>
-          <span class="legend-item"><span class="ldot offline"></span>Offline</span>
-        </div>
-      </div>
-    </div>
+  <!-- Section Title -->
+  <div class="section-title">State Portals (11)</div>
 
-    <div class="detail-panel hidden" id="detailPanel">
-      <div class="dp-hdr" id="dpHdr"></div>
-      <div class="dp-body" id="dpBody"></div>
-    </div>
+  <!-- Tiles Grid -->
+  <div class="tiles-grid" id="tiles-grid"></div>
 
-    <div class="tbl-card">
-      <div class="tfs-hdr">
-        <div class="tfs-tr">
-          <h2 class="sec-ttl">TFS In-Flight Tracker</h2>
-          <span class="tfs-cbdg" id="tfsBadge">— active</span>
-        </div>
-        <div class="filter-pills" id="tfsFilterPills">
-          <button class="pill on" data-tf="all">All</button>
-          <button class="pill" data-tf="Active">Active</button>
-          <button class="pill" data-tf="In Review">Review</button>
-          <button class="pill" data-tf="Blocked">Blocked</button>
-        </div>
-      </div>
-      <div class="tbl-scroll">
-        <table class="dtable">
-          <thead>
-            <tr>
-              <th>TFS ID</th><th>Title</th><th>LOB</th><th>State</th>
-              <th>Priority</th><th>Assignee</th><th>Progress</th><th>Updated</th>
-            </tr>
-          </thead>
-          <tbody id="tfsBody"></tbody>
-        </table>
-      </div>
-    </div>
-  </main>
+  <!-- Activity Log -->
+  <div class="section-title" style="margin-top:4px">Recent Activity</div>
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px">
+    <div id="activity-log"></div>
+  </div>
+
+</main>
 </div>
 
+<!-- ── OVERLAY ── -->
+<div class="overlay" id="overlay" onclick="closePanel()"></div>
+
+<!-- ── DETAIL PANEL ── -->
+<div class="detail-panel" id="detail-panel">
+  <div class="panel-header">
+    <div class="panel-header-left">
+      <div class="panel-state-abbr" id="panel-abbr">—</div>
+      <div class="panel-info">
+        <h2 id="panel-name">—</h2>
+        <p id="panel-dept">—</p>
+      </div>
+    </div>
+    <button class="panel-close" onclick="closePanel()" title="Close">
+      <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+      </svg>
+    </button>
+  </div>
+  <div class="panel-stats">
+    <div class="panel-stat"><div class="panel-stat-val" id="ps-total">—</div><div class="panel-stat-lbl">Fee Schedules</div></div>
+    <div class="panel-stat"><div class="panel-stat-val ok" id="ps-avail">—</div><div class="panel-stat-lbl">Portal Available</div></div>
+    <div class="panel-stat"><div class="panel-stat-val warn" id="ps-new">—</div><div class="panel-stat-lbl">New Files Found</div></div>
+    <div class="panel-stat"><div class="panel-stat-val err" id="ps-changes">—</div><div class="panel-stat-lbl">Changes Detected</div></div>
+    <div class="panel-stat"><div class="panel-stat-val" id="ps-lobs">—</div><div class="panel-stat-lbl">Lines of Business</div></div>
+  </div>
+  <div class="lob-tabs-bar">
+    <div class="lob-tabs" id="lob-tabs"></div>
+    <button class="btn btn-ghost btn-sm" onclick="runStateCheck(currentState)" style="margin:8px 0">
+      <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+      </svg>
+      Re-check State
+    </button>
+  </div>
+  <div class="panel-body" id="panel-body"></div>
+</div>
+
+<!-- ── TOASTS ── -->
+<div class="toast-container" id="toast-container"></div>
+
 <script>
-/* ── Real LOB data from SQL query ── */
-const LOBS = [
-  { id:"1",  lob:"CMS",           cnt:232, act:221, ina:11, sync:"synced",  ls:"Today, 08:42",     ha:2,  owner:"Raja",     ini:"RA", tfs:4, trend:[28,31,29,35,32,38,36], d:+8  },
-  { id:"2",  lob:"OH MCD",        cnt:138, act:130, ina:8,  sync:"synced",  ls:"Today, 09:10",     ha:1,  owner:"Keisha",   ini:"KE", tfs:2, trend:[15,17,14,18,16,20,19], d:+3  },
-  { id:"3",  lob:"MI MCD",        cnt:102, act:97,  ina:5,  sync:"synced",  ls:"Today, 07:55",     ha:3,  owner:"Reene",    ini:"RE", tfs:1, trend:[11,12,10,13,12,14,13], d:+1  },
-  { id:"4",  lob:"WI MP",         cnt:99,  act:95,  ina:4,  sync:"synced",  ls:"Today, 08:20",     ha:2,  owner:"Shirisha", ini:"SH", tfs:3, trend:[10,11,12,10,13,12,14], d:+2  },
-  { id:"5",  lob:"NV MCD",        cnt:95,  act:88,  ina:7,  sync:"stale",   ls:"Yesterday, 21:30", ha:12, owner:"Subash",   ini:"SU", tfs:2, trend:[9,10,8,11,9,8,9],      d:-2  },
-  { id:"6",  lob:"CCA",           cnt:84,  act:84,  ina:0,  sync:"synced",  ls:"Today, 10:01",     ha:0,  owner:"Raja",     ini:"RA", tfs:0, trend:[8,9,10,9,11,10,12],    d:+2  },
-  { id:"7",  lob:"MI MP",         cnt:84,  act:79,  ina:5,  sync:"synced",  ls:"Today, 06:45",     ha:4,  owner:"Keisha",   ini:"KE", tfs:1, trend:[7,8,9,8,10,9,11],      d:+1  },
-  { id:"8",  lob:"AR MCD",        cnt:61,  act:58,  ina:3,  sync:"stale",   ls:"Yesterday, 18:00", ha:16, owner:"Reene",    ini:"RE", tfs:2, trend:[6,7,5,8,6,5,6],        d:-1  },
-  { id:"9",  lob:"MS MCD",        cnt:49,  act:46,  ina:3,  sync:"synced",  ls:"Today, 09:30",     ha:1,  owner:"Shirisha", ini:"SH", tfs:0, trend:[5,5,6,5,7,6,7],        d:+1  },
-  { id:"10", lob:"GA MCD",        cnt:46,  act:44,  ina:2,  sync:"synced",  ls:"Today, 08:05",     ha:2,  owner:"Subash",   ini:"SU", tfs:1, trend:[4,5,4,6,5,5,6],        d:+1  },
-  { id:"11", lob:"Provider Spec", cnt:42,  act:38,  ina:4,  sync:"stale",   ls:"Yesterday, 14:20", ha:20, owner:"Raja",     ini:"RA", tfs:1, trend:[4,4,3,5,4,3,4],        d:-1  },
-  { id:"12", lob:"CS Custom",     cnt:25,  act:25,  ina:0,  sync:"synced",  ls:"Today, 07:30",     ha:3,  owner:"Keisha",   ini:"KE", tfs:0, trend:[2,3,2,3,3,3,4],        d:+1  },
-  { id:"13", lob:"KY MP",         cnt:22,  act:20,  ina:2,  sync:"synced",  ls:"Today, 09:50",     ha:1,  owner:"Reene",    ini:"RE", tfs:0, trend:[2,2,3,2,3,3,3],        d:0   },
-  { id:"14", lob:"Tricare",       cnt:14,  act:11,  ina:3,  sync:"offline", ls:"Jun 20, 11:00",    ha:49, owner:"Shirisha", ini:"SH", tfs:3, trend:[3,2,2,1,1,1,1],        d:-18 },
-  { id:"15", lob:"Provider Spec", cnt:12,  act:12,  ina:0,  sync:"synced",  ls:"Today, 08:55",     ha:2,  owner:"Subash",   ini:"SU", tfs:0, trend:[1,1,2,1,2,1,2],        d:+1  },
-  { id:"16", lob:"IN MCD",        cnt:12,  act:10,  ina:2,  sync:"stale",   ls:"Yesterday, 22:45", ha:11, owner:"Raja",     ini:"RA", tfs:1, trend:[1,2,1,2,1,1,1],        d:0   },
-  { id:"17", lob:"WV MP",         cnt:9,   act:9,   ina:0,  sync:"synced",  ls:"Today, 10:10",     ha:0,  owner:"Keisha",   ini:"KE", tfs:0, trend:[1,1,1,1,1,1,2],        d:+1  },
-  { id:"18", lob:"GA MP",         cnt:5,   act:5,   ina:0,  sync:"synced",  ls:"Today, 09:00",     ha:1,  owner:"Reene",    ini:"RE", tfs:0, trend:[1,0,1,1,0,1,1],        d:0   },
-  { id:"19", lob:"Medispan",      cnt:3,   act:2,   ina:1,  sync:"offline", ls:"Jun 19, 16:30",    ha:68, owner:"Shirisha", ini:"SH", tfs:2, trend:[1,1,0,1,0,0,0],        d:-8  },
+// ═══════════════════════════════════════════════
+// DATA
+// ═══════════════════════════════════════════════
+const STATES = [
+  {
+    id:'MI', name:'Michigan', color:'#3b82f6',
+    dept:'Michigan Dept of Health & Human Services',
+    lastChecked:'2026-07-06 08:30 AM',
+    lobs:[
+      { id:'medicaid', name:'Medicaid', schedules:[
+        { id:'mi-m-1', name:'Physician Fee Schedule', file:'MI_Medicaid_Physician_FS_2026Q2.xlsx', prev:'MI_Medicaid_Physician_FS_2026Q1.xlsx', portal:true, newFile:true, newDate:'Jul 05', compStatus:'changes', changes:847, diffFile:'MI_Physician_DIFF_Q2vsQ1.xlsx', fileSize:'2.4 MB' },
+        { id:'mi-m-2', name:'Laboratory Fee Schedule', file:'MI_Medicaid_Lab_FS_2026Q2.xlsx', prev:'MI_Medicaid_Lab_FS_2026Q1.xlsx', portal:true, newFile:true, newDate:'Jul 05', compStatus:'matched', changes:0, diffFile:null, fileSize:'1.1 MB' },
+        { id:'mi-m-3', name:'Radiology Fee Schedule', file:'MI_Medicaid_Rad_FS_2026.xlsx', prev:'MI_Medicaid_Rad_FS_2025.xlsx', portal:true, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:'980 KB' },
+        { id:'mi-m-4', name:'DMEPOS Fee Schedule', file:'MI_Medicaid_DMEPOS_2026.xlsx', prev:'MI_Medicaid_DMEPOS_2025.xlsx', portal:true, newFile:true, newDate:'Jul 04', compStatus:'changes', changes:214, diffFile:'MI_DMEPOS_DIFF_26vs25.xlsx', fileSize:'3.1 MB' },
+        { id:'mi-m-5', name:'Outpatient Hospital Fee Schedule', file:'MI_Medicaid_OPH_2026Q2.xlsx', prev:null, portal:false, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:null },
+      ]},
+      { id:'chip', name:'CHIP', schedules:[
+        { id:'mi-c-1', name:'CHIP Outpatient Fee Schedule', file:'MI_CHIP_OPD_2026.xlsx', prev:'MI_CHIP_OPD_2025.xlsx', portal:true, newFile:true, newDate:'Jul 03', compStatus:'pending', changes:0, diffFile:null, fileSize:'1.8 MB' },
+        { id:'mi-c-2', name:'CHIP Dental Maximum Allowable', file:'MI_CHIP_Dental_MAC_2026.xlsx', prev:'MI_CHIP_Dental_MAC_2025.xlsx', portal:true, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:'760 KB' },
+      ]},
+      { id:'dental', name:'Dental', schedules:[
+        { id:'mi-d-1', name:'Dental Procedure Fee Schedule', file:'MI_Dental_Proc_FS_2026.xlsx', prev:'MI_Dental_Proc_FS_2025.xlsx', portal:true, newFile:true, newDate:'Jul 05', compStatus:'changes', changes:33, diffFile:'MI_Dental_DIFF_2026vs2025.xlsx', fileSize:'640 KB' },
+      ]},
+    ]
+  },
+  {
+    id:'NV', name:'Nevada', color:'#10b981',
+    dept:'Nevada Division of Health Care Financing & Policy',
+    lastChecked:'2026-07-06 08:32 AM',
+    lobs:[
+      { id:'medicaid', name:'Medicaid', schedules:[
+        { id:'nv-m-1', name:'Physician Fee Schedule', file:'NV_Medicaid_Physician_FS_2026.xlsx', prev:'NV_Medicaid_Physician_FS_2025.xlsx', portal:true, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:'1.9 MB' },
+        { id:'nv-m-2', name:'DMEPOS Fee Schedule', file:'NV_DMEPOS_2026.xlsx', prev:'NV_DMEPOS_2025.xlsx', portal:true, newFile:true, newDate:'Jul 06', compStatus:'changes', changes:129, diffFile:'NV_DMEPOS_DIFF.xlsx', fileSize:'2.2 MB' },
+        { id:'nv-m-3', name:'Pharmacy MAC Pricing', file:'NV_Pharmacy_MAC_Jul2026.xlsx', prev:'NV_Pharmacy_MAC_Jun2026.xlsx', portal:true, newFile:true, newDate:'Jul 01', compStatus:'changes', changes:512, diffFile:'NV_Pharmacy_DIFF_Jul.xlsx', fileSize:'4.5 MB' },
+      ]},
+      { id:'wc', name:"Workers' Comp", schedules:[
+        { id:'nv-w-1', name:'Workers Comp Medical Fee Schedule', file:'NV_WC_Medical_FS_2026.xlsx', prev:'NV_WC_Medical_FS_2025.xlsx', portal:true, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:'3.2 MB' },
+        { id:'nv-w-2', name:'WC Pharmacy Fee Schedule', file:'NV_WC_Pharmacy_2026.xlsx', prev:null, portal:false, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:null },
+      ]},
+    ]
+  },
+  {
+    id:'MS', name:'Mississippi', color:'#8b5cf6',
+    dept:'Mississippi Division of Medicaid',
+    lastChecked:'2026-07-06 08:35 AM',
+    lobs:[
+      { id:'medicaid', name:'Medicaid', schedules:[
+        { id:'ms-m-1', name:'Physician Fee Schedule', file:'MS_Medicaid_Physician_2026Q2.xlsx', prev:'MS_Medicaid_Physician_2026Q1.xlsx', portal:true, newFile:true, newDate:'Jul 05', compStatus:'matched', changes:0, diffFile:null, fileSize:'1.5 MB' },
+        { id:'ms-m-2', name:'Inpatient Hospital DRG Rates', file:'MS_Medicaid_IP_DRG_2026.xlsx', prev:'MS_Medicaid_IP_DRG_2025.xlsx', portal:true, newFile:true, newDate:'Jul 04', compStatus:'changes', changes:76, diffFile:'MS_DRG_DIFF_26vs25.xlsx', fileSize:'3.8 MB' },
+        { id:'ms-m-3', name:'Vision Fee Schedule', file:'MS_Vision_FS_2026.xlsx', prev:'MS_Vision_FS_2025.xlsx', portal:false, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:null },
+      ]},
+    ]
+  },
+  {
+    id:'GA', name:'Georgia', color:'#ec4899',
+    dept:'Georgia Department of Community Health',
+    lastChecked:'2026-07-06 08:37 AM',
+    lobs:[
+      { id:'medicaid', name:'Medicaid', schedules:[
+        { id:'ga-m-1', name:'Physician Fee Schedule', file:'GA_Medicaid_Physician_FS_2026.xlsx', prev:'GA_Medicaid_Physician_FS_2025.xlsx', portal:true, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:'2.1 MB' },
+        { id:'ga-m-2', name:'Outpatient Hospital Fee Schedule', file:'GA_Medicaid_OPH_2026Q2.xlsx', prev:'GA_Medicaid_OPH_2026Q1.xlsx', portal:true, newFile:true, newDate:'Jul 05', compStatus:'changes', changes:398, diffFile:'GA_OPH_DIFF_Q2vsQ1.xlsx', fileSize:'5.2 MB' },
+        { id:'ga-m-3', name:'Laboratory Fee Schedule', file:'GA_Medicaid_Lab_2026.xlsx', prev:'GA_Medicaid_Lab_2025.xlsx', portal:true, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:'890 KB' },
+        { id:'ga-m-4', name:'DMEPOS Fee Schedule', file:'GA_DMEPOS_2026.xlsx', prev:'GA_DMEPOS_2025.xlsx', portal:true, newFile:true, newDate:'Jul 03', compStatus:'matched', changes:0, diffFile:null, fileSize:'1.7 MB' },
+      ]},
+      { id:'peachcare', name:'PeachCare (CHIP)', schedules:[
+        { id:'ga-p-1', name:'PeachCare Physician Fee Schedule', file:'GA_PeachCare_Physician_2026.xlsx', prev:'GA_PeachCare_Physician_2025.xlsx', portal:true, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:'1.2 MB' },
+      ]},
+    ]
+  },
+  {
+    id:'CMS', name:'CMS / Federal', color:'#f59e0b',
+    dept:'Centers for Medicare & Medicaid Services',
+    lastChecked:'2026-07-06 08:40 AM',
+    lobs:[
+      { id:'medicare', name:'Medicare', schedules:[
+        { id:'cms-m-1', name:'Medicare Physician Fee Schedule 2026', file:'CMS_PFS_2026_Final.xlsx', prev:'CMS_PFS_2025_Final.xlsx', portal:true, newFile:true, newDate:'Jan 02', compStatus:'changes', changes:2841, diffFile:'CMS_PFS_DIFF_26vs25.xlsx', fileSize:'18.4 MB' },
+        { id:'cms-m-2', name:'Clinical Lab Fee Schedule (CLFS)', file:'CMS_CLFS_2026.xlsx', prev:'CMS_CLFS_2025.xlsx', portal:true, newFile:true, newDate:'Jan 02', compStatus:'changes', changes:1204, diffFile:'CMS_CLFS_DIFF_26vs25.xlsx', fileSize:'8.7 MB' },
+        { id:'cms-m-3', name:'DMEPOS Fee Schedule', file:'CMS_DMEPOS_2026_Jan.xlsx', prev:'CMS_DMEPOS_2025_Jan.xlsx', portal:true, newFile:true, newDate:'Jan 02', compStatus:'changes', changes:657, diffFile:'CMS_DMEPOS_DIFF.xlsx', fileSize:'9.1 MB' },
+        { id:'cms-m-4', name:'Ambulance Fee Schedule', file:'CMS_Ambulance_FS_2026.xlsx', prev:'CMS_Ambulance_FS_2025.xlsx', portal:true, newFile:true, newDate:'Jan 02', compStatus:'matched', changes:0, diffFile:null, fileSize:'2.3 MB' },
+        { id:'cms-m-5', name:'Outpatient Prospective Payment (OPPS)', file:'CMS_OPPS_2026_Final.xlsx', prev:'CMS_OPPS_2025_Final.xlsx', portal:true, newFile:true, newDate:'Jan 02', compStatus:'changes', changes:934, diffFile:'CMS_OPPS_DIFF_26vs25.xlsx', fileSize:'22.1 MB' },
+      ]},
+      { id:'medicaid_federal', name:'Medicaid (Federal)', schedules:[
+        { id:'cms-mf-1', name:'FMAP Rates 2026', file:'CMS_FMAP_2026.xlsx', prev:'CMS_FMAP_2025.xlsx', portal:true, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:'320 KB' },
+      ]},
+    ]
+  },
+  {
+    id:'KY', name:'Kentucky', color:'#06b6d4',
+    dept:'Kentucky Department for Medicaid Services',
+    lastChecked:'2026-07-06 08:42 AM',
+    lobs:[
+      { id:'medicaid', name:'Medicaid', schedules:[
+        { id:'ky-m-1', name:'Physician Fee Schedule', file:'KY_Medicaid_Physician_2026.xlsx', prev:'KY_Medicaid_Physician_2025.xlsx', portal:true, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:'1.8 MB' },
+        { id:'ky-m-2', name:'Laboratory Fee Schedule', file:'KY_Medicaid_Lab_2026.xlsx', prev:'KY_Medicaid_Lab_2025.xlsx', portal:true, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:'980 KB' },
+        { id:'ky-m-3', name:'Outpatient Hospital APC Rates', file:'KY_Medicaid_APC_2026Q2.xlsx', prev:'KY_Medicaid_APC_2026Q1.xlsx', portal:true, newFile:true, newDate:'Jul 01', compStatus:'pending', changes:0, diffFile:null, fileSize:'4.2 MB' },
+      ]},
+      { id:'kchip', name:'KCHIP', schedules:[
+        { id:'ky-k-1', name:'KCHIP Physician Fee Schedule', file:'KY_KCHIP_Physician_2026.xlsx', prev:'KY_KCHIP_Physician_2025.xlsx', portal:false, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:null },
+      ]},
+    ]
+  },
+  {
+    id:'TC', name:'TennCare (TN)', color:'#ef4444',
+    dept:'TennCare — Tennessee Medicaid',
+    lastChecked:'2026-07-06 08:44 AM',
+    lobs:[
+      { id:'medicaid', name:'Medicaid', schedules:[
+        { id:'tc-m-1', name:'Physician Fee Schedule', file:'TN_TennCare_Physician_2026.xlsx', prev:'TN_TennCare_Physician_2025.xlsx', portal:true, newFile:true, newDate:'Jul 06', compStatus:'changes', changes:192, diffFile:'TN_Physician_DIFF.xlsx', fileSize:'2.0 MB' },
+        { id:'tc-m-2', name:'Behavioral Health Fee Schedule', file:'TN_TennCare_BH_2026.xlsx', prev:'TN_TennCare_BH_2025.xlsx', portal:true, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:'1.1 MB' },
+        { id:'tc-m-3', name:'DMEPOS Fee Schedule', file:'TN_TennCare_DMEPOS_2026.xlsx', prev:null, portal:false, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:null },
+      ]},
+    ]
+  },
+  {
+    id:'AR', name:'Arkansas', color:'#a855f7',
+    dept:'Arkansas Division of Medical Services',
+    lastChecked:'2026-07-06 08:46 AM',
+    lobs:[
+      { id:'medicaid', name:'Medicaid', schedules:[
+        { id:'ar-m-1', name:'Physician Fee Schedule', file:'AR_Medicaid_Physician_2026Q3.xlsx', prev:'AR_Medicaid_Physician_2026Q2.xlsx', portal:true, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:'1.6 MB' },
+        { id:'ar-m-2', name:'Outpatient Hospital Fee Schedule', file:'AR_Medicaid_OPH_2026.xlsx', prev:'AR_Medicaid_OPH_2025.xlsx', portal:true, newFile:true, newDate:'Jul 04', compStatus:'matched', changes:0, diffFile:null, fileSize:'3.4 MB' },
+      ]},
+      { id:'works', name:"Workers' Comp", schedules:[
+        { id:'ar-w-1', name:'Workers Comp Medical Fee Schedule', file:'AR_WC_Medical_2026.xlsx', prev:'AR_WC_Medical_2025.xlsx', portal:true, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:'2.8 MB' },
+      ]},
+    ]
+  },
+  {
+    id:'OH', name:'Ohio', color:'#f97316',
+    dept:'Ohio Department of Medicaid',
+    lastChecked:'2026-07-06 08:48 AM',
+    lobs:[
+      { id:'medicaid', name:'Medicaid', schedules:[
+        { id:'oh-m-1', name:'Physician Fee Schedule', file:'OH_Medicaid_Physician_2026Q3.xlsx', prev:'OH_Medicaid_Physician_2026Q2.xlsx', portal:true, newFile:true, newDate:'Jul 05', compStatus:'changes', changes:311, diffFile:'OH_Physician_DIFF_Q3vsQ2.xlsx', fileSize:'2.7 MB' },
+        { id:'oh-m-2', name:'Laboratory Fee Schedule', file:'OH_Medicaid_Lab_2026.xlsx', prev:'OH_Medicaid_Lab_2025.xlsx', portal:true, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:'1.2 MB' },
+        { id:'oh-m-3', name:'Dental Maximum Allowable Fee', file:'OH_Medicaid_Dental_2026.xlsx', prev:'OH_Medicaid_Dental_2025.xlsx', portal:true, newFile:true, newDate:'Jul 03', compStatus:'pending', changes:0, diffFile:null, fileSize:'880 KB' },
+        { id:'oh-m-4', name:'Inpatient Hospital APR-DRG Rates', file:'OH_Medicaid_APRDRG_2026.xlsx', prev:'OH_Medicaid_APRDRG_2025.xlsx', portal:true, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:'6.1 MB' },
+      ]},
+    ]
+  },
+  {
+    id:'WI', name:'Wisconsin', color:'#14b8a6',
+    dept:'Wisconsin Department of Health Services',
+    lastChecked:'2026-07-06 08:51 AM',
+    lobs:[
+      { id:'forwardhealth', name:'ForwardHealth (Medicaid)', schedules:[
+        { id:'wi-f-1', name:'Physician Fee Schedule', file:'WI_ForwardHealth_Physician_2026.xlsx', prev:'WI_ForwardHealth_Physician_2025.xlsx', portal:true, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:'1.9 MB' },
+        { id:'wi-f-2', name:'Laboratory Fee Schedule', file:'WI_ForwardHealth_Lab_2026.xlsx', prev:'WI_ForwardHealth_Lab_2025.xlsx', portal:true, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:'1.1 MB' },
+        { id:'wi-f-3', name:'DMEPOS Fee Schedule', file:'WI_ForwardHealth_DMEPOS_2026.xlsx', prev:'WI_ForwardHealth_DMEPOS_2025.xlsx', portal:true, newFile:true, newDate:'Jul 06', compStatus:'changes', changes:88, diffFile:'WI_DMEPOS_DIFF.xlsx', fileSize:'2.0 MB' },
+      ]},
+      { id:'badgercare', name:'BadgerCare Plus', schedules:[
+        { id:'wi-b-1', name:'BadgerCare Physician Fee Schedule', file:'WI_BadgerCare_Physician_2026.xlsx', prev:'WI_BadgerCare_Physician_2025.xlsx', portal:true, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:'1.5 MB' },
+      ]},
+    ]
+  },
+  {
+    id:'WV', name:'West Virginia', color:'#64748b',
+    dept:'West Virginia Bureau for Medical Services',
+    lastChecked:'2026-07-06 08:54 AM',
+    lobs:[
+      { id:'medicaid', name:'Medicaid', schedules:[
+        { id:'wv-m-1', name:'Physician Fee Schedule', file:'WV_Medicaid_Physician_2026.xlsx', prev:'WV_Medicaid_Physician_2025.xlsx', portal:true, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:'1.4 MB' },
+        { id:'wv-m-2', name:'Laboratory Fee Schedule', file:'WV_Medicaid_Lab_2026.xlsx', prev:'WV_Medicaid_Lab_2025.xlsx', portal:true, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:'890 KB' },
+        { id:'wv-m-3', name:'DMEPOS Fee Schedule', file:'WV_Medicaid_DMEPOS_2026.xlsx', prev:null, portal:false, newFile:false, newDate:null, compStatus:'na', changes:0, diffFile:null, fileSize:null },
+      ]},
+    ]
+  },
 ];
 
-const TFSD = [
-  { id:"TFS-9101", title:"CMS base rate table update — Q3 2026",             lob:"CMS",           state:"Active",    as:"Raja",     pri:"High",   ago:"2h ago",  pct:62 },
-  { id:"TFS-9098", title:"CMS co-pay tier realignment",                      lob:"CMS",           state:"In Review", as:"Keisha",   pri:"Medium", ago:"5h ago",  pct:85 },
-  { id:"TFS-9094", title:"OH MCD fee schedule annual refresh",               lob:"OH MCD",        state:"Active",    as:"Reene",    pri:"High",   ago:"3h ago",  pct:48 },
-  { id:"TFS-9090", title:"WI MP supplemental schedule load",                 lob:"WI MP",         state:"Active",    as:"Shirisha", pri:"Medium", ago:"1h ago",  pct:71 },
-  { id:"TFS-9087", title:"WI MP provider rate adjustment",                   lob:"WI MP",         state:"In Review", as:"Subash",   pri:"Low",    ago:"6h ago",  pct:90 },
-  { id:"TFS-9083", title:"NV MCD schedule sync failure — retry pending",     lob:"NV MCD",        state:"Blocked",   as:"Raja",     pri:"High",   ago:"12h ago", pct:20 },
-  { id:"TFS-9079", title:"NV MCD inactive record cleanup",                   lob:"NV MCD",        state:"Active",    as:"Keisha",   pri:"Low",    ago:"8h ago",  pct:55 },
-  { id:"TFS-9075", title:"MI MCD quarterly rate update",                     lob:"MI MCD",        state:"Active",    as:"Reene",    pri:"Medium", ago:"4h ago",  pct:38 },
-  { id:"TFS-9071", title:"AR MCD stale data investigation",                  lob:"AR MCD",        state:"Blocked",   as:"Shirisha", pri:"High",   ago:"16h ago", pct:15 },
-  { id:"TFS-9068", title:"AR MCD fee schedule version bump",                 lob:"AR MCD",        state:"In Review", as:"Subash",   pri:"Medium", ago:"9h ago",  pct:77 },
-  { id:"TFS-9062", title:"Tricare offline — data source fault",              lob:"Tricare",       state:"Blocked",   as:"Raja",     pri:"High",   ago:"2d ago",  pct:5  },
-  { id:"TFS-9058", title:"Tricare schedule re-ingestion post fix",           lob:"Tricare",       state:"Active",    as:"Keisha",   pri:"High",   ago:"1d ago",  pct:30 },
-  { id:"TFS-9054", title:"Tricare provider spec mapping correction",         lob:"Tricare",       state:"In Review", as:"Reene",    pri:"Medium", ago:"18h ago", pct:68 },
-  { id:"TFS-9050", title:"Provider Spec stale — manual refresh required",   lob:"Provider Spec", state:"Blocked",   as:"Shirisha", pri:"Medium", ago:"20h ago", pct:10 },
-  { id:"TFS-9046", title:"GA MCD schedule count reconciliation",             lob:"GA MCD",        state:"Active",    as:"Subash",   pri:"Low",    ago:"3h ago",  pct:58 },
-  { id:"TFS-9041", title:"Medispan offline remediation",                     lob:"Medispan",      state:"Blocked",   as:"Raja",     pri:"High",   ago:"3d ago",  pct:8  },
-  { id:"TFS-9037", title:"Medispan data pipeline reconnect",                 lob:"Medispan",      state:"Active",    as:"Keisha",   pri:"High",   ago:"2d ago",  pct:35 },
-  { id:"TFS-9033", title:"IN MCD stale schedule review",                     lob:"IN MCD",        state:"In Review", as:"Reene",    pri:"Low",    ago:"11h ago", pct:72 },
-  { id:"TFS-9029", title:"CMS inactive schedule purge",                      lob:"CMS",           state:"Active",    as:"Shirisha", pri:"Low",    ago:"7h ago",  pct:44 },
-  { id:"TFS-9025", title:"MI MP provider spec alignment",                    lob:"MI MP",         state:"In Review", as:"Subash",   pri:"Medium", ago:"5h ago",  pct:81 },
-];
+// ═══════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════
+let currentFilter = 'all';
+let currentState = null;
+let currentLob = null;
 
-let cF='all', cTF='all', cS='lob', selId=null, q='';
-
-/* THEME */
-function setTheme(t){
-  document.documentElement.setAttribute('data-theme',t);
-  localStorage.setItem('fsd-theme',t);
-  document.getElementById('themeLabel').textContent = t==='dark' ? 'Light Mode' : 'Dark Mode';
-}
-document.getElementById('themeToggle').addEventListener('click', ()=>setTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark'));
-setTheme(localStorage.getItem('fsd-theme')||'dark');
-
-/* CLOCK */
-function tick(){document.getElementById('clockTime').textContent=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})}
-tick(); setInterval(tick,1000);
-
-/* ENV */
-const EC={Production:'#34d399',UAT:'#fbbf24',SIT:'#60a5fa',Development:'#a78bfa'};
-function updEnv(){document.getElementById('envDot').style.background=EC[document.getElementById('envSelect').value]}
-document.getElementById('envSelect').addEventListener('change',updEnv); updEnv();
-
-/* SPARKLINE */
-function spk(data,sync){
-  const W=80,H=28,max=Math.max(...data,1);
-  const pts=data.map((v,i)=>[(i/(data.length-1))*W, H-(v/max)*(H-4)+2]);
-  const d=pts.map((p,i)=>`${i===0?'M':'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
-  const fill=`${d} L${W},${H} L0,${H} Z`;
-  const c=sync==='synced'?'#34d399':sync==='stale'?'#fbbf24':'#f87171';
-  const fc=sync==='synced'?'rgba(52,211,153,.09)':sync==='stale'?'rgba(251,191,36,.09)':'rgba(248,113,113,.09)';
-  const lp=pts[pts.length-1];
-  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="overflow:visible"><path d="${fill}" fill="${fc}"/><path d="${d}" fill="none" stroke="${c}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${lp[0].toFixed(1)}" cy="${lp[1].toFixed(1)}" r="2.5" fill="${c}"/></svg>`;
+function stateSummary(s){
+  const allSched = s.lobs.flatMap(l=>l.schedules);
+  const newFiles = allSched.filter(x=>x.newFile).length;
+  const changes = allSched.filter(x=>x.compStatus==='changes').length;
+  const unavail = allSched.filter(x=>!x.portal).length;
+  const pending = allSched.filter(x=>x.compStatus==='pending').length;
+  const total = allSched.length;
+  let tileStatus = 'ok';
+  if(changes>0) tileStatus='warn';
+  if(unavail===total) tileStatus='error';
+  return {newFiles,changes,unavail,pending,total,tileStatus};
 }
 
-/* GAUGE */
-function gauge(pct,color){
-  const r=16,cx=20,cy=20,circ=2*Math.PI*r,dash=(pct/100)*circ;
-  return `<svg width="40" height="40" viewBox="0 0 40 40"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="rgba(255,255,255,.05)" stroke-width="3.5"/><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="3.5" stroke-dasharray="${dash.toFixed(2)} ${(circ-dash).toFixed(2)}" stroke-dashoffset="${(circ/4).toFixed(2)}" stroke-linecap="round"/></svg>`;
+function statusLabel(s){
+  if(s==='warn') return 'Changes Found';
+  if(s==='error') return 'Unavailable';
+  return 'All Clear';
 }
 
-/* KPI */
-function renderKPI(){
-  const tot=LOBS.reduce((s,r)=>s+r.cnt,0);
-  const totA=LOBS.reduce((s,r)=>s+r.act,0);
-  const syn=LOBS.filter(r=>r.sync==='synced').length;
-  const sta=LOBS.filter(r=>r.sync==='stale').length;
-  const off=LOBS.filter(r=>r.sync==='offline').length;
-  const tfsA=TFSD.filter(t=>t.state!=='Completed').length;
-  const tfsB=TFSD.filter(t=>t.state==='Blocked').length;
-  document.getElementById('sfSched').textContent=tot.toLocaleString();
-  document.getElementById('sfTFS').textContent=tfsA;
-  const cards=[
-    {lbl:'Total Schedules',val:tot.toLocaleString(),sub:`${totA.toLocaleString()} active`,c:'#3b82f6',kg:'var(--kgb)',p:Math.round((totA/tot)*100),ico:`<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="1.5" width="13" height="13" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M1.5 6h13M5.5 1.5v4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`},
-    {lbl:'Synced LOBs',val:String(syn),sub:`${Math.round((syn/LOBS.length)*100)}% of ${LOBS.length} LOBs`,c:'#34d399',kg:'var(--kgg)',p:Math.round((syn/LOBS.length)*100),ico:`<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.3"/><path d="M5 8l2.5 2.5 4-4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`},
-    {lbl:'Stale / Offline',val:String(sta+off),sub:`${sta} stale · ${off} offline`,c:'#fbbf24',kg:'var(--kga)',p:Math.round(((sta+off)/LOBS.length)*100),ico:`<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2.5L14.5 13.5H1.5L8 2.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M8 6.5v3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11.5" r=".7" fill="currentColor"/></svg>`},
-    {lbl:'TFS In-Flight',val:String(tfsA),sub:`${tfsB} blocked`,c:'#a78bfa',kg:'var(--kgv)',p:tfsA>0?Math.round((TFSD.filter(t=>t.state==='Active').length/tfsA)*100):0,ico:`<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="3.5" width="13" height="9.5" rx="1.3" stroke="currentColor" stroke-width="1.3"/><path d="M5 7h6M5 10h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`},
-  ];
-  document.getElementById('kpiGrid').innerHTML=cards.map(c=>`<div class="kpi-card" style="--kg:radial-gradient(ellipse at top left,${c.kg} 0%,transparent 70%)"><div class="kpi-gauge">${gauge(c.p,c.c)}<div class="kpi-gi" style="color:${c.c}">${c.ico}</div></div><div class="kpi-body"><div class="kpi-val">${c.val}</div><div class="kpi-lbl">${c.lbl}</div><div class="kpi-sub">${c.sub}</div></div></div>`).join('');
+function icon(name,size=14){
+  const icons={
+    check:`<svg width="${size}" height="${size}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>`,
+    x:`<svg width="${size}" height="${size}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>`,
+    dl:`<svg width="${size}" height="${size}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>`,
+    clock:`<svg width="${size}" height="${size}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path stroke-linecap="round" d="M12 6v6l4 2"/></svg>`,
+    refresh:`<svg width="${size}" height="${size}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>`,
+    alert:`<svg width="${size}" height="${size}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>`,
+    file:`<svg width="${size}" height="${size}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>`,
+    eye:`<svg width="${size}" height="${size}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>`,
+  };
+  return icons[name]||'';
 }
 
-/* SIDEBAR */
-function renderSidebar(){
-  const dc={synced:'ds',stale:'da',offline:'dr'};
-  document.getElementById('sidebarList').innerHTML=LOBS.map(r=>`<button class="sb-item ${selId===r.id?'on':''}" onclick="sel('${r.id}')"><span class="sb-dot ${dc[r.sync]}"></span><span class="sb-name">${r.lob}</span>${r.tfs>0?`<span class="sb-tfs">${r.tfs}</span>`:''}</button>`).join('');
-  document.getElementById('sfTotal').textContent=LOBS.length;
-  document.getElementById('sfTFS').textContent=TFSD.filter(t=>t.state!=='Completed').length;
-}
+// ═══════════════════════════════════════════════
+// RENDER TILES
+// ═══════════════════════════════════════════════
+function renderTiles(){
+  const q = document.getElementById('search-input').value.toLowerCase();
+  const sort = document.getElementById('sort-sel').value;
+  let list = [...STATES];
 
-/* LOB TABLE */
-function filteredLOBs(){
-  let rows=[...LOBS];
-  if(q){const qq=q.toLowerCase();rows=rows.filter(r=>r.lob.toLowerCase().includes(qq)||r.owner.toLowerCase().includes(qq))}
-  if(cF!=='all')rows=rows.filter(r=>r.sync===cF);
-  rows.sort((a,b)=>{
-    if(cS==='lob')return a.lob.localeCompare(b.lob);
-    if(cS==='count')return b.cnt-a.cnt;
-    if(cS==='tfs')return b.tfs-a.tfs;
-    if(cS==='sync')return a.ha-b.ha;
-    return 0;
-  });
-  return rows;
-}
+  if(q) list=list.filter(s=>s.name.toLowerCase().includes(q)||s.id.toLowerCase().includes(q));
+  if(currentFilter==='changes') list=list.filter(s=>stateSummary(s).changes>0);
+  if(currentFilter==='ok') list=list.filter(s=>stateSummary(s).changes===0&&stateSummary(s).unavail<stateSummary(s).total);
+  if(currentFilter==='error') list=list.filter(s=>stateSummary(s).unavail>0);
 
-function renderLOB(){
-  const rows=filteredLOBs();
-  document.getElementById('rowCnt').textContent=`${rows.length} of ${LOBS.length} LOBs`;
-  if(!rows.length){document.getElementById('lobBody').innerHTML=`<tr><td colspan="10" style="text-align:center;padding:48px;color:var(--txm)">No LOBs match your filter.</td></tr>`;return}
-  document.getElementById('lobBody').innerHTML=rows.map((r,idx)=>{
-    const pct=Math.round((r.act/r.cnt)*100);
-    const ac=r.ha>24?'bad':r.ha>8?'warn':'ok';
-    const at=r.ha===0?'moments ago':r.ha<24?`${r.ha}h ago`:`${Math.round(r.ha/24)}d ago`;
-    const dc2=r.d>0?'up':r.d<0?'dn':'fl';
-    const dt=r.d>0?`+${r.d}`:r.d===0?'—':String(r.d);
-    return `<tr class="${selId===r.id?'sel':''}" onclick="sel('${r.id}')">
-      <td style="color:var(--txm);font-family:var(--font-mono);font-size:11px">${idx+1}</td>
-      <td><div class="cn">${r.lob}</div></td>
-      <td><div class="cbig">${r.cnt.toLocaleString()}</div></td>
-      <td>
-        <div style="display:flex;align-items:center;gap:8px">
-          <div class="pmini-track" style="width:80px;flex-shrink:0"><div class="pmini-fill" style="width:${pct}%"></div></div>
-          <span style="font-family:var(--font-mono);font-size:11px;color:var(--txs)">${r.act}</span>
+  if(sort==='changes') list.sort((a,b)=>stateSummary(b).changes-stateSummary(a).changes);
+  else if(sort==='status'){
+    const ord={warn:0,error:1,ok:2};
+    list.sort((a,b)=>ord[stateSummary(a).tileStatus]-ord[stateSummary(b).tileStatus]);
+  } else {
+    list.sort((a,b)=>a.name.localeCompare(b.name));
+  }
+
+  const grid = document.getElementById('tiles-grid');
+  if(!list.length){
+    grid.innerHTML=`<div class="empty" style="grid-column:1/-1">${icon('eye',36)}<p>No portals match your filter</p></div>`;
+    return;
+  }
+
+  grid.innerHTML = list.map(s=>{
+    const {newFiles,changes,unavail,tileStatus,total} = stateSummary(s);
+    const statClass = tileStatus==='warn'?'status-warn':tileStatus==='error'?'status-error':'status-ok';
+    const valClass = changes>0?'warn':unavail>0?'err':'ok';
+    return `
+    <div class="state-tile${currentState&&currentState.id===s.id?' active':''}" style="--tile-color:${s.color}" onclick="openPanel('${s.id}')">
+      <div class="tile-accent"></div>
+      <div class="tile-body">
+        <div class="tile-header">
+          <div class="tile-abbr">${s.id}</div>
+          <div class="tile-status-badge ${statClass}">
+            <div class="status-dot"></div>
+            ${statusLabel(tileStatus)}
+          </div>
         </div>
-      </td>
-      <td><span class="sp ${r.sync}"><span class="sp-dot d${r.sync[0]} ${r.sync==='synced'?'apu':''}"></span>${r.sync[0].toUpperCase()+r.sync.slice(1)}</span></td>
-      <td><div class="st">${r.ls}</div><div class="sa ${ac}">${at}</div></td>
-      <td><div class="oc"><div class="oav">${r.ini}</div><span class="on2">${r.owner}</span></div></td>
-      <td class="c">${r.tfs>0?`<div class="tfsb"><div class="tfsb-n">${r.tfs}</div><div class="tfsb-s">items</div></div>`:`<span class="tfs-nil">—</span>`}</td>
-      <td><div class="spkc">${spk(r.trend,r.sync)}<span class="spkd ${dc2}">${dt}</span></div></td>
-      <td><button class="rchev ${selId===r.id?'open':''}" onclick="event.stopPropagation();sel('${r.id}')"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button></td>
-    </tr>`;
+        <div class="tile-name">${s.name}</div>
+        <div class="tile-dept">${s.dept}</div>
+        <div class="tile-metrics">
+          <div class="tile-metric">
+            <div class="tile-metric-val">${total}</div>
+            <div class="tile-metric-lbl">Schedules</div>
+          </div>
+          <div class="tile-metric">
+            <div class="tile-metric-val ${newFiles>0?'warn':''}">${newFiles}</div>
+            <div class="tile-metric-lbl">New Files</div>
+          </div>
+          <div class="tile-metric">
+            <div class="tile-metric-val ${valClass}">${changes}</div>
+            <div class="tile-metric-lbl">Changes</div>
+          </div>
+        </div>
+      </div>
+      <div class="tile-footer">
+        <div class="tile-ts">${icon('clock',11)} ${s.lastChecked}</div>
+        <div class="tile-action">${icon('eye',12)} View Details</div>
+      </div>
+    </div>`;
   }).join('');
 }
 
-/* DETAIL */
-function sel(id){selId=(selId===id)?null:id;renderLOB();renderSidebar();renderDetail()}
-function renderDetail(){
-  const panel=document.getElementById('detailPanel');
-  if(!selId){panel.classList.add('hidden');return}
-  const r=LOBS.find(x=>x.id===selId);
-  if(!r){panel.classList.add('hidden');return}
-  panel.classList.remove('hidden');
-  document.getElementById('dpHdr').innerHTML=`<div class="dp-left"><div class="dp-av">${r.ini}</div><div><div class="dp-lob">${r.lob}</div><div class="dp-div">Owner: ${r.owner}</div></div><span class="sp ${r.sync}" style="margin-left:8px"><span class="sp-dot d${r.sync[0]}"></span>${r.sync[0].toUpperCase()+r.sync.slice(1)}</span></div><button class="dp-close" onclick="sel('${r.id}')"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 2l10 10M12 2L2 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>`;
-  const sc={Active:'active','In Review':'review',Blocked:'blocked',Completed:'completed'};
-  const tf=TFSD.filter(t=>t.lob===r.lob);
-  document.getElementById('dpBody').innerHTML=`
-    <div class="ds-grid">
-      <div class="ds-card"><div class="ds-lbl">Total Schedules</div><div class="ds-val cw">${r.cnt}</div></div>
-      <div class="ds-card"><div class="ds-lbl">Active</div><div class="ds-val cg">${r.act}</div></div>
-      <div class="ds-card"><div class="ds-lbl">Inactive</div><div class="ds-val ca">${r.ina}</div></div>
-      <div class="ds-card"><div class="ds-lbl">TFS Items</div><div class="ds-val cv">${r.tfs||'None'}</div></div>
-    </div>
-    ${tf.length?`<div><div class="dt-title">Related TFS Items</div><div class="dt-rows">${tf.map(t=>`<div class="dt-row"><span class="dt-id">${t.id}</span><span class="dt-name">${t.title}</span><span class="stpill ${sc[t.state]}">${t.state}</span><div class="dt-prog"><div class="dt-fill tprog-fill ${sc[t.state]}" style="width:${t.pct}%"></div></div><span class="dt-pct">${t.pct}%</span></div>`).join('')}</div></div>`:
-    '<div style="font-size:12px;color:var(--txm);padding:4px 0">No active TFS items for this LOB.</div>'}`;
+function filterTiles(){ renderTiles(); }
+
+function setFilter(f, el){
+  currentFilter=f;
+  document.querySelectorAll('.filter-tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  renderTiles();
 }
 
-/* TFS TABLE */
-function renderTFS(){
-  let rows=[...TFSD];
-  if(cTF!=='all')rows=rows.filter(t=>t.state===cTF);
-  document.getElementById('tfsBadge').textContent=`${TFSD.filter(t=>t.state!=='Completed').length} active`;
-  const sc={Active:'active','In Review':'review',Blocked:'blocked',Completed:'completed'};
-  const pc={High:'ph',Medium:'pm',Low:'pl'};
-  document.getElementById('tfsBody').innerHTML=rows.map((t,i)=>`
-    <tr style="${i%2!==0?'background:var(--theven)':''}">
-      <td><span class="tfs-id">${t.id}</span></td>
-      <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--txs)">${t.title}</td>
-      <td style="color:var(--txm);white-space:nowrap">${t.lob}</td>
-      <td><span class="stpill ${sc[t.state]}">${t.state}</span></td>
-      <td><div class="pcell"><span class="pdot ${pc[t.pri]}"></span>${t.pri}</div></td>
-      <td><div class="oc"><div class="oav" style="width:22px;height:22px;font-size:8px">${t.as.substring(0,2).toUpperCase()}</div><span class="on2">${t.as}</span></div></td>
-      <td><div class="tprog-cell"><div class="tprog-track"><div class="tprog-fill ${sc[t.state]}" style="width:${t.pct}%"></div></div><span class="tprog-pct">${t.pct}%</span></div></td>
-      <td style="color:var(--txm);white-space:nowrap">${t.ago}</td>
-    </tr>`).join('');
+// ═══════════════════════════════════════════════
+// DETAIL PANEL
+// ═══════════════════════════════════════════════
+function openPanel(id){
+  const s = STATES.find(x=>x.id===id);
+  if(!s) return;
+  currentState = s;
+
+  // Set panel color
+  document.getElementById('detail-panel').style.setProperty('--panel-color',s.color);
+
+  // Header
+  document.getElementById('panel-abbr').textContent = s.id;
+  document.getElementById('panel-name').textContent = s.name;
+  document.getElementById('panel-dept').textContent = s.dept;
+
+  // Stats
+  const all = s.lobs.flatMap(l=>l.schedules);
+  document.getElementById('ps-total').textContent = all.length;
+  document.getElementById('ps-avail').textContent = all.filter(x=>x.portal).length;
+  document.getElementById('ps-new').textContent = all.filter(x=>x.newFile).length;
+  document.getElementById('ps-changes').textContent = all.filter(x=>x.compStatus==='changes').length;
+  document.getElementById('ps-lobs').textContent = s.lobs.length;
+
+  // LOB Tabs
+  currentLob = s.lobs[0].id;
+  const tabsEl = document.getElementById('lob-tabs');
+  tabsEl.innerHTML = s.lobs.map(l=>`
+    <button class="lob-tab${l.id===currentLob?' active':''}" onclick="switchLob('${l.id}',this,'${s.id}')">
+      ${l.name}<span class="lob-count">${l.schedules.length}</span>
+    </button>`).join('');
+
+  renderPanelTable(s, currentLob);
+
+  document.getElementById('overlay').classList.add('open');
+  document.getElementById('detail-panel').classList.add('open');
+  renderTiles();
 }
 
-/* EVENTS */
-document.getElementById('filterPills').addEventListener('click',e=>{
-  const b=e.target.closest('[data-f]');if(!b)return;
-  cF=b.dataset.f;
-  document.querySelectorAll('#filterPills .pill').forEach(p=>p.classList.remove('on'));
-  b.classList.add('on');renderLOB();
-});
-document.getElementById('tfsFilterPills').addEventListener('click',e=>{
-  const b=e.target.closest('[data-tf]');if(!b)return;
-  cTF=b.dataset.tf;
-  document.querySelectorAll('#tfsFilterPills .pill').forEach(p=>p.classList.remove('on'));
-  b.classList.add('on');renderTFS();
-});
-document.getElementById('sortSelect').addEventListener('change',e=>{cS=e.target.value;renderLOB()});
-document.getElementById('searchInput').addEventListener('input',e=>{q=e.target.value;renderLOB()});
+function switchLob(lobId, el, stateId){
+  currentLob = lobId;
+  document.querySelectorAll('.lob-tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  const s = STATES.find(x=>x.id===stateId);
+  renderPanelTable(s, lobId);
+}
 
-/* INIT */
-renderKPI(); renderSidebar(); renderLOB(); renderTFS();
+function renderPanelTable(s, lobId){
+  const lob = s.lobs.find(l=>l.id===lobId);
+  if(!lob) return;
+  const body = document.getElementById('panel-body');
+
+  const rows = lob.schedules.map(sch=>{
+    // Portal status
+    let portalHtml;
+    if(sch.portal){
+      portalHtml=`<span class="portal-status avail">${icon('check',13)} Available</span>`;
+    } else {
+      portalHtml=`<span class="portal-status unavail">${icon('x',13)} Unavailable</span>`;
+    }
+
+    // New file
+    let newHtml;
+    if(sch.newFile){
+      newHtml=`<span class="new-file-badge new-file-yes">${icon('check',11)} Found · ${sch.newDate}</span>`;
+    } else {
+      newHtml=`<span class="new-file-badge new-file-no">— None</span>`;
+    }
+
+    // Comparison
+    let compHtml;
+    const cs = sch.compStatus;
+    if(cs==='changes') compHtml=`<span class="comp-badge comp-changes">${icon('alert',11)} Changes Found</span>`;
+    else if(cs==='matched') compHtml=`<span class="comp-badge comp-matched">${icon('check',11)} Matched</span>`;
+    else if(cs==='pending') compHtml=`<span class="comp-badge comp-pending">${icon('clock',11)} Pending</span>`;
+    else if(cs==='error') compHtml=`<span class="comp-badge comp-error">${icon('x',11)} Error</span>`;
+    else compHtml=`<span class="comp-badge comp-na">N/A</span>`;
+
+    // Changes count
+    let chgHtml;
+    if(cs==='changes') chgHtml=`<span class="changes-count">+${sch.changes.toLocaleString()}</span>`;
+    else chgHtml=`<span class="changes-zero">—</span>`;
+
+    // Diff download
+    let diffHtml;
+    if(sch.diffFile){
+      diffHtml=`<button class="dl-btn dl-diff" onclick="downloadFile('${sch.diffFile}','diff')">${icon('dl',11)} ${sch.diffFile}</button>`;
+    } else {
+      diffHtml=`<span class="dl-none">—</span>`;
+    }
+
+    // Source download
+    let srcHtml;
+    if(sch.portal && sch.file){
+      srcHtml=`<button class="dl-btn dl-orig" onclick="downloadFile('${sch.file}','source')">${icon('dl',11)} Source</button>`;
+    } else {
+      srcHtml=`<span class="dl-none">Unavailable</span>`;
+    }
+
+    return `
+    <tr>
+      <td>
+        <div class="sched-name">${sch.name}</div>
+        <div class="sched-file">${sch.file||'—'}</div>
+        ${sch.fileSize?`<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:1px">${sch.fileSize}</div>`:''}
+      </td>
+      <td>${portalHtml}</td>
+      <td class="ts-cell">${s.lastChecked}</td>
+      <td>${newHtml}</td>
+      <td>${compHtml}</td>
+      <td>${chgHtml}</td>
+      <td>${diffHtml}</td>
+      <td>${srcHtml}</td>
+      <td>
+        <button class="run-btn" onclick="runSingleCheck('${sch.id}',this)">
+          ${icon('refresh',11)} Check
+        </button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  body.innerHTML=`
+    <div class="panel-table-wrap">
+      <table class="panel-table">
+        <thead>
+          <tr>
+            <th>Fee Schedule</th>
+            <th>Portal Status</th>
+            <th>Last Checked</th>
+            <th>New File</th>
+            <th>Comparison</th>
+            <th># Changes</th>
+            <th>Diff File</th>
+            <th>Source File</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+function closePanel(){
+  document.getElementById('overlay').classList.remove('open');
+  document.getElementById('detail-panel').classList.remove('open');
+  currentState = null;
+  renderTiles();
+}
+
+// ═══════════════════════════════════════════════
+// ACTIONS
+// ═══════════════════════════════════════════════
+function downloadFile(fname, type){
+  showToast(`${type==='diff'?'Diff':'Source'} file "${fname}" download started.`, type==='diff'?'warn':'info');
+}
+
+function runSingleCheck(schedId, btn){
+  btn.disabled=true;
+  btn.innerHTML=`<svg class="spinning" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg> Checking…`;
+  setTimeout(()=>{
+    btn.disabled=false;
+    btn.innerHTML=`${icon('refresh',11)} Check`;
+    showToast('Check complete — no new file detected.','info');
+  },2200);
+}
+
+function runStateCheck(s){
+  if(!s) return;
+  showToast(`Running full check on ${s.name} — ${s.lobs.flatMap(l=>l.schedules).length} schedules…`,'info');
+  setTimeout(()=>showToast(`${s.name} check complete.`,'info'),3500);
+}
+
+function runAllChecks(){
+  const btn = document.getElementById('run-icon');
+  btn.classList.add('spinning');
+  showToast('Running full check on all 11 portals — 47 fee schedules…','info');
+  let d=1;
+  STATES.forEach((s,i)=>{
+    setTimeout(()=>{
+      addActivity(`<strong>${s.id} (${s.name})</strong> — check complete · ${s.lobs.flatMap(l=>l.schedules).filter(x=>x.newFile).length} new file(s) found`,
+        stateSummary(s).changes>0?'amber':stateSummary(s).unavail>0?'red':'green');
+    }, i*320);
+  });
+  setTimeout(()=>{
+    btn.classList.remove('spinning');
+    showToast('All portals checked. 8 changes detected.','warn');
+  }, STATES.length*320+400);
+}
+
+// ═══════════════════════════════════════════════
+// ACTIVITY LOG
+// ═══════════════════════════════════════════════
+const activities = [
+  {text:'<strong>CMS</strong> — Medicare Physician Fee Schedule diff file generated · 2,841 changes', type:'amber', ts:'08:42 AM'},
+  {text:'<strong>GA</strong> — Outpatient Hospital Fee Schedule new file downloaded · comparison running', type:'blue', ts:'08:38 AM'},
+  {text:'<strong>NV</strong> — Pharmacy MAC Pricing file updated · 512 line changes detected', type:'amber', ts:'08:35 AM'},
+  {text:'<strong>MI</strong> — Physician Fee Schedule diff completed · 847 changes', type:'amber', ts:'08:31 AM'},
+  {text:'<strong>OH</strong> — Physician Fee Schedule new file found · Q3 2026', type:'green', ts:'08:30 AM'},
+  {text:'<strong>WI</strong> — ForwardHealth DMEPOS updated · 88 changes identified', type:'amber', ts:'08:30 AM'},
+  {text:'<strong>MS</strong> — Inpatient Hospital DRG Rates comparison complete · 76 changes', type:'amber', ts:'08:28 AM'},
+  {text:'<strong>TC</strong> — TennCare Physician Fee Schedule new version found · check initiated', type:'blue', ts:'08:26 AM'},
+];
+
+function addActivity(text,type){
+  activities.unshift({text,type,ts:new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})});
+  renderActivity();
+}
+
+function renderActivity(){
+  const typeMap={green:'activity-green',amber:'activity-amber',blue:'activity-blue',red:'activity-red'};
+  const iconMap={
+    green:icon('check',13),amber:icon('alert',13),
+    blue:icon('file',13),red:icon('x',13)
+  };
+  document.getElementById('activity-log').innerHTML = activities.slice(0,10).map(a=>`
+    <div class="activity-row">
+      <div class="activity-icon ${typeMap[a.type]||'activity-blue'}">${iconMap[a.type]||''}</div>
+      <div class="activity-text">${a.text}</div>
+      <div class="activity-ts">${a.ts}</div>
+    </div>`).join('');
+}
+
+// ═══════════════════════════════════════════════
+// TOAST
+// ═══════════════════════════════════════════════
+function showToast(msg, type='info'){
+  const tc = document.getElementById('toast-container');
+  const t = document.createElement('div');
+  const cls = type==='warn'?'toast-warn':type==='info'?'toast-info':'toast-success';
+  t.className=`toast ${cls}`;
+  const ic = type==='warn'?icon('alert',15):type==='info'?icon('file',15):icon('check',15);
+  t.innerHTML=`${ic}<span>${msg}</span>`;
+  tc.prepend(t);
+  setTimeout(()=>{t.style.opacity='0';t.style.transform='translateX(100%)';t.style.transition='all .3s';setTimeout(()=>t.remove(),300);},4500);
+}
+
+// ═══════════════════════════════════════════════
+// CLOCK
+// ═══════════════════════════════════════════════
+function updateClock(){
+  document.getElementById('live-clock').textContent = new Date().toLocaleString('en-US',{
+    month:'short',day:'numeric',year:'numeric',
+    hour:'2-digit',minute:'2-digit',second:'2-digit'
+  });
+}
+setInterval(updateClock,1000);
+updateClock();
+
+// ═══════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════
+renderTiles();
+renderActivity();
 </script>
 </body>
 </html>
