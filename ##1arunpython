@@ -5,3 +5,470 @@ ClaimValues - SubmitterClaimNumber|LineNumber|ValueType|SeqNumber|Code|FromDate|
 
 |207RE0101X|061330992||CCIPRF000001|CT|066114877|Benaviv-Meskin, Danielle P.|||01/01/1949|||||H|F|PROXY GROUP|WPROXY|1059320|GOO|XI|MR|WAPP|WPPO|0|N|N|0|||0|A||||END|END||||||0||||||||0|||CT|066114877|Benaviv-Meskin, Danielle P.||||||||||M||||A|0||Insured last Name|999999|Patientlastname|Patientaddress1|0|Patientcity|ZZ|99999|0|John|100001577591|01/23/2020|0|||0|0|0|0||0|0|0||0|0|John Smith|250|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|ClaimExample|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|43132|123|0|0|60540|0|0|Patient First|M|0|0|0|0|0|0|0|0|0|0|0|60563
 |0|DIG10|1|F|||0||||||0|
+
+
+CONTRACT	RATESHEETCODE	PAY_CLASS	PROV_NBR	CITY	STATE	ZIP	PROV_NAME	INSTNAME	IRS_NBR	NPI	AFF_NBR	CLAIM_TYPE	TYPE_OF_BILL	SEX	DIAG_NBR	DIAG2_NBR	DIAG3_NBR	DIAG4_NBR	DIAG5_NBR	CL_DIAG_ARRAY_1	CL_DIAG_ARRAY_2	CL_DIAG_ARRAY_3	CL_DIAG_ARRAY_4	CL_DIAG_ARRAY_5	CL_DIAG_ARRAY_6	CL_DIAG_ARRAY_7	CL_DIAG_ARRAY_8	CL_DIAG_ARRAY_9	CL_DIAG_ARRAY_10	PROC_NBR	PROC2_NBR	PROC3_NBR	PROC4_NBR	PROC5_NBR	CL_PROC_ARRAY_1	CL_PROC_ARRAY_2	CL_PROC_ARRAY_3	CL_PROC_ARRAY_4	CL_PROC_ARRAY_5	CL_PROC_ARRAY_6	CL_PROC_ARRAY_7	CL_PROC_ARRAY_8	CL_PROC_ARRAY_9	CL_PROC_ARRAY_10	DRG_NBR	POA_INDICATOR	IMAGE_RECNBR	CLAIM_NBR	MEMBER_NBR	ACTION_TRIGGER	ADMIT_TYPE	AMTCHARGE	AMTPAY_M	AMTTPP	BIRTHWEIGHT	CASE_NBR	CASE_OVERRIDE	CLAIM_BITS	CLAIM_TYPE_1	DIAG_NBR_1	DIAG2_NBR_1	DIAG3_NBR_1	DIAG4_NBR_1	DIAG5_NBR_1	DISCHARGE	DRG_NBR_1	EXPLAIN_X	INPATDAYS	LOCK_X	OP_NBR	PAID	PATIENT_CTL_NBR	PROC_NBR_1	PROC2_NBR_1	PROC3_NBR_1	PROC4_NBR_1	PROC5_NBR_1	PROTECT	PROV_ATTEND	PTRNSTAT	RECORD_NBR	RELINFO	RESOLUTION	SOURCE	TIMEADMIT	TIMEDISCHARGE	TPSTAT	TRANSCODE	YMDADMIT	YMDCOV_EFF_DATE	YMDCOV_END_DATE	YMDDISCHARGE	YMDLASTWORK	YMDTRANS	CHECKSUM_VALUE	 
+PAY_CLASS	PROV_NBR	AFF_NBR	CLAIM_NBR	SERV_NBR	LINENUMBER	AMTCHARGE	AMTALLOW_B	AMTALLOW_M	AMTALLOW_P	YMDEFF	PAY_SERVICE	PROCCODE	REVCODE	COUNT_X	DAYS	MODIFIER	MODIFIER2	MODIFIER3	MODIFIER4	LOCATION	YMDEND	DIAG_NBR	DIAG2_NBR	DIAG3_NBR	DIAG4_NBR	MINUTES	AGE	AUTHORIZATION_NBR	CLAIM_TYPE	LINE_CTR	TREATMENT_TYPE	CLAIM_TYPE_1	BUSINESS_UNIT	STATUS_X	EX_ARRAY	CL_DIAG_ARRAY_1	CL_DIAG_ARRAY_2	CL_DIAG_ARRAY_3	CL_DIAG_ARRAY_4	CL_DIAG_ARRAY_5	CL_DIAG_ARRAY_6	CL_DIAG_ARRAY_7	CL_DIAG_ARRAY_8	CL_DIAG_ARRAY_9	CL_DIAG_ARRAY_10	CL_PROC_ARRAY_1	CL_PROC_ARRAY_2	CL_PROC_ARRAY_3	CL_PROC_ARRAY_4	CL_PROC_ARRAY_5	CL_PROC_ARRAY_6	CL_PROC_ARRAY_7	CL_PROC_ARRAY_8	CL_PROC_ARRAY_9	CL_PROC_ARRAY_10	 
+
+
+
+"SELECT DISTINCT AFF.pay_class, AFF.PROV_NBR, ADDR.CITY, ADDR.STATE, ADDR.ZIP ,PROV.FIRSTNAME||PROV.LASTNAME as PROV_NAME, PROV.INSTNAME,
+AFF.IRS_NBR,PROV.NPI,SERV.aff_nbr, 
+CASE
+WHEN CLM.CLAIM_TYPE = 'M' THEN  'H'
+WHEN CLM.CLAIM_TYPE = 'H' THEN  'U'
+END AS CLAIM_TYPE,TRIM(BILL.UB_FAC)||TRIM(BILL.UB_BILLCLASS)||TRIM(BILL.UB_FRQ) AS TYPE_OF_BILL,SERV.SEX,
+CLM.DIAG_NBR,CLM.DIAG2_NBR,CLM.DIAG3_NBR,CLM.DIAG4_NBR,CLM.DIAG5_NBR,
+DP.CL_DIAG_ARRAY_1,DP.CL_DIAG_ARRAY_2,DP.CL_DIAG_ARRAY_3,DP.CL_DIAG_ARRAY_4,DP.CL_DIAG_ARRAY_5,DP.CL_DIAG_ARRAY_6,DP.CL_DIAG_ARRAY_7,
+DP.CL_DIAG_ARRAY_8,DP.CL_DIAG_ARRAY_9,DP.CL_DIAG_ARRAY_10,
+CLM.PROC_NBR,CLM.PROC2_NBR,CLM.PROC3_NBR,CLM.PROC4_NBR,CLM.PROC5_NBR,
+DP.CL_PROC_ARRAY_1,DP.CL_PROC_ARRAY_2,DP.CL_PROC_ARRAY_3,DP.CL_PROC_ARRAY_4,
+DP.CL_PROC_ARRAY_5,DP.CL_PROC_ARRAY_6,DP.CL_PROC_ARRAY_7,DP.CL_PROC_ARRAY_8,DP.CL_PROC_ARRAY_9,DP.CL_PROC_ARRAY_10,CLM.DRG_NBR,UBD.POA_INDICATOR,
+CLM.* FROM AMIOWN.CLAIM CLM
+JOIN AMIOWN.SERVICE_X SERV ON SERV.CLAIM_NBR = CLM.CLAIM_NBR
+JOIN AMIOWN.AFFILIATION AFF ON AFF.AFF_NBR = SERV.AFF_NBR
+JOIN AMIOWN.PROVIDER PROV ON PROV.PROV_NBR = AFF.PROV_NBR
+LEFT JOIN AMIOWN.UB BILL ON BILL.CLAIM_NBR = SERV.CLAIM_NBR
+LEFT JOIN AMIOWN.UB_DIAGNOSIS UBD ON UBD.CLAIM_NBR=CLM.CLAIM_NBR
+JOIN AMIOWN.ADDRESS ADDR ON TRIM(PROV.PROV_NBR) = (SUBSTR(ADDR.ADDR_WHO,3,6))
+LEFT JOIN AMIOWN.CLAIM_D_P DP ON DP.CLAIM_NBR=CLM.CLAIM_NBR
+WHERE CLM.YMDCOV_EFF_DATE > '20190915' AND  SERV.SERV_NBR LIKE '%00' and ADDR.ADDR_WHO LIKE 'P%'
+AND AFF.YMDEND = '99991231' and AFF.PAY_CLASS = '900029' AND AFF.PROV_NBR = '900029' 
+AND SERV.BUSINESS_UNIT NOT IN ('BX','BS') 
+AND AFF.CLASS_X NOT IN ('ML','MX','MP')  AND AFF.VOID NOT IN ('V')
+ORDER BY CLM.CLAIM_NBR ASC"
+
+
+
+*****************************************************************
+
+FieldName	ExpectedValue	Preprocessor
+SubmitterClaimNumber	#CLAIM_NBR	
+ProviderTaxIdNumber	#IRS_NBR	
+ProviderBillingName	#PROV_NAME	
+ProviderBillAddr1		
+ProviderBillAddr2	#CONTRACT	
+ProviderBillCity	#CITY	
+ProviderBillState	#STATE	
+ProviderBillZipCode	#ZIP	
+StatementFromDate	#YMDCOV_EFF_DATE	$fixYear($toMDY(?),"2017","2018")
+StatementThruDate	#YMDCOV_END_DATE	$fixYear($toMDY(?),"2017","2018")
+PatientDateOfBirth	01/01/1949	
+AdmissionDate	#YMDCOV_EFF_DATE	$fixYear($toMDY(?),"2017","2018")
+SourceCode	#CLAIM_TYPE	
+ProcessedDate	#YMDCOV_END_DATE	$fixYear($toMDY(?),"2017","2018")
+TotalCharges	#AMTCHARGE	$divBy100(?)
+TypeOfBill	#TYPE_OF_BILL	
+AdmittingDiagnosis	#DIAG_NBR	
+EmployerGroupName	PROXY GROUP	
+EmployerGroupNumber	WPROXY	
+ProviderOtherId	1059320	
+ProviderType	GOO	
+ProviderSpecialty	XI	
+LineOfBusiness	MR	
+Product	WAPP	
+NetworkCode	WPPO	
+Cob	0	
+DuplicateFlag	N	
+Adjustment	N	
+TotalAllowed	0	
+DischargeStatus	#DISCHARGE	
+PatientSex	#SEX	
+OriginalClaimNumber	0	
+ImportSource	A	
+DrgDerived		
+DrgSubmitted	#DRG_NBR	
+ProviderReferringNpi		
+ProviderServiceNpi	#NPI	
+ProviderBillingNpi	#NPI	
+ProviderServiceOtherId		
+ProviderBillingOtherId		
+OtherProviderId1		
+OtherProviderId2		
+OtherProviderId3		
+IcdVersion	0	
+PatientVisitCode1		
+PatientVisitCode2		
+PatientVisitCode3		
+ECode		
+LocIndicator		
+TosIndicator		
+ClmInputTaxonomyCd		
+EmergencyCriteriaFlag	0	
+PracticeAddress1		
+PracticeAddress2		
+PracticeCity	#CITY	
+PracticeState	#STATE	
+PracticeZipCode	#ZIP	
+DrgDerivedAdmission		
+AdditionalCharges		
+AdmittingDiagnosisIcd10		
+PatientVisitCode1Icd10		
+PatientVisitCode2Icd10		
+PatientVisitCode3Icd10		
+AccessPlusInd		
+OptOut		
+PrepriceInd		
+SourceClaimType	M	
+OverrideDrg1		
+OverrideDrg2		
+OverrideDrg3		
+ClaimType	A	
+Cost	0	
+InsuredId		
+InsuredLastName	Insured last Name	
+InsuredMemberNumber	999999	
+PatientLastName	Patientlastname	
+PatientAddr1	Patientaddress1	
+PatientAddr2	0	
+PatientCity	Patientcity	
+PatientState	ZZ	
+PatientZipCode	99999	
+BcbsNumber	0	
+ProviderGroupName	John	
+RateSheetCode	#RATESHEETCODE	
+ReceivedDate	10/22/2026	
+InputClaimLevelPct	0	
+DrgApcGroupVersion		
+OverrideDrgCode		
+AdmissionHour	0	
+AdmissionSource	0	
+AdmissionType	0	
+DischargeDate	0	
+TreatmentAuthCode	            	
+NoncoveredCharges	0	
+AdjustedClaimNumber	0	
+VoidedClm	0	
+DrgCode		
+TotalPayable	0	
+FormType	0	
+PracticeName	John Smith	
+AllowedCharges	250	
+ClaimStatus	0	
+BasePercent	0	
+ExcludedCharges	0	
+ExcessCharges	0	
+BaseChargeFlag	0	
+CoveredDays	0	
+Savings	0	
+NonContractCode	0	
+NonContractAmt	0	
+AllowedExcessCharges	0	
+RepriceMainSheet	0	
+RepriceTerm	0	
+RepriceRule	0	
+RepriceSectionType	0	
+RepriceSection	0	
+ContractReference	0	
+Excluded	0	
+Status	0	
+PriorAuthNumber	0	
+ServiceTypeInd	0	
+UseClaimDate	0	
+DiagnosisServiceTier	0	
+ConditionCode1	0	
+ConditionCode2	0	
+ConditionCode3	0	
+ConditionCode4	0	
+ConditionCode5	0	
+ConditionCode6	0	
+ConditionCode7	0	
+ConditionCode8	0	
+ConditionCode9	0	
+ConditionCode10	0	
+ConditionCode11	0	
+ConditionCode12	0	
+ConditionCode13	0	
+ConditionCode14	0	
+ConditionCode15	0	
+ConditionCode16	0	
+ConditionCode17	0	
+ConditionCode18	0	
+ConditionCode19	0	
+ConditionCode20	0	
+ConditionCode21	0	
+ConditionCode22	0	
+ConditionCode23	0	
+ConditionCode24	0	
+UserDate1	0	
+UserDate2	0	
+UserDate3	0	
+UserDate4	0	
+UserDate5	0	
+UserDate6	0	
+UserDate7	0	
+UserDate8	0	
+UserDate9	0	
+UserDate10	0	
+UserNumber1	0	
+UserNumber2	0	
+UserNumber3	0	
+UserNumber4	0	
+UserNumber5	0	
+UserNumber6	0	
+UserNumber7	0	
+UserNumber8	0	
+UserNumber9	0	
+UserNumber10	0	
+UserNumber11	0	
+UserNumber12	0	
+UserNumber13	0	
+UserNumber14	0	
+UserNumber15	0	
+UserNumber16	0	
+UserNumber17	0	
+UserNumber18	0	
+UserNumber19	0	
+UserNumber20	0	
+UserNumber21	0	
+UserNumber22	0	
+UserNumber23	0	
+UserNumber24	0	
+UserNumber25	0	
+UserNumber26	0	
+UserNumber27	0	
+UserNumber28	0	
+UserNumber29	0	
+UserNumber30	0	
+UserAlpha1	ClaimExample	
+UserAlpha2	0	
+UserAlpha3	0	
+UserAlpha4	0	
+UserAlpha5	0	
+UserAlpha6	0	
+UserAlpha7	0	
+UserAlpha8	0	
+UserAlpha9	0	
+UserAlpha10	0	
+UserAlpha11	0	
+UserAlpha12	0	
+UserAlpha13	0	
+UserAlpha14	0	
+UserAlpha15	0	
+UserAlpha16	0	
+UserAlpha17	0	
+UserAlpha18	0	
+UserAlpha19	0	
+UserAlpha20	0	
+UserAlpha21	0	
+UserAlpha22	0	
+UserAlpha23	0	
+UserAlpha24	0	
+UserAlpha25	0	
+UserAlpha26	0	
+UserAlpha27	0	
+UserAlpha28	0	
+UserAlpha29	0	
+UserAlpha30	0	
+UserAlpha31	0	
+UserAlpha32	0	
+UserAlpha33	0	
+UserAlpha34	0	
+UserAlpha35	0	
+UserFloat1	0	
+UserFloat2	0	
+UserFloat3	0	
+UserFloat4	0	
+UserFloat5	0	
+UserFloat6	0	
+UserFloat7	0	
+UserFloat8	0	
+UserFloat9	0	
+UserFloat10	0	
+UserFloat11	0	
+UserFloat12	0	
+UserFloat13	0	
+UserFloat14	0	
+UserFloat15	0	
+ContractClaimDate	43132	
+PlanId	123	
+NetworkPrefix	0	
+ParticipationStatus	0	
+ProviderMetroServiceArea	60540	
+ClaimNumberSuffix	0	
+AdjustedFromClaimNumber	0	
+PatientFirstName	Patient First	
+PatientMiddleInitial	M	
+ExclusionCriteria	0	
+FacilityType	0	
+ItsProviderState	0	
+TradePartnerId	0	
+MemberPCP	0	
+AttendingNPI	0	
+AttendingOtherId	0	
+OperatingNPI	0	
+OperatingOtherId	0	
+AttendingProviderName	0	
+OperatingProviderName	0	
+InsuredZipCode 	60563	
+
+************************************
+
+FieldName	ExpectedValue	Preprocessor
+SubmitterClaimNumber	#CLAIM_NBR	
+LineNumber	#SERVICES.LINENUMBER	
+TotalCharges	#SERVICES.AMTCHARGE	$divBy100(?)
+AllowedCharges	#SERVICES.AMTALLOW_P	$divBy100(?)
+ProcedureCode	#SERVICES.PROCCODE	
+Rate		
+Savings		
+RevenueCode	#SERVICES.REVCODE	
+ServiceFromDate	#SERVICES.YMDEFF	$fixYear($toMDY(?),"2017","2018")
+UnitsOfService	#SERVICES.COUNT_X	
+Modifier1	#SERVICES.MODIFIER	
+Modifier2	#SERVICES.MODIFIER2	
+Modifier3	#SERVICES.MODIFIER3	
+Modifier4	#SERVICES.MODIFIER4	
+UnitsAllowed		
+TotalPaid		
+PlaceOfService	#SERVICES.LOCATION	
+ServiceToDate	#SERVICES.YMDEND	$fixYear($toMDY(?),"2017","2018")
+Diag1	1	
+Diag2		
+Diag3		
+Diag4		
+ServiceId		
+AnestMins	#SERVICES.MINUTES	
+AnestHours		
+RendNpiNumber		
+IdQualifier		
+RendProviderNumber		
+LineDisallowIndicator		
+ApgPayMethInd		
+ApgNumber		
+RoomType		
+PrimarySpecialty		
+SecondarySpecialty		
+ProviderProgramFlag		
+Cost		
+NonCoveredCharges		
+InputLineLevelPct		
+Supplemental		
+LocationZip		
+ApcStatusInd		
+ApcNumber		
+RepriceTerm		
+RepriceRule		
+RepriceSectionType		
+RepriceSection		
+ContractReference		
+GroupUnits		
+GroupedItem		
+GroupCharges		
+NonContractAmt		
+ExcludedItem		
+RendProvNpi		
+NewSavings		
+UserDate1		
+UserDate2		
+UserDate3		
+UserDate4		
+UserDate5		
+UserDate6		
+UserDate7		
+UserDate8		
+UserDate9		
+UserDate10		
+UserNumber1		
+UserNumber2		
+UserNumber3		
+UserNumber4		
+UserNumber5		
+UserNumber6		
+UserNumber7		
+UserNumber8		
+UserNumber9		
+UserNumber10		
+UserNumber11		
+UserNumber12		
+UserNumber13		
+UserNumber14		
+UserNumber15		
+UserNumber16		
+UserNumber17		
+UserNumber18		
+UserNumber19		
+UserNumber20		
+UserNumber21		
+UserNumber22		
+UserNumber23		
+UserNumber24		
+UserNumber25		
+UserNumber26		
+UserNumber27		
+UserNumber28		
+UserNumber29		
+UserNumber30		
+UserAlpha1		
+UserAlpha2		
+UserAlpha3		
+UserAlpha4		
+UserAlpha5		
+UserAlpha6		
+UserAlpha7		
+UserAlpha8		
+UserAlpha9		
+UserAlpha10		
+UserAlpha11		
+UserAlpha12		
+UserAlpha13		
+UserAlpha14		
+UserAlpha15		
+UserAlpha16		
+UserAlpha17		
+UserAlpha18		
+UserAlpha19		
+UserAlpha20		
+UserAlpha21		
+UserAlpha22		
+UserAlpha23		
+UserAlpha24		
+UserAlpha25		
+UserAlpha26		
+UserAlpha27		
+UserAlpha28		
+UserAlpha29		
+UserAlpha30		
+UserAlpha31		
+UserAlpha32		
+UserAlpha33		
+UserAlpha34		
+UserAlpha35		
+UserFloat1		
+UserFloat2		
+UserFloat3		
+UserFloat4		
+UserFloat5		
+UserFloat6		
+UserFloat7		
+UserFloat8		
+UserFloat9		
+UserFloat10		
+UserFloat11		
+UserFloat12		
+UserFloat13		
+UserFloat14		
+UserFloat15		
+RENDERINGTAXID		
+RENDERINGPROVIDERTAXONOMYCODE		
+RENDERINGPROVIDERTYPE		
+
+*****************************************************************
+
+FieldName	ExpectedValue	Preprocessor
+SubmitterClaimNumber	#CLAIM_NBR	
+LineNumber	0	
+ValueType	@VALUETYPE	
+SeqNumber	@SEQ	
+Code	@DIAG	
+FromDate	#YMDCOV_EFF_DATE	$fixYear($toMDY(?),"2017","2018")
+ThruDate	#YMDCOV_END_DATE	$fixYear($toMDY(?),"2017","2018")
+Amount	0	
+ProcedureType		
+Qual		
+Value		
+Poa		
+UnitPrice		
+UnitCount	0	
+Text		
+
